@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from gcode_index.aliases import AliasMap
-from gcode_index.db import open_db, search_instances, write_scan_result
+from gcode_index.db import (
+    format_location,
+    list_instances,
+    open_db,
+    search_instances,
+    write_scan_result,
+)
 from gcode_index.excel_export import export_excel
 from gcode_index.scanner import scan_backup_tree
 
@@ -86,6 +92,18 @@ def test_scanner_routes_and_sqlite(tmp_path: Path):
 
     rows = search_instances(conn, "0001")
     assert rows
+    # Path search finds loose / tree .nc by digits in source_path
+    path_hits = search_instances(conn, "5555")
+    assert any("O5555.nc" in (r["source_path"] or "") for r in path_hits)
+
+    browsed = list_instances(conn, limit=50)
+    assert len(browsed) >= 1
+    looseish = [r for r in browsed if r["source_type"] in ("loose_nc", "haas_ngc_nc", "manual_nc_folder")]
+    assert looseish
+    assert format_location(looseish[0]) == "whole file"
+    glued = next(r for r in browsed if r["source_type"] == "haas_pgm_glued")
+    assert format_location(glued).startswith("L")
+
     conn.close()
 
     xlsx = tmp_path / "out.xlsx"

@@ -266,7 +266,7 @@ def search_instances(
     *,
     limit: int = 100,
 ) -> list[sqlite3.Row]:
-    """Substring search on program_number and part_number.
+    """Substring search on program_number, part_number, and source_path.
 
     Query must contain ≥4 digits. Results prefer prefix matches over mid-string
     hits, then newer ``backup_date``, then machine / program number.
@@ -283,9 +283,10 @@ def search_instances(
         FROM program_instances
         WHERE program_number LIKE '%' || ? || '%'
            OR part_number LIKE '%' || ? || '%'
+           OR source_path LIKE '%' || ? || '%'
         LIMIT ?
         """,
-        (q, q, fetch_limit),
+        (q, q, q, fetch_limit),
     )
     rows = list(cur.fetchall())
     # Stable multi-key sort: least → most significant.
@@ -293,3 +294,40 @@ def search_instances(
     rows.sort(key=lambda r: r["backup_date"] or "", reverse=True)
     rows.sort(key=lambda r: rank_match(r["program_number"], r["part_number"], q))
     return rows[:limit]
+
+
+def list_instances(
+    conn: sqlite3.Connection,
+    *,
+    limit: int = 500,
+) -> list[sqlite3.Row]:
+    """Browse newest program instances (no query) — used by GUI after scan."""
+    conn.row_factory = sqlite3.Row
+    cur = conn.execute(
+        """
+        SELECT instance_id, program_number, part_number, machine_id, machine_label,
+               backup_date, source_path, line_start, line_end, byte_start, byte_end,
+               source_type
+        FROM program_instances
+        ORDER BY backup_date DESC, machine_id, program_number
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return list(cur.fetchall())
+
+
+def format_location(row: sqlite3.Row | dict) -> str:
+    """Human-readable in-file location for GUI / consumers."""
+    source_type = str(row["source_type"] or "")
+    line_start = row["line_start"]
+    line_end = row["line_end"]
+    byte_start = row["byte_start"]
+    byte_end = row["byte_end"]
+    glued = source_type in {"haas_pgm_glued", "fanuc_all_fldr", "fanuc_all_prog"}
+    if not glued or line_start is None:
+        return "whole file"
+    loc = f"L{line_start}–{line_end}"
+    if byte_start is not None and byte_end is not None:
+        loc += f"  B{byte_start}–{byte_end}"
+    return loc

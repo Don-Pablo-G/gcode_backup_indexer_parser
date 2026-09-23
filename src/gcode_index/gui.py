@@ -11,12 +11,20 @@ from __future__ import annotations
 import logging
 import threading
 import tkinter as tk
+from collections import Counter
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 from gcode_index.aliases import AliasMap, default_aliases_path
-from gcode_index.db import open_db, query_digit_count, search_instances, write_scan_result
+from gcode_index.db import (
+    format_location,
+    list_instances,
+    open_db,
+    query_digit_count,
+    search_instances,
+    write_scan_result,
+)
 from gcode_index.excel_export import export_excel
 from gcode_index.extract import (
     ExtractError,
@@ -30,6 +38,7 @@ log = logging.getLogger(__name__)
 SEARCH_DEBOUNCE_MS = 200
 MIN_DIGITS = 4
 DEFAULT_DB_NAME = "gcode_index.sqlite"
+BROWSE_LIMIT = 500
 
 
 class IndexerApp(tk.Tk):
@@ -38,13 +47,15 @@ class IndexerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("G-code Backup Indexer")
-        self.minsize(720, 480)
-        self.geometry("900x560")
+        self.minsize(960, 520)
+        self.geometry("1180x620")
 
         self.backup_var = tk.StringVar()
         self.target_var = tk.StringVar()
         self.search_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Pick a backup folder and a target folder for the database.")
+        self.status_var = tk.StringVar(
+            value="Pick a backup folder and a target folder for the database."
+        )
 
         self._search_after_id: Optional[str] = None
         self._result_rows: list = []
@@ -83,12 +94,18 @@ class IndexerApp(tk.Tk):
         ttk.Button(actions, text="Open existing DB…", command=self._pick_existing_db).pack(
             side=tk.LEFT, padx=8
         )
+        ttk.Button(actions, text="Show all in DB", command=self._browse_all).pack(
+            side=tk.LEFT, padx=4
+        )
         self.excel_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(actions, text="Also write Excel", variable=self.excel_var).pack(
             side=tk.LEFT
         )
 
-        search_frame = ttk.LabelFrame(root, text="Search (≥4 digits)", padding=8)
+        search_frame = ttk.LabelFrame(
+            root, text="Search (≥4 digits in program #, part #, or path) — empty = browse",
+            padding=8,
+        )
         search_frame.pack(fill=tk.X, **pad)
         ttk.Label(search_frame, text="Query").pack(side=tk.LEFT)
         self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
@@ -97,26 +114,33 @@ class IndexerApp(tk.Tk):
             side=tk.LEFT
         )
 
-        cols = ("program", "part", "machine", "date", "type")
+        cols = ("program", "part", "machine", "date", "type", "path", "location")
         tree_frame = ttk.Frame(root)
         tree_frame.pack(fill=tk.BOTH, expand=True, **pad)
         self.tree = ttk.Treeview(
             tree_frame, columns=cols, show="headings", selectmode="browse"
         )
         headings = {
-            "program": ("Program #", 100),
-            "part": ("Part number", 220),
-            "machine": ("Machine", 140),
-            "date": ("Date", 180),
-            "type": ("Source", 120),
+            "program": ("Program #", 90),
+            "part": ("Part number", 160),
+            "machine": ("Machine", 120),
+            "date": ("Date", 140),
+            "type": ("Source type", 110),
+            "path": ("Source path", 320),
+            "location": ("In-file location", 150),
         }
         for key, (label, width) in headings.items():
             self.tree.heading(key, text=label)
-            self.tree.column(key, width=width, stretch=(key == "part"))
+            stretch = key in ("path", "part")
+            self.tree.column(key, width=width, stretch=stretch, minwidth=60)
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
         self.tree.bind("<Double-1>", lambda _e: self._extract_selected())
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
@@ -144,7 +168,8 @@ class IndexerApp(tk.Tk):
         db = Path(path)
         self.target_var.set(str(db.parent))
         self.status_var.set(f"Using existing DB: {db}")
-        self._run_search_now()
+        self.search_var.set("")
+        self._browse_all()
 
     def _db_path(self) -> Optional[Path]:
         target = self.target_var.get().strip()
@@ -182,6 +207,9 @@ class IndexerApp(tk.Tk):
             alias_map = AliasMap.load(aliases_path)
             result = scan_backup_tree(backup, alias_map)
             db_path = target / DEFAULT_DB_NAME
+            # Fresh DB each scan so the table matches this backup pass.
+            if db_path.is_file():
+                db_path.unlink()
             conn = open_db(db_path)
             run_id = write_scan_result(
                 conn,
@@ -189,6 +217,8 @@ class IndexerApp(tk.Tk):
                 aliases_path=str(aliases_path),
                 result=result,
             )
+            type_counts = Counter(i.source_type for i in result.instances)
+            type_note = ", ".join(f"{k}={v}" for k, v in sorted(type_counts.items()))
             conn.close()
             excel_note = ""
             if write_excel:
@@ -197,6 +227,7 @@ class IndexerApp(tk.Tk):
                 excel_note = f"; Excel → {xlsx.name}"
             msg = (
                 f"Indexed {len(result.instances)} programs "
+                f"[{type_note}] "
                 f"({len(result.unknowns)} unknown folders) → {db_path.name} "
                 f"(run {run_id[:8]}…){excel_note}"
             )
@@ -212,9 +243,11 @@ class IndexerApp(tk.Tk):
         if not ok:
             messagebox.showerror("Scan failed", message)
         else:
-            self._run_search_now()
+            # Clear search so we browse all indexed rows (including loose .nc).
+            self.search_var.set("")
+            self._browse_all(status_prefix=message)
 
-    # --- search -----------------------------------------------------------------
+    # --- search / browse --------------------------------------------------------
 
     def _on_search_changed(self, *_args) -> None:
         if self._search_after_id is not None:
@@ -224,15 +257,56 @@ class IndexerApp(tk.Tk):
                 pass
         self._search_after_id = self.after(SEARCH_DEBOUNCE_MS, self._run_search_now)
 
+    def _browse_all(self, status_prefix: Optional[str] = None) -> None:
+        """Fill the table with newest DB rows (no digit query required)."""
+        self._search_after_id = None
+        self.tree.delete(*self.tree.get_children())
+        self._result_rows = []
+
+        db_path = self._db_path()
+        if db_path is None or not db_path.is_file():
+            self.status_var.set("No database yet — run a scan or open an existing DB.")
+            return
+
+        try:
+            conn = open_db(db_path)
+            try:
+                rows = list_instances(conn, limit=BROWSE_LIMIT)
+                total = conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0]
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            self.status_var.set(f"Browse error: {exc}")
+            return
+
+        self._fill_tree(rows)
+        shown = len(rows)
+        base = (
+            f"Showing {shown} of {total} indexed program(s)"
+            if total > shown
+            else f"Showing all {total} indexed program(s)"
+        )
+        if status_prefix:
+            self.status_var.set(f"{status_prefix} — {base}")
+        else:
+            self.status_var.set(base)
+
     def _run_search_now(self) -> None:
         self._search_after_id = None
         query = self.search_var.get().strip()
+
+        if not query:
+            self._browse_all()
+            return
+
         self.tree.delete(*self.tree.get_children())
         self._result_rows = []
 
         if query_digit_count(query) < MIN_DIGITS:
-            if query:
-                self.status_var.set(f"Type at least {MIN_DIGITS} digits to search.")
+            self.status_var.set(
+                f"Type at least {MIN_DIGITS} digits to search "
+                f"(or clear the box to browse all)."
+            )
             return
 
         db_path = self._db_path()
@@ -253,6 +327,10 @@ class IndexerApp(tk.Tk):
             self.status_var.set(f"Search error: {exc}")
             return
 
+        self._fill_tree(rows)
+        self.status_var.set(f"{len(rows)} match(es) for {query!r}")
+
+    def _fill_tree(self, rows: list) -> None:
         self._result_rows = rows
         for i, r in enumerate(rows):
             date = str(r["backup_date"] or "")[:19].replace("T", " ")
@@ -267,9 +345,10 @@ class IndexerApp(tk.Tk):
                     machine,
                     date,
                     r["source_type"] or "",
+                    r["source_path"] or "",
+                    format_location(r),
                 ),
             )
-        self.status_var.set(f"{len(rows)} match(es) for {query!r}")
 
     # --- extract ----------------------------------------------------------------
 
@@ -293,7 +372,6 @@ class IndexerApp(tk.Tk):
         backup = self.backup_var.get().strip()
         target = self.target_var.get().strip()
         if not backup:
-            # Fall back to last scan's backup_root stored in DB if possible.
             backup = self._backup_root_from_db() or ""
         if not backup or not Path(backup).is_dir():
             messagebox.showerror(
@@ -316,7 +394,6 @@ class IndexerApp(tk.Tk):
         if not out:
             return
         try:
-            # Re-fetch full row in case Treeview list was truncated fields — already full.
             path = extract_to_path(row, out, backup_root=backup)
         except ExtractError as exc:
             messagebox.showerror("Extract failed", str(exc))

@@ -42,7 +42,8 @@ python -m gcode_index.gui
 1. **Browse** → pick the main **backup folder** tree.  
 2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
 3. Click **Run index / scan** (optional Excel export checkbox).  
-4. Type a query with **≥4 digits** — closest matches refresh as you type (≈200 ms debounce). Results show **program #**, **part number**, **machine**, **date**.  
+   After a successful scan the table **lists indexed programs** (including loose / tree-wide `.nc`) with **source path** and **in-file location** (`whole file` or `Lstart–end` / bytes for glued dumps). Use **Show all in DB** anytime.  
+4. Type a query with **≥4 digits** — matches program #, part #, or **source path**. Results show **program #**, **part number**, **machine**, **date**, **source type**, **path**, **location**.  
 5. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.
 
 You can also **Open existing DB…** without re-scanning.
