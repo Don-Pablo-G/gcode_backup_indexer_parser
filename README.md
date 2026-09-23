@@ -21,7 +21,9 @@ Intended direction (locked in project planning):
 
 ## Repository
 
-Public GitHub home for this project once created and linked. Until then, planning notes remain in the Cursor Project Context.
+https://github.com/Don-Pablo-G/gcode_backup_indexer_parser
+
+Planning notes (architecture, machine roster, open Phase 0 decisions) live in the Cursor Project Context until more code lands here.
 
 ## License
 
