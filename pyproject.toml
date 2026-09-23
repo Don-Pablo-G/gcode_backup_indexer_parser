@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+build = ["pyinstaller>=6.0"]
 
 [project.scripts]
 gcode-index = "gcode_index.cli:app"
