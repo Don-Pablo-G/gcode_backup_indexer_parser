@@ -84,7 +84,7 @@ backup_folder/
 | `*.pgm` | `haas_pgm_glued` | line + byte span (CRLF-aware) |
 | `ALL-FLDR.TXT` | `fanuc_all_fldr` | line + byte span; `&F=` folder |
 | `ALL-PROG.TXT` | `fanuc_all_prog` | line + byte span |
-| `HaasBackup(*)/Memory/**/*.nc` | `haas_ngc_nc` | whole file |
+| `HaasBackup(*)/Memory/**/*.nc` | `haas_ngc_nc` | whole file; program # from in-file `O#####` (not filename) |
 | Manual `.nc` (SBL / config) | `manual_nc_folder` | whole file |
 | Loose root `.nc` | `loose_nc` | whole file |
 

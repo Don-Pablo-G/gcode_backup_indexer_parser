@@ -7,6 +7,7 @@ import pytest
 from gcode_index.locators.fanuc_all_fldr import locate_fanuc_all_fldr
 from gcode_index.locators.fanuc_all_prog import locate_fanuc_all_prog
 from gcode_index.locators.haas_pgm import locate_haas_pgm
+from gcode_index.locators.whole_file_nc import locate_whole_file_nc
 
 FIX = Path(__file__).parent / "fixtures" / "synthetic"
 
@@ -62,3 +63,32 @@ def test_fanuc_all_prog_synthetic():
     assert nums == ["0001", "0801", "3992", "P-BARE"]
     assert inst[1].part_number == "A"  # first paren
     assert all(i.folder_path is None for i in inst)
+
+
+def test_haas_ngc_whole_file_prefers_o_header():
+    path = FIX / "haas_ngc_umc.nc"
+    inst = locate_whole_file_nc(
+        path,
+        source_path="Memory/P-00253232 VA.nc",
+        source_type="haas_ngc_nc",
+        machine_id="haas-umc750",
+        parser_id="haas_ngc_nc",
+    )
+    assert inst.program_number == "03232"
+    assert inst.part_number == "P-00253232 VA OP1/OP2"
+    assert inst.header_kind == "o_word"
+    assert inst.source_type == "haas_ngc_nc"
+    assert inst.line_start is None  # whole-file location
+
+
+def test_whole_file_nc_falls_back_to_filename_stem():
+    path = FIX / "O1234.nc"
+    # File has O1234 with no paren; still o_word
+    inst = locate_whole_file_nc(
+        path,
+        source_path="O1234.nc",
+        source_type="loose_nc",
+        machine_id="loose",
+    )
+    assert inst.program_number == "1234"
+    assert inst.header_kind == "o_word"

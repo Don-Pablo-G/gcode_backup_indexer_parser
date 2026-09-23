@@ -9,6 +9,7 @@ import pytest
 from gcode_index.locators.fanuc_all_fldr import locate_fanuc_all_fldr
 from gcode_index.locators.fanuc_all_prog import locate_fanuc_all_prog
 from gcode_index.locators.haas_pgm import locate_haas_pgm
+from gcode_index.locators.whole_file_nc import locate_whole_file_nc
 
 STORE = Path("/cursor/stores/bc-8553f678-6c90-4da8-8c05-737a2b3271c2/internal/samples")
 # Also try self symlink naming if present
@@ -57,3 +58,23 @@ def test_smoke_all_prog_dnm400():
         path, source_path=path.name, machine_id="doosan-dnm-400"
     )
     assert len(inst) == 186
+
+
+@pytest.mark.skipif(
+    _sample("haas-ngc", "P-00253232_VA.nc") is None,
+    reason="store Haas NGC UMC sample missing",
+)
+def test_smoke_haas_ngc_umc():
+    path = _sample("haas-ngc", "P-00253232_VA.nc")
+    assert path is not None
+    inst = locate_whole_file_nc(
+        path,
+        source_path=path.name,
+        source_type="haas_ngc_nc",
+        machine_id="haas-umc750",
+        parser_id="haas_ngc_nc",
+    )
+    assert inst.program_number == "03232"
+    assert inst.part_number == "P-00253232 VA OP1/OP2"
+    assert inst.header_kind == "o_word"
+    assert inst.source_size == path.stat().st_size
