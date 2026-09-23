@@ -16,22 +16,32 @@ app = typer.Typer(
     name="gcode-index",
     help="Index CNC backup trees into a portable SQLite catalog of program instances.",
     no_args_is_help=True,
+    invoke_without_command=True,
 )
+
 
 def _setup_logging(verbose: bool) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(
-        False, "--version", help="Show version and exit.", is_eager=True
+        False,
+        "--version",
+        help="Show version and exit.",
+        callback=_version_callback,
+        is_eager=True,
     ),
 ) -> None:
-    if version:
-        typer.echo(__version__)
-        raise typer.Exit()
+    return
 
 
 @app.command("scan")
