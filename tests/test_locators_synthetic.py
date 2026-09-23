@@ -81,6 +81,21 @@ def test_haas_ngc_whole_file_prefers_o_header():
     assert inst.line_start is None  # whole-file location
 
 
+def test_haas_ngc_st20y_no_percent_frame():
+    """ST-20Y sample has no % framing; trailing spaces on header OK."""
+    path = FIX / "haas_ngc_st20y.nc"
+    inst = locate_whole_file_nc(
+        path,
+        source_path="Memory/9278.NC",
+        source_type="haas_ngc_nc",
+        machine_id="haas-st-20y",
+        parser_id="haas_ngc_nc",
+    )
+    assert inst.program_number == "09278"
+    assert inst.part_number == "P-00059278"
+    assert inst.header_kind == "o_word"
+
+
 def test_whole_file_nc_falls_back_to_filename_stem():
     path = FIX / "O1234.nc"
     # File has O1234 with no paren; still o_word

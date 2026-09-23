@@ -78,3 +78,26 @@ def test_smoke_haas_ngc_umc():
     assert inst.part_number == "P-00253232 VA OP1/OP2"
     assert inst.header_kind == "o_word"
     assert inst.source_size == path.stat().st_size
+
+
+@pytest.mark.skipif(
+    _sample("haas-ngc", "9278.NC") is None,
+    reason="store Haas NGC ST-20Y sample missing",
+)
+def test_smoke_haas_ngc_st20y():
+    path = _sample("haas-ngc", "9278.NC")
+    assert path is not None
+    inst = locate_whole_file_nc(
+        path,
+        source_path=path.name,
+        source_type="haas_ngc_nc",
+        machine_id="haas-st-20y",
+        parser_id="haas_ngc_nc",
+    )
+    assert inst.program_number == "09278"
+    assert inst.part_number == "P-00059278"
+    assert inst.header_kind == "o_word"
+    # No % framing in this ST-20Y fixture
+    raw = path.read_bytes()
+    assert b"\r\n" in raw
+    assert raw.count(b"%") == 0
