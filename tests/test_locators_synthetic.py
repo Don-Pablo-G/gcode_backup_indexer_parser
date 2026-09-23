@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from gcode_index.locators.fanuc_all_fldr import locate_fanuc_all_fldr
+from gcode_index.locators.fanuc_all_prog import locate_fanuc_all_prog
+from gcode_index.locators.haas_pgm import locate_haas_pgm
+
+FIX = Path(__file__).parent / "fixtures" / "synthetic"
+
+
+def test_haas_pgm_synthetic():
+    path = FIX / "tiny.pgm"
+    inst = locate_haas_pgm(
+        path, source_path="tiny.pgm", machine_id="haas-sl-20"
+    )
+    assert len(inst) == 2
+    assert inst[0].program_number == "00001"
+    assert inst[0].part_number == "PART-A"
+    assert inst[0].source_type == "haas_pgm_glued"
+    assert inst[0].line_start == 3
+    assert inst[0].line_end == 5  # inclusive through M30; next O is line 6
+    assert inst[1].program_number == "00002"
+    assert inst[1].part_number == "PART-B"
+    # CRLF byte math: each line ends with \r\n
+    assert inst[0].byte_start is not None
+    assert inst[0].byte_end == inst[1].byte_start
+    # Do not split on M30: first instance includes M30 line
+    raw = path.read_bytes()
+    chunk = raw[inst[0].byte_start : inst[0].byte_end]
+    assert b"M30" in chunk
+    assert b"O00002" not in chunk
+
+
+def test_fanuc_all_fldr_synthetic():
+    path = FIX / "ALL-FLDR.TXT"
+    inst = locate_fanuc_all_fldr(
+        path, source_path="ALL-FLDR.TXT", machine_id="doosan-dnm-6700"
+    )
+    assert len(inst) == 3
+    assert inst[0].header_kind == "angle"
+    assert inst[0].program_number == "09814"
+    assert inst[0].part_number == "ANGLE-PART"
+    assert inst[0].folder_path == "/MTB1/"
+    assert inst[1].program_number == "9814"
+    assert inst[1].folder_path == "/MTB1/"
+    assert inst[2].program_number == "0002"
+    assert inst[2].folder_path == "/USER/PATH1/"
+    # end at next header / folder / % — not only M30
+    assert inst[0].line_end < inst[1].line_start
+
+
+def test_fanuc_all_prog_synthetic():
+    path = FIX / "ALL-PROG.TXT"
+    inst = locate_fanuc_all_prog(
+        path, source_path="ALL-PROG.TXT", machine_id="doosan-dnm-400"
+    )
+    assert len(inst) == 4
+    nums = [i.program_number for i in inst]
+    assert nums == ["0001", "0801", "3992", "P-BARE"]
+    assert inst[1].part_number == "A"  # first paren
+    assert all(i.folder_path is None for i in inst)

@@ -1,0 +1,177 @@
+# Fuzzy machine folder alias map for gcode-index.
+# Keys are matched after normalize: lowercase, strip spaces/-/_, strip punctuation.
+#
+# layout:
+#   haas_pgm       — expect *.pgm glued dump
+#   fanuc_all_fldr — ALL-FLDR.TXT
+#   fanuc_all_prog — ALL-PROG.TXT
+#   haas_ngc       — HaasBackup(*)/Memory/**/*.nc
+#   manual_nc_folder — individual *.nc under machine folder
+#   (omit / any)   — route by filename only when known dumps present
+
+machines:
+  # Doosan DNM 6700 (FANUC ALL-FLDR) — "duży" = big
+  doosand:
+    machine_id: doosan-dnm-6700
+    label: Doosan DNM 6700
+    control_family: fanuc
+    layout: fanuc_all_fldr
+  doosanduzy:
+    machine_id: doosan-dnm-6700
+    label: Doosan DNM 6700
+    control_family: fanuc
+    layout: fanuc_all_fldr
+  doosandnm6700:
+    machine_id: doosan-dnm-6700
+    label: Doosan DNM 6700
+    control_family: fanuc
+    layout: fanuc_all_fldr
+  dnm6700:
+    machine_id: doosan-dnm-6700
+    label: Doosan DNM 6700
+    control_family: fanuc
+    layout: fanuc_all_fldr
+
+  # Doosan DNM 400 / 400 II (FANUC ALL-PROG) — "mały" = small
+  doosanm:
+    machine_id: doosan-dnm-400
+    label: Doosan DNM 400
+    control_family: fanuc
+    layout: fanuc_all_prog
+  doosanmaly:
+    machine_id: doosan-dnm-400
+    label: Doosan DNM 400
+    control_family: fanuc
+    layout: fanuc_all_prog
+  doosandnm400:
+    machine_id: doosan-dnm-400
+    label: Doosan DNM 400
+    control_family: fanuc
+    layout: fanuc_all_prog
+  doosandnm400ii:
+    machine_id: doosan-dnm-400
+    label: Doosan DNM 400 II
+    control_family: fanuc
+    layout: fanuc_all_prog
+  dnm400:
+    machine_id: doosan-dnm-400
+    label: Doosan DNM 400
+    control_family: fanuc
+    layout: fanuc_all_prog
+  dnm400ii:
+    machine_id: doosan-dnm-400
+    label: Doosan DNM 400 II
+    control_family: fanuc
+    layout: fanuc_all_prog
+
+  # PUMA (FANUC ALL-FLDR)
+  puma:
+    machine_id: puma
+    label: PUMA
+    control_family: fanuc
+    layout: fanuc_all_fldr
+
+  # Older Haas SL-10 / SL-20
+  haassl10:
+    machine_id: haas-sl-10
+    label: HAAS SL-10
+    control_family: haas
+    layout: haas_pgm
+  sl10:
+    machine_id: haas-sl-10
+    label: HAAS SL-10
+    control_family: haas
+    layout: haas_pgm
+  haassl20:
+    machine_id: haas-sl-20
+    label: HAAS SL-20
+    control_family: haas
+    layout: haas_pgm
+  sl20:
+    machine_id: haas-sl-20
+    label: HAAS SL-20
+    control_family: haas
+    layout: haas_pgm
+
+  # Older Haas VF-2 (legacy / nowa / stara)
+  haasvf2:
+    machine_id: haas-vf-2
+    label: HAAS VF-2
+    control_family: haas
+    layout: haas_pgm
+  vf2:
+    machine_id: haas-vf-2
+    label: HAAS VF-2
+    control_family: haas
+    layout: haas_pgm
+  vf2nowa:
+    machine_id: haas-vf-2-nowa
+    label: HAAS VF-2 nowa
+    control_family: haas
+    layout: haas_pgm
+  haasvf2nowa:
+    machine_id: haas-vf-2-nowa
+    label: HAAS VF-2 nowa
+    control_family: haas
+    layout: haas_pgm
+  vf2stara:
+    machine_id: haas-vf-2-stara
+    label: HAAS VF-2 stara
+    control_family: haas
+    layout: haas_pgm
+  haasvf2stara:
+    machine_id: haas-vf-2-stara
+    label: HAAS VF-2 stara
+    control_family: haas
+    layout: haas_pgm
+
+  # Older Haas VF-3
+  haasvf3:
+    machine_id: haas-vf-3
+    label: HAAS VF-3
+    control_family: haas
+    layout: haas_pgm
+  vf3:
+    machine_id: haas-vf-3
+    label: HAAS VF-3
+    control_family: haas
+    layout: haas_pgm
+
+  # Haas NGC
+  umc750:
+    machine_id: haas-umc750
+    label: HAAS UMC750
+    control_family: haas
+    layout: haas_ngc
+  haasumc750:
+    machine_id: haas-umc750
+    label: HAAS UMC750
+    control_family: haas
+    layout: haas_ngc
+  st20y:
+    machine_id: haas-st-20y
+    label: HAAS ST-20Y
+    control_family: haas
+    layout: haas_ngc
+  st20:
+    machine_id: haas-st-20y
+    label: HAAS ST-20Y
+    control_family: haas
+    layout: haas_ngc
+  haasst20y:
+    machine_id: haas-st-20y
+    label: HAAS ST-20Y
+    control_family: haas
+    layout: haas_ngc
+
+  # SBL500 / SBL — Sinumerik manual .nc folder
+  sbl500:
+    machine_id: sbl-500
+    label: SBL500
+    control_family: sinumerik
+    layout: manual_nc_folder
+  sbl:
+    machine_id: sbl-500
+    label: SBL500
+    control_family: sinumerik
+    layout: manual_nc_folder
