@@ -5,6 +5,7 @@ __pycache__/
 .eggs/
 dist/
 build/
+*.spec.bak
 .venv/
 venv/
 .env

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,17 +21,25 @@ def normalize_folder_name(raw: str) -> str:
 
 
 def default_aliases_path() -> Path:
-    """Bundled aliases.yaml next to package or repo root."""
+    """Bundled aliases.yaml next to package, PyInstaller bundle, or repo root."""
     pkg = Path(__file__).resolve().parent
     candidates = [
         pkg / "data" / "aliases.yaml",
         pkg.parent.parent / "aliases.yaml",
         Path.cwd() / "aliases.yaml",
     ]
+    # PyInstaller onedir/onefile: data files land under sys._MEIPASS
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        meipass = Path(sys._MEIPASS)
+        candidates = [
+            meipass / "gcode_index" / "data" / "aliases.yaml",
+            meipass / "aliases.yaml",
+            *candidates,
+        ]
     for c in candidates:
         if c.is_file():
             return c
-    return candidates[1]
+    return pkg / "data" / "aliases.yaml"
 
 
 class AliasMap:

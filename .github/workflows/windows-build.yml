@@ -1,0 +1,73 @@
+name: Windows GUI build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "src/**"
+      - "aliases.yaml"
+      - "gcode-index-gui.spec"
+      - "scripts/build_windows.bat"
+      - "pyproject.toml"
+      - ".github/workflows/windows-build.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "aliases.yaml"
+      - "gcode-index-gui.spec"
+      - "scripts/build_windows.bat"
+      - "pyproject.toml"
+      - ".github/workflows/windows-build.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package + build tools
+        run: python -m pip install -e ".[dev,build]"
+
+      - name: Run tests (non-GUI)
+        run: python -m pytest -q -k "not gui"
+
+      - name: Build Windows GUI (PyInstaller onedir)
+        run: scripts\build_windows.bat
+        shell: cmd
+
+      - name: Zip onedir bundle
+        shell: pwsh
+        run: |
+          $src = "dist\gcode-index-gui"
+          if (-not (Test-Path "$src\gcode-index-gui.exe")) {
+            throw "Missing $src\gcode-index-gui.exe"
+          }
+          Compress-Archive -Path "$src\*" -DestinationPath "dist\gcode-index-gui-windows.zip" -Force
+          Get-Item "dist\gcode-index-gui-windows.zip" | Format-List Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcode-index-gui-windows
+          path: dist/gcode-index-gui-windows.zip
+          if-no-files-found: error
+
+      - name: Attach zip to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/gcode-index-gui-windows.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
