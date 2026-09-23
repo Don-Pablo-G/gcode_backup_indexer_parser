@@ -47,6 +47,35 @@ python -m gcode_index.gui
 
 You can also **Open existing DB…** without re-scanning.
 
+## Windows standalone app (`.exe`)
+
+You do **not** need Python installed if you use a prebuilt bundle from GitHub Actions (or a Release on a `v*` tag).
+
+### Download a prebuilt zip (recommended)
+
+1. Open **Actions** → workflow **Windows GUI build**:  
+   https://github.com/Don-Pablo-G/gcode_backup_indexer_parser/actions/workflows/windows-build.yml  
+2. Open the latest successful run (or click **Run workflow**).  
+3. Download the artifact **`gcode-index-gui-windows`** (a zip).  
+4. Unzip anywhere and run **`gcode-index-gui.exe`** inside the folder.  
+   Keep the whole folder together (this is an **onedir** build — DLLs sit next to the exe).
+
+On a version tag (`v0.2.1`, …), the same zip is also attached as a **Release** asset.
+
+### Build the exe yourself on Windows
+
+Requires Python **3.11+** from [python.org](https://www.python.org/downloads/) (include **tcl/tk**).
+
+```bat
+cd path\to\gcode_backup_indexer_parser
+python -m pip install -e ".[dev,build]"
+scripts\build_windows.bat
+```
+
+Output: `dist\gcode-index-gui\gcode-index-gui.exe` (distribute the entire `gcode-index-gui` folder).
+
+Native Windows binaries are produced on **Windows** (local or GitHub Actions). Linux cannot emit a Windows `.exe` with stock PyInstaller.
+
 ## Scan a backup tree (CLI)
 
 ```bat
