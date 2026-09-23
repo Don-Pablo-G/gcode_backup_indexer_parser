@@ -86,7 +86,7 @@ backup_folder/
 | `ALL-PROG.TXT` | `fanuc_all_prog` | line + byte span |
 | `HaasBackup(*)/Memory/**/*.nc` | `haas_ngc_nc` | whole file; program # from in-file `O#####` (not filename) |
 | Manual `.nc` (SBL / config) | `manual_nc_folder` | whole file |
-| Loose root `.nc` | `loose_nc` | whole file |
+| Any other `*.nc` under the backup tree | `loose_nc` | whole file; machine via fuzzy folder match, else **MACHINE UNKNOWN** |
 
 **Date source of truth:** filesystem **creation/birth time** of the dump or `.nc` (`backup_date` / `file_ctime`, `date_source=birth`). On Linux, birth time is used when the filesystem exposes it via `statx`; otherwise the indexer falls back to **mtime** and records `date_source=mtime`. On Windows, creation time (`st_ctime`) is used as birth.
 

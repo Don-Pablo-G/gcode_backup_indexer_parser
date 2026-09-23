@@ -37,6 +37,10 @@ def _build_mini_tree(tmp_path: Path) -> Path:
     (
         root / "15.09.2026" / "ST20Y" / "HaasBackup(09-15-2026)" / "Memory" / "sub" / "O5555.nc"
     ).write_bytes(nc)
+    # .nc under unknown machine folder — must still index as MACHINE UNKNOWN
+    (root / "15.09.2026" / "UnknownBox" / "orphan.nc").write_bytes(nc)
+    # .nc under PGM machine (not Memory) — fuzzy-match SL-20, type loose_nc
+    (root / "15.09.2026" / "SL-20" / "extra.nc").write_bytes(nc)
     (root / "loose1234.nc").write_bytes(nc)
     return root
 
@@ -56,6 +60,19 @@ def test_scanner_routes_and_sqlite(tmp_path: Path):
 
     assert any(u.machine_folder_raw == "UnknownBox" for u in result.unknowns)
 
+    orphan = next(i for i in result.instances if i.source_path.endswith("orphan.nc"))
+    assert orphan.machine_id == "unknown"
+    assert orphan.machine_label == "MACHINE UNKNOWN"
+    assert orphan.source_type == "loose_nc"
+
+    extra = next(i for i in result.instances if i.source_path.endswith("extra.nc"))
+    assert extra.machine_id == "haas-sl-20"
+    assert extra.source_type == "loose_nc"
+
+    ngc = next(i for i in result.instances if i.source_type == "haas_ngc_nc")
+    assert ngc.machine_id == "haas-st-20y"
+    assert ngc.folder_path == "sub"
+
     db_path = tmp_path / "gcode_index.sqlite"
     conn = open_db(db_path)
     run_id = write_scan_result(
@@ -64,7 +81,8 @@ def test_scanner_routes_and_sqlite(tmp_path: Path):
     assert run_id
     n = conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0]
     assert n == len(result.instances)
-    assert n >= 2 + 3 + 4 + 1 + 1 + 1  # pgm + fldr + prog + manual + ngc + loose
+    # pgm(2) + fldr(3) + prog(4) + manual(1) + ngc(1) + loose root(1) + orphan(1) + extra(1)
+    assert n >= 2 + 3 + 4 + 1 + 1 + 1 + 1 + 1
 
     rows = search_instances(conn, "0001")
     assert rows
