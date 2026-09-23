@@ -56,11 +56,12 @@ You do **not** need Python installed if you use a prebuilt bundle from GitHub Ac
 1. Open **Actions** → workflow **Windows GUI build**:  
    https://github.com/Don-Pablo-G/gcode_backup_indexer_parser/actions/workflows/windows-build.yml  
 2. Open the latest successful run (or click **Run workflow**).  
-3. Download the artifact **`gcode-index-gui-windows`** (a zip).  
-4. Unzip anywhere and run **`gcode-index-gui.exe`** inside the folder.  
-   Keep the whole folder together (this is an **onedir** build — DLLs sit next to the exe).
+3. Download the artifact named like **`gcode-index-gui-windows-0.2.3-b42`** (version + build in the name).  
+4. Unzip anywhere and run **`gcode-index-gui.exe`** inside the `gcode-index-gui-<version>` folder.  
+   Keep the whole folder together (this is an **onedir** build — DLLs sit next to the exe).  
+   A `VERSION.txt` beside the exe records `version=` and `build=`.
 
-On a version tag (`v0.2.1`, …), the same zip is also attached as a **Release** asset.
+On a version tag (`v0.2.3`, …), the same zip (e.g. `gcode-index-gui-windows-0.2.3-b42.zip`) is also attached as a **Release** asset.
 
 ### Build the exe yourself on Windows
 
@@ -72,7 +73,11 @@ python -m pip install -e ".[dev,build]"
 scripts\build_windows.bat
 ```
 
-Output: `dist\gcode-index-gui\gcode-index-gui.exe` (distribute the entire `gcode-index-gui` folder).
+Output:
+
+- Folder: `dist\gcode-index-gui-<version>\gcode-index-gui.exe`
+- Zip: `dist\gcode-index-gui-windows-<version>-<build>.zip`  
+  (`<build>` = Actions run number, else git short SHA, else timestamp)
 
 Native Windows binaries are produced on **Windows** (local or GitHub Actions). Linux cannot emit a Windows `.exe` with stock PyInstaller.
 

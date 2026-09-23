@@ -10,6 +10,7 @@ on:
       - "aliases.yaml"
       - "gcode-index-gui.spec"
       - "scripts/build_windows.bat"
+      - "scripts/zip_onedir.py"
       - "pyproject.toml"
       - ".github/workflows/windows-build.yml"
   pull_request:
@@ -18,6 +19,7 @@ on:
       - "aliases.yaml"
       - "gcode-index-gui.spec"
       - "scripts/build_windows.bat"
+      - "scripts/zip_onedir.py"
       - "pyproject.toml"
       - ".github/workflows/windows-build.yml"
 
@@ -45,29 +47,40 @@ jobs:
       - name: Build Windows GUI (PyInstaller onedir)
         run: scripts\build_windows.bat
         shell: cmd
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
 
-      - name: Zip onedir bundle
+      - name: Resolve versioned zip path
+        id: meta
         shell: pwsh
         run: |
-          $src = "dist\gcode-index-gui"
-          if (-not (Test-Path "$src\gcode-index-gui.exe")) {
-            throw "Missing $src\gcode-index-gui.exe"
+          $ver = python -c "from gcode_index import __version__; print(__version__)"
+          $build = "b$env:GITHUB_RUN_NUMBER"
+          $zipName = "gcode-index-gui-windows-$ver-$build.zip"
+          $zipPath = "dist\$zipName"
+          if (-not (Test-Path $zipPath)) {
+            throw "Missing versioned zip: $zipPath"
           }
-          Compress-Archive -Path "$src\*" -DestinationPath "dist\gcode-index-gui-windows.zip" -Force
-          Get-Item "dist\gcode-index-gui-windows.zip" | Format-List Name, Length
+          $artifact = "gcode-index-gui-windows-$ver-$build"
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "build=$build" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "zip_name=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_name=$artifact" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Get-Item $zipPath | Format-List Name, Length, FullName
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gcode-index-gui-windows
-          path: dist/gcode-index-gui-windows.zip
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: ${{ steps.meta.outputs.zip_path }}
           if-no-files-found: error
 
       - name: Attach zip to GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/gcode-index-gui-windows.zip
+          files: ${{ steps.meta.outputs.zip_path }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
