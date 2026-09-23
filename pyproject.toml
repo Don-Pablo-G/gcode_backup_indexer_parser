@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gcode-index"
-version = "0.1.0"
+version = "0.2.0"
 description = "Index CNC backup trees into a portable SQLite catalog of program instances"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 gcode-index = "gcode_index.cli:app"
+gcode-index-gui = "gcode_index.gui:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gcode_index"]

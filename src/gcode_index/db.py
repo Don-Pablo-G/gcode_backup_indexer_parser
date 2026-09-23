@@ -221,27 +221,75 @@ def write_scan_result(
     return run_id
 
 
+def query_digit_count(query: str) -> int:
+    """Count digit characters in a search query."""
+    return sum(1 for ch in query if ch.isdigit())
+
+
+def validate_search_query(query: str) -> str:
+    """Normalize and validate a search string. Must contain ≥4 digits.
+
+    Returns the stripped query used for matching.
+    """
+    q = (query or "").strip()
+    if query_digit_count(q) < 4:
+        raise ValueError("search query must contain at least 4 digits")
+    return q
+
+
+def _match_rank(value: Optional[str], query: str) -> int:
+    """Lower is better: 0 exact, 1 prefix, 2 substring, 3 no match on this field."""
+    if not value:
+        return 3
+    v = value.casefold()
+    q = query.casefold()
+    if v == q:
+        return 0
+    if v.startswith(q):
+        return 1
+    if q in v:
+        return 2
+    return 3
+
+
+def rank_match(program_number: Optional[str], part_number: Optional[str], query: str) -> int:
+    """Combined rank for a row: best of program # / part # (prefer program on ties)."""
+    prog = _match_rank(program_number, query)
+    part = _match_rank(part_number, query)
+    # Prefer program_number when ranks equal (prog*2 vs part*2+1).
+    return min(prog * 2, part * 2 + 1)
+
+
 def search_instances(
     conn: sqlite3.Connection,
     query: str,
     *,
     limit: int = 100,
 ) -> list[sqlite3.Row]:
-    """Substring search on program_number and part_number. Query must contain ≥4 digits."""
-    digits = "".join(ch for ch in query if ch.isdigit())
-    if len(digits) < 4:
-        raise ValueError("search query must contain at least 4 digits")
+    """Substring search on program_number and part_number.
+
+    Query must contain ≥4 digits. Results prefer prefix matches over mid-string
+    hits, then newer ``backup_date``, then machine / program number.
+    """
+    q = validate_search_query(query)
     conn.row_factory = sqlite3.Row
+    # Wider fetch, then re-rank in Python (LIKE alone cannot prefer prefixes).
+    fetch_limit = max(limit * 5, 200)
     cur = conn.execute(
         """
-        SELECT instance_id, program_number, part_number, machine_id, backup_date,
-               source_path, line_start, line_end, byte_start, byte_end, source_type
+        SELECT instance_id, program_number, part_number, machine_id, machine_label,
+               backup_date, source_path, line_start, line_end, byte_start, byte_end,
+               source_type
         FROM program_instances
         WHERE program_number LIKE '%' || ? || '%'
            OR part_number LIKE '%' || ? || '%'
-        ORDER BY backup_date DESC, machine_id, program_number
         LIMIT ?
         """,
-        (query, query, limit),
+        (q, q, fetch_limit),
     )
-    return list(cur.fetchall())
+    rows = list(cur.fetchall())
+    # Stable multi-key sort: least → most significant.
+    rows.sort(key=lambda r: (r["machine_id"] or "", r["program_number"] or ""))
+    rows.sort(key=lambda r: r["backup_date"] or "", reverse=True)
+    rows.sort(key=lambda r: rank_match(r["program_number"], r["part_number"], q))
+    return rows[:limit]

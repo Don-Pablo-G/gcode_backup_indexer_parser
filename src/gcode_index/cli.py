@@ -10,6 +10,7 @@ from gcode_index import __version__
 from gcode_index.aliases import AliasMap, default_aliases_path
 from gcode_index.db import open_db, search_instances, write_scan_result
 from gcode_index.excel_export import export_excel
+from gcode_index.extract import ExtractError, extract_instance_to_path, extract_text, fetch_instance
 from gcode_index.scanner import scan_backup_tree
 
 app = typer.Typer(
@@ -100,11 +101,7 @@ def search_cmd(
     query: str = typer.Argument(..., help="Must contain ≥4 digits."),
     limit: int = typer.Option(50, "--limit", "-n"),
 ) -> None:
-    """Search program_number / part_number (substring). Requires ≥4 digits in query."""
-    digit_count = sum(1 for ch in query if ch.isdigit())
-    if digit_count < 4:
-        typer.echo("Error: query must contain at least 4 digits.", err=True)
-        raise typer.Exit(code=2)
+    """Search program_number / part_number (prefix preferred). Requires ≥4 digits."""
     conn = open_db(db)
     try:
         rows = search_instances(conn, query, limit=limit)
@@ -142,52 +139,25 @@ def extract_cmd(
         None, "--out", "-o", help="Write extracted text to this file (default: stdout)."
     ),
 ) -> None:
-    """Thin extract helper: slice glued span or copy whole-file .nc for external parsers."""
+    """Slice glued span or copy whole-file .nc for an external parser."""
     import sqlite3
 
     conn = sqlite3.connect(str(db))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        """
-        SELECT source_path, line_start, line_end, byte_start, byte_end, source_type
-        FROM program_instances WHERE instance_id = ?
-        """,
-        (instance_id,),
-    ).fetchone()
-    conn.close()
-    if row is None:
-        typer.echo(f"instance_id not found: {instance_id}", err=True)
-        raise typer.Exit(code=1)
-
-    src = Path(row["source_path"])
-    if not src.is_absolute():
-        src = Path(backup_root) / src
-    if not src.is_file():
-        typer.echo(f"source file missing: {src}", err=True)
-        raise typer.Exit(code=1)
-
-    glued = row["source_type"] in (
-        "haas_pgm_glued",
-        "fanuc_all_fldr",
-        "fanuc_all_prog",
-    )
-    if glued and row["byte_start"] is not None and row["byte_end"] is not None:
-        with open(src, "rb") as f:
-            f.seek(int(row["byte_start"]))
-            data = f.read(int(row["byte_end"]) - int(row["byte_start"]))
-        text = data.decode("ascii", errors="replace")
-    elif glued and row["line_start"] is not None and row["line_end"] is not None:
-        lines = src.read_bytes().splitlines(keepends=True)
-        chunk = lines[int(row["line_start"]) - 1 : int(row["line_end"])]
-        text = b"".join(chunk).decode("ascii", errors="replace")
-    else:
-        text = src.read_text(encoding="ascii", errors="replace")
-
-    if out is not None:
-        out.write_text(text, encoding="utf-8")
-        typer.echo(f"Wrote {out}")
-    else:
-        typer.echo(text, nl=False)
+    try:
+        if out is not None:
+            path = extract_instance_to_path(
+                conn, instance_id, out, backup_root=backup_root
+            )
+            typer.echo(f"Wrote {path}")
+        else:
+            row = fetch_instance(conn, instance_id)
+            text = extract_text(row, backup_root=backup_root)
+            typer.echo(text, nl=False)
+    except ExtractError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
