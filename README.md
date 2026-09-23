@@ -8,6 +8,7 @@ Index CNC machine **backup folder trees** into a portable **SQLite** catalog of 
 
 - Python **3.11+** (tested on 3.12)
 - Windows, Linux, or macOS
+- **Windows GUI** uses **tkinter** (included with the official python.org Windows installer)
 
 ## Install
 
@@ -19,12 +20,34 @@ python -m pip install -e ".[dev]"
 ```bash
 # Linux / macOS / Git Bash
 python3 -m pip install -e ".[dev]"
-# or: uv pip install -e ".[dev]"
 ```
 
-Entry point: `gcode-index` (also `python -m gcode_index`).
+Entry points:
 
-## Scan a backup tree
+| Command | Role |
+|---------|------|
+| `gcode-index` | CLI: `scan` / `search` / `extract` |
+| `gcode-index-gui` | Windows-friendly tkinter GUI |
+| `python -m gcode_index` | Same as CLI |
+| `python -m gcode_index.gui` | Same as GUI |
+
+## Windows GUI (Phase 2)
+
+```bat
+gcode-index-gui
+REM or:
+python -m gcode_index.gui
+```
+
+1. **Browse** → pick the main **backup folder** tree.  
+2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
+3. Click **Run index / scan** (optional Excel export checkbox).  
+4. Type a query with **≥4 digits** — closest matches refresh as you type (≈200 ms debounce). Results show **program #**, **part number**, **machine**, **date**.  
+5. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.
+
+You can also **Open existing DB…** without re-scanning.
+
+## Scan a backup tree (CLI)
 
 ```bat
 gcode-index scan "D:\CNC\Backups" --db "D:\CNC\Index\gcode_index.sqlite" --excel "D:\CNC\Index\gcode_index.xlsx"
@@ -69,14 +92,16 @@ backup_folder/
 
 Unmapped machine folders are logged to the `unknowns` table — the scanner does **not** invent locators from contents alone.
 
-## Search / extract (thin CLI)
+## Search / extract (CLI)
 
 ```bat
 gcode-index search gcode_index.sqlite 1234
-gcode-index extract gcode_index.sqlite <instance_id> --backup-root "D:\CNC\Backups" -o slice.txt
+gcode-index extract gcode_index.sqlite <instance_id> --backup-root "D:\CNC\Backups" -o slice.nc
 ```
 
-Search requires a query with **≥4 digits**. Matches substring on `program_number` and `part_number`.
+- Search requires a query with **≥4 digits**.
+- Matches **substring** on `program_number` and `part_number`; **prefix** hits rank above mid-string hits.
+- Extract slices glued dumps by stored line/byte span, or copies whole-file `.nc` types, for an **external** parser.
 
 ## Machine aliases
 
@@ -90,10 +115,9 @@ python -m pytest -q
 
 Unit tests use tiny synthetic fixtures under `tests/fixtures/synthetic/`. Optional smoke tests run against Project store samples when present (not committed to git).
 
-## Non-goals (Phase 1)
+## Non-goals
 
 - Full G-code parse / validation / simulation
-- Windows GUI (Phase 2)
 - Committing multi-MB backup dumps into this repository
 
 ## License
