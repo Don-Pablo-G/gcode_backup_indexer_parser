@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS program_instances (
   control_family TEXT,
   source_mtime TEXT,
   source_size INTEGER,
+  content_sha256 TEXT,
   indexed_at TEXT NOT NULL,
   parser_id TEXT,
   parser_version TEXT,
@@ -94,7 +95,16 @@ def open_db(path: Path | str) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA_SQL)
+    _migrate_schema(conn)
     return conn
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after older DB files were created."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
+    if "content_sha256" not in cols:
+        conn.execute("ALTER TABLE program_instances ADD COLUMN content_sha256 TEXT")
+        conn.commit()
 
 
 def write_scan_result(
@@ -140,6 +150,7 @@ def write_scan_result(
                 inst.control_family,
                 _iso(inst.source_mtime),
                 inst.source_size,
+                inst.content_sha256,
                 indexed_at,
                 inst.parser_id,
                 inst.parser_version or PARSER_VERSION,
@@ -156,10 +167,11 @@ def write_scan_result(
           instance_id, program_number, part_number, machine_id, machine_label,
           machine_folder_raw, date_folder_raw, backup_date, file_ctime, date_source,
           source_path, line_start, line_end, byte_start, byte_end, source_type,
-          folder_path, control_family, source_mtime, source_size, indexed_at,
-          parser_id, parser_version, parse_status, error_message, header_kind, run_id
+          folder_path, control_family, source_mtime, source_size, content_sha256,
+          indexed_at, parser_id, parser_version, parse_status, error_message,
+          header_kind, run_id
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
         """,
         rows,
@@ -277,7 +289,7 @@ _INSTANCE_SELECT = """
         SELECT instance_id, program_number, part_number, machine_id, machine_label,
                machine_folder_raw, date_folder_raw, backup_date, source_path,
                line_start, line_end, byte_start, byte_end, source_type,
-               folder_path, control_family
+               folder_path, control_family, source_size, content_sha256
         FROM program_instances
 """
 
@@ -321,17 +333,19 @@ def query_instances(
     q: Optional[str] = None
     if text is not None and str(text).strip():
         q = validate_search_query(str(text))
-        like = f"%{q}%"
+        # LOWER() on both sides → case-insensitive for ASCII letters
+        # (P-00045613 Va == p-00045613 va)
+        like = f"%{q.casefold()}%"
         clauses.append(
             """(
-              program_number LIKE ? COLLATE NOCASE
-              OR IFNULL(part_number,'') LIKE ? COLLATE NOCASE
-              OR source_path LIKE ? COLLATE NOCASE
-              OR machine_id LIKE ? COLLATE NOCASE
-              OR IFNULL(machine_label,'') LIKE ? COLLATE NOCASE
-              OR IFNULL(machine_folder_raw,'') LIKE ? COLLATE NOCASE
-              OR IFNULL(folder_path,'') LIKE ? COLLATE NOCASE
-              OR IFNULL(date_folder_raw,'') LIKE ? COLLATE NOCASE
+              LOWER(program_number) LIKE ?
+              OR LOWER(IFNULL(part_number,'')) LIKE ?
+              OR LOWER(source_path) LIKE ?
+              OR LOWER(machine_id) LIKE ?
+              OR LOWER(IFNULL(machine_label,'')) LIKE ?
+              OR LOWER(IFNULL(machine_folder_raw,'')) LIKE ?
+              OR LOWER(IFNULL(folder_path,'')) LIKE ?
+              OR LOWER(IFNULL(date_folder_raw,'')) LIKE ?
             )"""
         )
         params.extend([like] * 8)
@@ -343,16 +357,17 @@ def query_instances(
             inner = m[m.rfind("(") + 1 : -1].strip()
             if inner:
                 m = inner
+        m_fold = m.casefold()
         clauses.append(
             """(
-              machine_id = ?
-              OR IFNULL(machine_label,'') = ?
-              OR IFNULL(machine_folder_raw,'') = ?
-              OR machine_id LIKE ? COLLATE NOCASE
-              OR IFNULL(machine_label,'') LIKE ? COLLATE NOCASE
+              LOWER(machine_id) = ?
+              OR LOWER(IFNULL(machine_label,'')) = ?
+              OR LOWER(IFNULL(machine_folder_raw,'')) = ?
+              OR LOWER(machine_id) LIKE ?
+              OR LOWER(IFNULL(machine_label,'')) LIKE ?
             )"""
         )
-        params.extend([m, m, m, f"%{m}%", f"%{m}%"])
+        params.extend([m_fold, m_fold, m_fold, f"%{m_fold}%", f"%{m_fold}%"])
 
     d_from = _normalize_date_bound(date_from, end=False)
     d_to = _normalize_date_bound(date_to, end=True)

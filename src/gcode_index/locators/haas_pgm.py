@@ -9,6 +9,7 @@ from typing import Iterator, List, Optional
 
 from gcode_index import PARSER_VERSION
 from gcode_index.birthtime import file_birth_or_mtime, file_mtime
+from gcode_index.integrity import file_sha256
 from gcode_index.locators import (
     decode_header_line,
     first_paren_comment,
@@ -78,6 +79,7 @@ def locate_haas_pgm(
             )
 
     instances: List[ProgramInstance] = []
+    digest = file_sha256(p)
     for i, hit in enumerate(hits):
         if i + 1 < len(hits):
             nxt = hits[i + 1]
@@ -115,6 +117,7 @@ def locate_haas_pgm(
                 control_family=control_family,
                 source_mtime=mtime,
                 source_size=size,
+                content_sha256=digest,
                 parser_id=PARSER_ID,
                 parser_version=PARSER_VERSION,
                 parse_status="ok",

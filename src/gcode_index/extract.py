@@ -3,6 +3,9 @@
 Glued dumps (Haas PGM / FANUC ALL-*) use line or byte spans.
 Whole-file ``.nc`` types copy the entire source file.
 Output is plain text for an *external* parser — this package does not parse G-code bodies.
+
+Before reading, verifies optional ``content_sha256`` / ``source_size`` from the index
+so a file changed after scan cannot silently yield the wrong program.
 """
 
 from __future__ import annotations
@@ -10,6 +13,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 from typing import Mapping, Optional, Union
+
+from gcode_index.integrity import file_sha256
 
 GLUED_SOURCE_TYPES = frozenset(
     {
@@ -41,6 +46,38 @@ def resolve_source_path(
     return Path(backup_root) / src
 
 
+def _row_get(row: RowLike, key: str):
+    keys = row.keys() if hasattr(row, "keys") else row  # type: ignore[arg-type]
+    if key not in keys:
+        return None
+    return row[key]
+
+
+def verify_source_integrity(row: RowLike, src: Path) -> None:
+    """Refuse extract/copy when the on-disk file no longer matches the index stamp."""
+    if not src.is_file():
+        raise ExtractError(f"source file missing: {src}")
+
+    expected_size = _row_get(row, "source_size")
+    expected_sha = _row_get(row, "content_sha256")
+
+    st = src.stat()
+    if expected_size is not None and int(st.st_size) != int(expected_size):
+        raise ExtractError(
+            f"source file changed since index (size {st.st_size} ≠ indexed "
+            f"{expected_size}): {src}\nRe-run scan before extract/copy."
+        )
+
+    if expected_sha:
+        actual = file_sha256(src)
+        if actual.casefold() != str(expected_sha).casefold():
+            raise ExtractError(
+                f"source file changed since index (SHA-256 mismatch): {src}\n"
+                f"indexed={expected_sha}\nactual ={actual}\n"
+                f"Re-run scan before extract/copy."
+            )
+
+
 def fetch_instance(
     conn: sqlite3.Connection,
     instance_id: str,
@@ -50,7 +87,8 @@ def fetch_instance(
     row = conn.execute(
         """
         SELECT instance_id, program_number, part_number, machine_id, backup_date,
-               source_path, line_start, line_end, byte_start, byte_end, source_type
+               source_path, line_start, line_end, byte_start, byte_end, source_type,
+               source_size, content_sha256
         FROM program_instances
         WHERE instance_id = ?
         """,
@@ -65,15 +103,20 @@ def extract_text(
     row: RowLike,
     *,
     backup_root: str | Path | None = None,
+    skip_integrity: bool = False,
 ) -> str:
     """Return the program body text for an index row.
 
     Preference for glued dumps: byte span when both ends are set, else line span
     (1-based inclusive). Whole-file types return the entire file as text.
+
+    By default verifies ``content_sha256`` / ``source_size`` when present in ``row``.
     """
     source_type = str(row["source_type"] or "")
     src = resolve_source_path(str(row["source_path"]), backup_root)
-    if not src.is_file():
+    if not skip_integrity:
+        verify_source_integrity(row, src)
+    elif not src.is_file():
         raise ExtractError(f"source file missing: {src}")
 
     glued = source_type in GLUED_SOURCE_TYPES
@@ -120,9 +163,10 @@ def extract_to_path(
     out_path: str | Path,
     *,
     backup_root: str | Path | None = None,
+    skip_integrity: bool = False,
 ) -> Path:
     """Extract program text and write UTF-8 to ``out_path``. Returns the path written."""
-    text = extract_text(row, backup_root=backup_root)
+    text = extract_text(row, backup_root=backup_root, skip_integrity=skip_integrity)
     dest = Path(out_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text, encoding="utf-8")
@@ -135,7 +179,10 @@ def extract_instance_to_path(
     out_path: str | Path,
     *,
     backup_root: str | Path | None = None,
+    skip_integrity: bool = False,
 ) -> Path:
     """Fetch ``instance_id`` from ``conn`` and write the extracted body to ``out_path``."""
     row = fetch_instance(conn, instance_id)
-    return extract_to_path(row, out_path, backup_root=backup_root)
+    return extract_to_path(
+        row, out_path, backup_root=backup_root, skip_integrity=skip_integrity
+    )

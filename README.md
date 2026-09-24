@@ -43,13 +43,14 @@ python -m gcode_index.gui
 2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
 3. Click **Run index / scan** (optional Excel export checkbox).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
-4. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`), plus filters:  
+4. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
    - **Machine** (dropdown of indexed machines)  
    - **Date from / to** (`YYYY-MM-DD`)  
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
    - **Control** (`haas`, `fanuc`, `sinumerik`)  
    Text matches program #, part #, path, machine names, and FANUC folder paths. Empty text + filters still works.  
-5. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.
+5. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.  
+   Extract/copy **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).
 
 You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar.
 

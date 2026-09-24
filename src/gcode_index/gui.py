@@ -159,8 +159,9 @@ class IndexerApp(tk.Tk):
 
         hint = ttk.Label(
             filt,
-            text="Text matches program #, part #, path, machine, FANUC folder. "
-            "Empty text + filters still works.",
+            text="Text is case-insensitive (P-00045613 Va = p-00045613 va). "
+            "Matches program #, part #, path, machine, FANUC folder. "
+            "Extract refuses if the source file changed since the scan (SHA-256).",
             foreground="#444",
         )
         hint.grid(row=3, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))

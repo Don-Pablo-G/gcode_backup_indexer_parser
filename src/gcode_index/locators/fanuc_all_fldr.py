@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from gcode_index import PARSER_VERSION
 from gcode_index.birthtime import file_birth_or_mtime, file_mtime
+from gcode_index.integrity import file_sha256
 from gcode_index.locators import (
     decode_header_line,
     first_paren_comment,
@@ -153,6 +154,7 @@ def _locate_fanuc_glued(
             continue
 
     instances: List[ProgramInstance] = []
+    digest = file_sha256(p)
     header_indices = [i for i, b in enumerate(boundaries) if b.kind == "header"]
     for hi, b_idx in enumerate(header_indices):
         hit = boundaries[b_idx]
@@ -194,6 +196,7 @@ def _locate_fanuc_glued(
                 control_family=control_family,
                 source_mtime=mtime,
                 source_size=size,
+                content_sha256=digest,
                 parser_id=parser_id,
                 parser_version=PARSER_VERSION,
                 parse_status="ok",

@@ -45,6 +45,7 @@ class ProgramInstance:
     control_family: Optional[str] = None
     source_mtime: Optional[datetime] = None
     source_size: Optional[int] = None
+    content_sha256: Optional[str] = None
     parser_id: Optional[str] = None
     parser_version: Optional[str] = None
     parse_status: str = "ok"

@@ -86,6 +86,19 @@ def test_search_letters_and_filters(tmp_path: Path):
         hits = search_instances(conn, "BRACKET", limit=20)
         assert [r["instance_id"] for r in hits] == ["d"]
 
+        # Case-insensitive: Va vs va / P- vs p-
+        conn.execute(
+            """
+            UPDATE program_instances SET part_number = 'P-00045613 Va'
+            WHERE instance_id = 'd'
+            """
+        )
+        conn.commit()
+        lower = search_instances(conn, "p-00045613 va", limit=20)
+        upper = search_instances(conn, "P-00045613 VA", limit=20)
+        assert [r["instance_id"] for r in lower] == ["d"]
+        assert [r["instance_id"] for r in upper] == ["d"]
+
         # Machine filter
         by_machine = query_instances(conn, machine="puma", limit=50)
         assert {r["instance_id"] for r in by_machine} == {"c", "e"}
@@ -182,6 +195,33 @@ def test_extract_missing_file(tmp_path: Path):
     }
     with pytest.raises(ExtractError):
         extract_text(row, backup_root=tmp_path)
+
+
+def test_extract_refuses_changed_source(tmp_path: Path):
+    from gcode_index.integrity import file_sha256
+
+    src = tmp_path / "job.nc"
+    src.write_text("%\nO1\nM30\n%\n", encoding="ascii")
+    digest = file_sha256(src)
+    row = {
+        "source_path": "job.nc",
+        "source_type": "loose_nc",
+        "line_start": None,
+        "line_end": None,
+        "byte_start": None,
+        "byte_end": None,
+        "program_number": "1",
+        "source_size": src.stat().st_size,
+        "content_sha256": digest,
+    }
+    assert "O1" in extract_text(row, backup_root=tmp_path)
+
+    src.write_text("%\nO1\nG00 X1\nM30\n%\n", encoding="ascii")
+    with pytest.raises(ExtractError, match="changed since index"):
+        extract_text(row, backup_root=tmp_path)
+
+    # Explicit bypass for recovery tools
+    assert "G00" in extract_text(row, backup_root=tmp_path, skip_integrity=True)
 
 
 def test_gui_module_importable():

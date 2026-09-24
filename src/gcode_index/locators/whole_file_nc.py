@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 from gcode_index import PARSER_VERSION
 from gcode_index.birthtime import file_birth_or_mtime, file_mtime
+from gcode_index.integrity import file_sha256
 from gcode_index.locators import (
     decode_header_line,
     first_paren_comment,
@@ -71,6 +72,8 @@ def locate_whole_file_nc(
         part_number = None
         header_kind = "filename"
 
+    digest = file_sha256(p)
+
     return ProgramInstance(
         program_number=program_number,
         part_number=part_number,
@@ -90,6 +93,7 @@ def locate_whole_file_nc(
         control_family=control_family,
         source_mtime=mtime,
         source_size=size,
+        content_sha256=digest,
         parser_id=parser_id or source_type,
         parser_version=PARSER_VERSION,
         parse_status="ok",

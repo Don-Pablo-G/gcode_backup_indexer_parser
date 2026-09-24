@@ -20,6 +20,8 @@ COLUMNS = [
     ("line_end", "Line end"),
     ("byte_start", "Byte start"),
     ("byte_end", "Byte end"),
+    ("source_size", "Source size"),
+    ("content_sha256", "Content SHA-256"),
     ("folder_path", "Folder path"),
     ("date_folder_raw", "Date folder"),
     ("machine_folder_raw", "Machine folder"),
