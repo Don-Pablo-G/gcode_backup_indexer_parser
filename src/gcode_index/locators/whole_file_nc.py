@@ -14,6 +14,7 @@ from gcode_index.locators import (
     first_paren_comment,
     is_percent_line,
     iter_binary_lines,
+    parse_programmer_flag,
     strip_eol,
 )
 from gcode_index.models import ProgramInstance
@@ -25,19 +26,33 @@ _O_HEADER = re.compile(r"^O(\d+)(?:\s+\S+)*\s*(?:\([^)]*\))?\s*$")
 _MAX_HEADER_SCAN_LINES = 40
 
 
-def _first_o_header(path: Path) -> Tuple[Optional[str], Optional[str]]:
-    """Return (program_number, part_number) from the first line-leading O#####…"""
+def _first_o_header(
+    path: Path,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return (program_number, part_number, programmer) from first O#####…
+
+    Programmer is taken only from the immediate next line when it matches
+    ``(LLdigit)``; otherwise None.
+    """
+    found_prog: Optional[str] = None
+    found_part: Optional[str] = None
     for line_no, _offset, raw in iter_binary_lines(path):
-        if line_no > _MAX_HEADER_SCAN_LINES:
+        if line_no > _MAX_HEADER_SCAN_LINES + 1:
             break
         content_b, _eol = strip_eol(raw)
         content = decode_header_line(content_b)
+        if found_prog is not None:
+            return found_prog, found_part, parse_programmer_flag(content)
         if not content or is_percent_line(content):
             continue
         m = _O_HEADER.match(content)
         if m:
-            return m.group(1), first_paren_comment(content)
-    return None, None
+            found_prog = m.group(1)
+            found_part = first_paren_comment(content)
+            continue
+    if found_prog is not None:
+        return found_prog, found_part, None
+    return None, None, None
 
 
 def locate_whole_file_nc(
@@ -64,12 +79,13 @@ def locate_whole_file_nc(
     size = p.stat().st_size
     stem = p.stem
 
-    program_number, part_number = _first_o_header(p)
+    program_number, part_number, programmer = _first_o_header(p)
     if program_number is not None:
         header_kind = "o_word"
     else:
         program_number = stem
         part_number = None
+        programmer = None
         header_kind = "filename"
 
     digest = file_sha256(p)
@@ -98,4 +114,5 @@ def locate_whole_file_nc(
         parser_version=PARSER_VERSION,
         parse_status="ok",
         header_kind=header_kind,
+        programmer=programmer,
     )

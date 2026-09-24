@@ -15,6 +15,7 @@ from gcode_index.locators import (
     first_paren_comment,
     is_percent_line,
     iter_binary_lines,
+    parse_programmer_flag,
     strip_eol,
 )
 from gcode_index.models import ProgramInstance
@@ -36,6 +37,7 @@ class _Hit:
     part_number: Optional[str] = None
     header_kind: Optional[str] = None
     folder_path: Optional[str] = None
+    programmer: Optional[str] = None
 
 
 def locate_fanuc_all_fldr(
@@ -90,6 +92,7 @@ def _locate_fanuc_glued(
     current_folder: Optional[str] = None
     last_line_no = 0
     eof_byte = 0
+    pending_header: Optional[_Hit] = None
 
     # Collect headers and folder/percent as boundary markers.
     boundaries: List[_Hit] = []
@@ -99,6 +102,10 @@ def _locate_fanuc_glued(
         eof_byte = offset + len(raw)
         content_b, _ = strip_eol(raw)
         content = decode_header_line(content_b)
+
+        if pending_header is not None:
+            pending_header.programmer = parse_programmer_flag(content)
+            pending_header = None
 
         if is_percent_line(content):
             hit = _Hit(kind="percent", line_no=line_no, byte_start=offset)
@@ -122,35 +129,35 @@ def _locate_fanuc_glued(
         om = o_pattern.match(content)
         if om:
             prog = om.group(1)
-            headers.append(
-                _Hit(
-                    kind="header",
-                    line_no=line_no,
-                    byte_start=offset,
-                    program_number=prog,
-                    part_number=first_paren_comment(content),
-                    header_kind="o_number",
-                    folder_path=current_folder,
-                )
+            hit = _Hit(
+                kind="header",
+                line_no=line_no,
+                byte_start=offset,
+                program_number=prog,
+                part_number=first_paren_comment(content),
+                header_kind="o_number",
+                folder_path=current_folder,
             )
-            boundaries.append(headers[-1])
+            headers.append(hit)
+            boundaries.append(hit)
+            pending_header = hit
             continue
 
         am = angle_pattern.match(content)
         if am:
             name = am.group(1)
-            headers.append(
-                _Hit(
-                    kind="header",
-                    line_no=line_no,
-                    byte_start=offset,
-                    program_number=name,
-                    part_number=first_paren_comment(content),
-                    header_kind="angle",
-                    folder_path=current_folder,
-                )
+            hit = _Hit(
+                kind="header",
+                line_no=line_no,
+                byte_start=offset,
+                program_number=name,
+                part_number=first_paren_comment(content),
+                header_kind="angle",
+                folder_path=current_folder,
             )
-            boundaries.append(headers[-1])
+            headers.append(hit)
+            boundaries.append(hit)
+            pending_header = hit
             continue
 
     instances: List[ProgramInstance] = []
@@ -201,6 +208,7 @@ def _locate_fanuc_glued(
                 parser_version=PARSER_VERSION,
                 parse_status="ok",
                 header_kind=hit.header_kind,
+                programmer=hit.programmer,
             )
         )
     return instances

@@ -8,6 +8,10 @@ from typing import Iterator, Optional, Tuple
 # First parenthetical comment on a header line.
 _FIRST_PAREN = re.compile(r"\(([^)]*)\)")
 
+# Programmer flag on the line immediately below the program header:
+# exactly (two letters + digit 1–9), case-insensitive. Anything else → ignore.
+_PROGRAMMER_FLAG = re.compile(r"^\(([A-Za-z]{2})([1-9])\)\s*$")
+
 
 def first_paren_comment(line: str) -> Optional[str]:
     m = _FIRST_PAREN.search(line)
@@ -15,6 +19,21 @@ def first_paren_comment(line: str) -> Optional[str]:
         return None
     text = m.group(1).strip()
     return text or None
+
+
+def parse_programmer_flag(line: str) -> Optional[str]:
+    """Return ``PG1``-style flag if ``line`` is exactly ``(LLdigit)``, else None.
+
+    Matching is case-insensitive; stored form is uppercase. Non-matching comments
+    (part numbers, free text, wrong shape) are ignored — never invented.
+    """
+    s = (line or "").strip()
+    if not s:
+        return None
+    m = _PROGRAMMER_FLAG.match(s)
+    if not m:
+        return None
+    return (m.group(1) + m.group(2)).upper()
 
 
 def strip_eol(line_with_eol: bytes) -> Tuple[bytes, bytes]:

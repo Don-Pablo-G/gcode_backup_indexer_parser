@@ -60,7 +60,8 @@ python -m gcode_index.gui
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
    - **Control** (`haas`, `fanuc`, `sinumerik`)  
    - **Flag** — all / green (backup) / yellow (extra)  
-   Text matches program #, part #, path, machine names, and FANUC folder paths. Empty text + filters still works.  
+   - **Programmer** — next-line `(PG1)` / `(LP2)` when present (case-insensitive; other comments ignored)  
+   Text matches program #, part #, path, machine names, FANUC folder paths, and programmer. Empty text + filters still works.  
 7. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.  
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
    Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).

@@ -59,6 +59,8 @@ class ProgramInstance:
     # backup = green (ran on machine); extra = yellow (additional folder, not in backup)
     provenance: str = PROVENANCE_BACKUP
     scan_root: Optional[str] = None
+    # Next-line comment (PG1) / (LP2); null if absent or non-matching
+    programmer: Optional[str] = None
 
 
 @dataclass

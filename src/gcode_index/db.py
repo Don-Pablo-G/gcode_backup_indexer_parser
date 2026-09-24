@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS program_instances (
   header_kind TEXT,
   provenance TEXT NOT NULL DEFAULT 'backup',
   scan_root TEXT,
+  programmer TEXT,
   run_id TEXT,
   FOREIGN KEY (run_id) REFERENCES index_runs(run_id)
 );
@@ -61,6 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_pi_part ON program_instances(part_number);
 CREATE INDEX IF NOT EXISTS idx_pi_machine_date ON program_instances(machine_id, backup_date);
 CREATE INDEX IF NOT EXISTS idx_pi_source_type ON program_instances(source_type);
 CREATE INDEX IF NOT EXISTS idx_pi_provenance ON program_instances(provenance);
+CREATE INDEX IF NOT EXISTS idx_pi_programmer ON program_instances(programmer);
 
 CREATE TABLE IF NOT EXISTS files_seen (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,8 +115,13 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         )
     if "scan_root" not in cols:
         conn.execute("ALTER TABLE program_instances ADD COLUMN scan_root TEXT")
+    if "programmer" not in cols:
+        conn.execute("ALTER TABLE program_instances ADD COLUMN programmer TEXT")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pi_provenance ON program_instances(provenance)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pi_programmer ON program_instances(programmer)"
     )
     conn.commit()
 
@@ -171,6 +178,7 @@ def write_scan_result(
                 inst.header_kind,
                 inst.provenance or "backup",
                 inst.scan_root,
+                inst.programmer,
                 run_id,
             )
         )
@@ -183,9 +191,9 @@ def write_scan_result(
           source_path, line_start, line_end, byte_start, byte_end, source_type,
           folder_path, control_family, source_mtime, source_size, content_sha256,
           indexed_at, parser_id, parser_version, parse_status, error_message,
-          header_kind, provenance, scan_root, run_id
+          header_kind, provenance, scan_root, programmer, run_id
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
         """,
         rows,
@@ -304,7 +312,7 @@ _INSTANCE_SELECT = """
                machine_folder_raw, date_folder_raw, backup_date, source_path,
                line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_size, content_sha256,
-               provenance, scan_root
+               provenance, scan_root, programmer
         FROM program_instances
 """
 
@@ -364,18 +372,20 @@ def query_instances(
     source_type: Optional[str] = None,
     control_family: Optional[str] = None,
     provenance: Optional[str] = None,
+    programmer: Optional[str] = None,
     limit: int = 500,
 ) -> list[sqlite3.Row]:
     """Flexible filter/search for GUI and CLI.
 
     ``text`` — free substring (any characters) across program #, part #, path,
-    machine id/label/folder, FANUC folder_path, date folder.
+    machine id/label/folder, FANUC folder_path, date folder, programmer.
     ``machine`` — single machine id/label (CLI); ignored if ``machines`` is set.
     ``machines`` — one or more machine ids/labels (multi-select GUI).
     ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date``
     (``DD.MM.YYYY`` or ``YYYY-MM-DD``).
     ``source_type`` / ``control_family`` — exact match when set.
     ``provenance`` — ``backup`` (green / ran on machine) or ``extra`` (yellow).
+    ``programmer`` — exact uppercase flag e.g. ``PG1`` (case-insensitive input).
     """
     conn.row_factory = sqlite3.Row
     clauses: list[str] = []
@@ -397,9 +407,10 @@ def query_instances(
               OR LOWER(IFNULL(machine_folder_raw,'')) LIKE ?
               OR LOWER(IFNULL(folder_path,'')) LIKE ?
               OR LOWER(IFNULL(date_folder_raw,'')) LIKE ?
+              OR LOWER(IFNULL(programmer,'')) LIKE ?
             )"""
         )
-        params.extend([like] * 8)
+        params.extend([like] * 9)
 
     machine_list: list[str] = []
     if machines is not None:
@@ -452,6 +463,10 @@ def query_instances(
     if provenance is not None and str(provenance).strip() and str(provenance).strip() != "(all)":
         clauses.append("IFNULL(provenance,'backup') = ?")
         params.append(str(provenance).strip())
+
+    if programmer is not None and str(programmer).strip() and str(programmer).strip() != "(all)":
+        clauses.append("UPPER(IFNULL(programmer,'')) = ?")
+        params.append(str(programmer).strip().upper())
 
     sql = _INSTANCE_SELECT
     if clauses:
@@ -553,7 +568,22 @@ def list_filter_values(
             """
         )
     ]
-    return {"machines": machines, "source_types": types, "control_families": families}
+    programmers = [
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT DISTINCT programmer FROM program_instances
+            WHERE programmer IS NOT NULL AND programmer != ''
+            ORDER BY programmer
+            """
+        )
+    ]
+    return {
+        "machines": machines,
+        "source_types": types,
+        "control_families": families,
+        "programmers": programmers,
+    }
 
 
 def format_location(row: sqlite3.Row | dict) -> str:

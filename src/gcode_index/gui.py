@@ -99,6 +99,7 @@ class IndexerApp(tk.Tk):
         self.source_type_var = tk.StringVar(value=ALL)
         self.control_var = tk.StringVar(value=ALL)
         self.provenance_var = tk.StringVar(value=ALL)
+        self.programmer_var = tk.StringVar(value=ALL)
         self.status_var = tk.StringVar(
             value="Pick a backup folder and a target folder for the database."
         )
@@ -121,6 +122,7 @@ class IndexerApp(tk.Tk):
             self.source_type_var,
             self.control_var,
             self.provenance_var,
+            self.programmer_var,
         ):
             var.trace_add("write", self._on_filter_changed)
 
@@ -286,6 +288,16 @@ class IndexerApp(tk.Tk):
         )
         self.provenance_combo.grid(row=2, column=6, sticky=tk.W, padx=4, pady=(6, 0))
 
+        ttk.Label(filt, text="Programmer").grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
+        self.programmer_combo = ttk.Combobox(
+            filt,
+            textvariable=self.programmer_var,
+            values=[ALL],
+            state="readonly",
+            width=14,
+        )
+        self.programmer_combo.grid(row=3, column=1, sticky=tk.W, padx=4, pady=(6, 0))
+
         row_actions = ttk.Frame(filt)
         row_actions.grid(row=3, column=6, sticky=tk.E, pady=(6, 0))
         ttk.Button(row_actions, text="Open folder", command=self._open_selected_folder).pack(
@@ -299,8 +311,8 @@ class IndexerApp(tk.Tk):
             filt,
             text="Green flag = from main backup (ran on machine). "
             "Yellow = from an extra folder (not in backup). "
-            "Empty machine selection = all machines. "
-            "Right-click a row for Open folder / Copy path.",
+            "Programmer = next-line (PG1)/(LP2) when present. "
+            "Empty machine selection = all machines.",
             foreground="#444",
         )
         hint.grid(row=4, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
@@ -311,6 +323,7 @@ class IndexerApp(tk.Tk):
             "flag",
             "program",
             "part",
+            "programmer",
             "machine",
             "date",
             "type",
@@ -326,13 +339,14 @@ class IndexerApp(tk.Tk):
         headings = {
             "flag": ("Flag", 56),
             "program": ("Program #", 90),
-            "part": ("Part number", 150),
-            "machine": ("Machine", 120),
-            "date": ("Date", 110),
-            "type": ("Source type", 110),
-            "control": ("Control", 80),
-            "path": ("Source path", 260),
-            "location": ("In-file location", 130),
+            "part": ("Part number", 130),
+            "programmer": ("Prog.", 56),
+            "machine": ("Machine", 110),
+            "date": ("Date", 100),
+            "type": ("Source type", 100),
+            "control": ("Control", 70),
+            "path": ("Source path", 240),
+            "location": ("In-file location", 120),
         }
         for key, (label, width) in headings.items():
             self.tree.heading(key, text=label)
@@ -772,6 +786,7 @@ class IndexerApp(tk.Tk):
             "machines": list(seed),
             "source_types": [],
             "control_families": [],
+            "programmers": [],
         }
         if db_path is not None and db_path.is_file():
             try:
@@ -793,6 +808,7 @@ class IndexerApp(tk.Tk):
                 self.machine_list.selection_set(i)
         self.type_combo["values"] = [ALL, *vals["source_types"]]
         self.control_combo["values"] = [ALL, *vals["control_families"]]
+        self.programmer_combo["values"] = [ALL, *vals.get("programmers", [])]
 
     def _clear_filters(self, status_prefix: Optional[str] = None) -> None:
         self._filter_trace_lock = True
@@ -804,6 +820,7 @@ class IndexerApp(tk.Tk):
             self.source_type_var.set(ALL)
             self.control_var.set(ALL)
             self.provenance_var.set(ALL)
+            self.programmer_var.set(ALL)
         finally:
             self._filter_trace_lock = False
         self._run_query_now(status_prefix=status_prefix)
@@ -835,6 +852,11 @@ class IndexerApp(tk.Tk):
         source_type = self.source_type_var.get().strip()
         control = self.control_var.get().strip()
         provenance = self._provenance_filter_value()
+        programmer = self.programmer_var.get().strip()
+        if not programmer or programmer == ALL:
+            programmer_filter = None
+        else:
+            programmer_filter = programmer
 
         try:
             conn = open_db(db_path)
@@ -848,6 +870,7 @@ class IndexerApp(tk.Tk):
                     source_type=source_type,
                     control_family=control,
                     provenance=provenance,
+                    programmer=programmer_filter,
                     limit=BROWSE_LIMIT,
                 )
                 total = conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0]
@@ -876,6 +899,8 @@ class IndexerApp(tk.Tk):
             bits.append(f"control={control}")
         if provenance:
             bits.append(f"flag={provenance}")
+        if programmer_filter:
+            bits.append(f"programmer={programmer_filter}")
         summary = " · ".join(bits)
         if status_prefix:
             self.status_var.set(f"{status_prefix} — {summary}")
@@ -902,6 +927,9 @@ class IndexerApp(tk.Tk):
             machine = r["machine_label"] or r["machine_id"] or ""
             keys = r.keys() if hasattr(r, "keys") else ()
             control = r["control_family"] if "control_family" in keys else ""
+            prog_flag = ""
+            if "programmer" in keys and r["programmer"]:
+                prog_flag = str(r["programmer"])
             prov = ""
             if "provenance" in keys:
                 prov = str(r["provenance"] or PROVENANCE_BACKUP)
@@ -919,6 +947,7 @@ class IndexerApp(tk.Tk):
                     flag,
                     r["program_number"] or "",
                     r["part_number"] or "",
+                    prog_flag,
                     machine,
                     date,
                     r["source_type"] or "",

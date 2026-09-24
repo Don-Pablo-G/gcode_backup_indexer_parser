@@ -10,6 +10,7 @@ from gcode_index.models import ProgramInstance
 COLUMNS = [
     ("program_number", "Program #"),
     ("part_number", "Part #"),
+    ("programmer", "Programmer"),
     ("machine_id", "Machine"),
     ("machine_label", "Machine label"),
     ("backup_date", "Date"),
