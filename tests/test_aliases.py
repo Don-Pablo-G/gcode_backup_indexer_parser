@@ -68,3 +68,28 @@ def test_local_aliases_overlay_and_persist(tmp_path: Path):
     part = partition_folders(["ShopOddMill", "Mystery"], merged)
     assert part.needs_manual == ["Mystery"]
     assert any(n == "ShopOddMill" for n, _ in part.auto_matched)
+
+
+def test_local_alias_edit_remove_restore_bundled(tmp_path: Path):
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    am = AliasMap.load_merged(bundled, None)
+    # Override a bundled key locally
+    am.add_local_alias("vf2s", "haas-umc750", label="HAAS UMC750")
+    assert am.resolve("VF2S").machine_id == "haas-umc750"
+    assert any(k == "vf2s" for k, _ in am.list_local_aliases())
+
+    am.rename_local_alias("vf2s", "VF2S_shop")
+    assert any(k == "VF2S_shop" for k, _ in am.list_local_aliases())
+    assert am.resolve("VF2S_shop").machine_id == "haas-umc750"
+
+    # Removing local override restores bundled vf2s → haas-vf-2
+    am.add_local_alias("vf2s", "haas-umc750")
+    assert am.resolve("VF2S").machine_id == "haas-umc750"
+    assert am.remove_local_alias("vf2s")
+    assert am.resolve("VF2S").machine_id == "haas-vf-2"
+
+    path = tmp_path / "aliases.local.yaml"
+    am.save_local(path)
+    reloaded = AliasMap.load_merged(bundled, path)
+    assert reloaded.resolve("VF2S_shop").machine_id == "haas-umc750"
+    assert len(reloaded.catalog_machines()) >= 5

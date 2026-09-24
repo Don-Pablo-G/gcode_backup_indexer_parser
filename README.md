@@ -45,6 +45,7 @@ python -m gcode_index.gui
    - Map is saved as `machine_folders.yaml` next to the DB (wins over aliases).  
    - Optional checkbox: also save assignments as **local aliases** (`aliases.local.yaml` next to the DB) so the same odd folder names auto-match on later scans.  
    - First scan prompts only when unmatched folders remain.  
+   - **Aliases…** opens an editor to **add / change / remove** local aliases (and override bundled ones). Bundled `aliases.yaml` stays read-only.  
 4. Click **Run index / scan** (optional Excel export checkbox).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
 5. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  

@@ -145,6 +145,9 @@ class IndexerApp(tk.Tk):
         ttk.Button(actions, text="Map folders…", command=self._open_folder_map).pack(
             side=tk.LEFT, padx=8
         )
+        ttk.Button(actions, text="Aliases…", command=self._open_alias_editor).pack(
+            side=tk.LEFT, padx=4
+        )
         ttk.Button(actions, text="Open existing DB…", command=self._pick_existing_db).pack(
             side=tk.LEFT, padx=4
         )
@@ -419,6 +422,31 @@ class IndexerApp(tk.Tk):
             if dlg.aliases_saved:
                 bits.append(f"local aliases → {LOCAL_ALIASES_FILENAME}")
             self.status_var.set("; ".join(bits))
+
+    def _open_alias_editor(self) -> None:
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showerror(
+                "Target folder",
+                "Choose a target folder first.\n"
+                f"Local aliases are saved as {LOCAL_ALIASES_FILENAME} next to the database.",
+            )
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        try:
+            aliases = self._load_alias_map()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Aliases", str(exc))
+            return
+        dlg = AliasEditorDialog(
+            self,
+            aliases=aliases,
+            save_path=local_aliases_path_for_target(target),
+        )
+        self.wait_window(dlg)
+        if dlg.saved:
+            self.status_var.set(f"Saved local aliases → {LOCAL_ALIASES_FILENAME}")
+            self._refresh_filter_choices()
 
     # --- scan -------------------------------------------------------------------
 
@@ -994,6 +1022,371 @@ class FolderMapDialog(tk.Toplevel):
                 messagebox.showerror("Save local aliases", str(exc), parent=self)
                 return
         self.saved = True
+        self.destroy()
+
+
+class AliasEditorDialog(tk.Toplevel):
+    """Add / change / remove shop-local machine aliases (aliases.local.yaml)."""
+
+    def __init__(
+        self,
+        master: tk.Tk,
+        *,
+        aliases: AliasMap,
+        save_path: Path,
+    ) -> None:
+        super().__init__(master)
+        self.title("Machine aliases")
+        self.minsize(640, 420)
+        self.geometry("760x520")
+        self.transient(master)
+        self.grab_set()
+        self.saved = False
+        self._aliases = aliases
+        self._save_path = Path(save_path)
+        self._dirty = False
+
+        ttk.Label(
+            self,
+            text=(
+                "Local aliases live next to the database and override the bundled map. "
+                "Add a folder spelling (e.g. VF2_old) → catalog machine. "
+                "Bundled aliases below are read-only — use Override to copy one into local."
+            ),
+            wraplength=720,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        nb = ttk.Notebook(self)
+        nb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+
+        local_tab = ttk.Frame(nb)
+        bundled_tab = ttk.Frame(nb)
+        nb.add(local_tab, text="Local (editable)")
+        nb.add(bundled_tab, text="Bundled (read-only)")
+
+        cols = ("folder", "machine_id", "label", "layout")
+        local_pane = ttk.Frame(local_tab)
+        local_pane.pack(fill=tk.BOTH, expand=True)
+        self._local_tree = ttk.Treeview(
+            local_pane, columns=cols, show="headings", selectmode="browse"
+        )
+        for c, w, t in (
+            ("folder", 160, "Folder name"),
+            ("machine_id", 140, "Machine id"),
+            ("label", 160, "Label"),
+            ("layout", 120, "Layout"),
+        ):
+            self._local_tree.heading(c, text=t)
+            self._local_tree.column(c, width=w, stretch=True)
+        local_sb = ttk.Scrollbar(local_pane, orient=tk.VERTICAL, command=self._local_tree.yview)
+        self._local_tree.configure(yscrollcommand=local_sb.set)
+        self._local_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        local_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._local_tree.bind("<Double-1>", lambda _e: self._edit_selected())
+
+        local_btns = ttk.Frame(local_tab)
+        local_btns.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(local_btns, text="Add…", command=self._add).pack(side=tk.LEFT)
+        ttk.Button(local_btns, text="Edit…", command=self._edit_selected).pack(
+            side=tk.LEFT, padx=6
+        )
+        ttk.Button(local_btns, text="Remove", command=self._remove_selected).pack(
+            side=tk.LEFT, padx=6
+        )
+
+        bun_pane = ttk.Frame(bundled_tab)
+        bun_pane.pack(fill=tk.BOTH, expand=True)
+        self._bundled_tree = ttk.Treeview(
+            bun_pane, columns=cols, show="headings", selectmode="browse"
+        )
+        for c, w, t in (
+            ("folder", 160, "Folder key"),
+            ("machine_id", 140, "Machine id"),
+            ("label", 160, "Label"),
+            ("layout", 120, "Layout"),
+        ):
+            self._bundled_tree.heading(c, text=t)
+            self._bundled_tree.column(c, width=w, stretch=True)
+        bun_sb = ttk.Scrollbar(bun_pane, orient=tk.VERTICAL, command=self._bundled_tree.yview)
+        self._bundled_tree.configure(yscrollcommand=bun_sb.set)
+        self._bundled_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        bun_sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bun_btns = ttk.Frame(bundled_tab)
+        bun_btns.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(
+            bun_btns,
+            text="Override selected → local…",
+            command=self._override_bundled,
+        ).pack(side=tk.LEFT)
+
+        footer = ttk.Frame(self)
+        footer.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Label(
+            footer,
+            text=f"Saves to: {self._save_path.name}",
+        ).pack(side=tk.LEFT)
+        ttk.Button(footer, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(footer, text="Save", command=self._save).pack(side=tk.RIGHT, padx=8)
+
+        self._reload_trees()
+
+    def _reload_trees(self) -> None:
+        for tree in (self._local_tree, self._bundled_tree):
+            for item in tree.get_children():
+                tree.delete(item)
+        for folder, entry in self._aliases.list_local_aliases():
+            self._local_tree.insert(
+                "",
+                tk.END,
+                iid=f"local:{folder}",
+                values=(
+                    folder,
+                    entry.get("machine_id") or "",
+                    entry.get("label") or "",
+                    entry.get("layout") or "",
+                ),
+            )
+        for folder, entry in self._aliases.list_bundled_alias_keys():
+            self._bundled_tree.insert(
+                "",
+                tk.END,
+                iid=f"bun:{folder}",
+                values=(
+                    folder,
+                    entry.get("machine_id") or "",
+                    entry.get("label") or "",
+                    entry.get("layout") or "",
+                ),
+            )
+
+    def _selected_local_folder(self) -> Optional[str]:
+        sel = self._local_tree.selection()
+        if not sel:
+            return None
+        vals = self._local_tree.item(sel[0], "values")
+        return str(vals[0]) if vals else None
+
+    def _add(self) -> None:
+        form = AliasEditForm(
+            self,
+            title="Add local alias",
+            aliases=self._aliases,
+            initial_folder="",
+            initial_machine_id="",
+        )
+        self.wait_window(form)
+        if not form.result:
+            return
+        folder, mid, label, layout = form.result
+        self._aliases.add_local_alias(folder, mid, label=label, layout=layout or None)
+        self._dirty = True
+        self._reload_trees()
+
+    def _edit_selected(self) -> None:
+        folder = self._selected_local_folder()
+        if not folder:
+            messagebox.showinfo("Edit alias", "Select a local alias first.", parent=self)
+            return
+        entry = None
+        for raw, ent in self._aliases.list_local_aliases():
+            if raw == folder:
+                entry = ent
+                break
+        if entry is None:
+            return
+        form = AliasEditForm(
+            self,
+            title="Edit local alias",
+            aliases=self._aliases,
+            initial_folder=folder,
+            initial_machine_id=str(entry.get("machine_id") or ""),
+            initial_label=str(entry.get("label") or ""),
+            initial_layout=str(entry.get("layout") or ""),
+        )
+        self.wait_window(form)
+        if not form.result:
+            return
+        new_folder, mid, label, layout = form.result
+        if new_folder != folder:
+            self._aliases.rename_local_alias(folder, new_folder)
+            folder = new_folder
+        self._aliases.add_local_alias(folder, mid, label=label, layout=layout or None)
+        self._dirty = True
+        self._reload_trees()
+
+    def _remove_selected(self) -> None:
+        folder = self._selected_local_folder()
+        if not folder:
+            messagebox.showinfo("Remove alias", "Select a local alias first.", parent=self)
+            return
+        if not messagebox.askyesno(
+            "Remove alias",
+            f"Remove local alias “{folder}”?",
+            parent=self,
+        ):
+            return
+        self._aliases.remove_local_alias(folder)
+        self._dirty = True
+        self._reload_trees()
+
+    def _override_bundled(self) -> None:
+        sel = self._bundled_tree.selection()
+        if not sel:
+            messagebox.showinfo(
+                "Override",
+                "Select a bundled alias first.",
+                parent=self,
+            )
+            return
+        vals = self._bundled_tree.item(sel[0], "values")
+        folder, mid, label, layout = (str(v) for v in vals)
+        form = AliasEditForm(
+            self,
+            title="Override → local alias",
+            aliases=self._aliases,
+            initial_folder=folder,
+            initial_machine_id=mid,
+            initial_label=label,
+            initial_layout=layout,
+        )
+        self.wait_window(form)
+        if not form.result:
+            return
+        new_folder, new_mid, new_label, new_layout = form.result
+        self._aliases.add_local_alias(
+            new_folder, new_mid, label=new_label, layout=new_layout or None
+        )
+        self._dirty = True
+        self._reload_trees()
+
+    def _save(self) -> None:
+        try:
+            self._aliases.save_local(self._save_path)
+        except OSError as exc:
+            messagebox.showerror("Save aliases", str(exc), parent=self)
+            return
+        self.saved = True
+        self._dirty = False
+        self.destroy()
+
+
+class AliasEditForm(tk.Toplevel):
+    """Small form: folder spelling + machine picker."""
+
+    def __init__(
+        self,
+        master: tk.Toplevel,
+        *,
+        title: str,
+        aliases: AliasMap,
+        initial_folder: str,
+        initial_machine_id: str,
+        initial_label: str = "",
+        initial_layout: str = "",
+    ) -> None:
+        super().__init__(master)
+        self.title(title)
+        self.transient(master)
+        self.grab_set()
+        self.result: Optional[tuple[str, str, Optional[str], str]] = None
+        self._aliases = aliases
+        self._catalog = aliases.catalog_machines()
+        self._display_to_id: dict[str, str] = {}
+        choices: list[str] = []
+        for m in self._catalog:
+            mid = m["machine_id"]
+            lab = str(m.get("label") or "").strip()
+            disp = f"{lab} ({mid})" if lab and lab != mid else mid
+            choices.append(disp)
+            self._display_to_id[disp] = mid
+        initial_disp = ""
+        for disp, mid in self._display_to_id.items():
+            if mid == initial_machine_id:
+                initial_disp = disp
+                break
+        if initial_machine_id and not initial_disp:
+            initial_disp = initial_machine_id
+            choices.append(initial_disp)
+            self._display_to_id[initial_disp] = initial_machine_id
+
+        body = ttk.Frame(self, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(body, text="Folder name (as in backup tree)").grid(
+            row=0, column=0, sticky=tk.W
+        )
+        self.folder_var = tk.StringVar(value=initial_folder)
+        ttk.Entry(body, textvariable=self.folder_var, width=40).grid(
+            row=0, column=1, sticky=tk.EW, padx=6, pady=4
+        )
+        ttk.Label(body, text="Machine").grid(row=1, column=0, sticky=tk.W)
+        self.machine_var = tk.StringVar(value=initial_disp)
+        self._machine_combo = ttk.Combobox(
+            body,
+            textvariable=self.machine_var,
+            values=choices,
+            state="readonly",
+            width=38,
+        )
+        self._machine_combo.grid(row=1, column=1, sticky=tk.EW, padx=6, pady=4)
+        self._machine_combo.bind("<<ComboboxSelected>>", self._on_machine_picked)
+        ttk.Label(body, text="Label (optional)").grid(row=2, column=0, sticky=tk.W)
+        self.label_var = tk.StringVar(value=initial_label)
+        ttk.Entry(body, textvariable=self.label_var, width=40).grid(
+            row=2, column=1, sticky=tk.EW, padx=6, pady=4
+        )
+        ttk.Label(body, text="Layout (optional)").grid(row=3, column=0, sticky=tk.W)
+        layouts = [
+            "",
+            "haas_pgm",
+            "haas_ngc",
+            "fanuc_all_fldr",
+            "fanuc_all_prog",
+            "manual_nc_folder",
+        ]
+        self.layout_var = tk.StringVar(value=initial_layout)
+        ttk.Combobox(
+            body,
+            textvariable=self.layout_var,
+            values=layouts,
+            width=38,
+        ).grid(row=3, column=1, sticky=tk.EW, padx=6, pady=4)
+        body.columnconfigure(1, weight=1)
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text="OK", command=self._ok).pack(side=tk.RIGHT, padx=8)
+        if initial_disp and not initial_label:
+            self._on_machine_picked()
+
+    def _on_machine_picked(self, _event: object = None) -> None:
+        mid = self._display_to_id.get(self.machine_var.get().strip(), "")
+        info = self._aliases.info_for_machine_id(mid, self.folder_var.get() or mid)
+        if info is None:
+            return
+        if info.label and not self.label_var.get().strip():
+            self.label_var.set(info.label)
+        if info.layout and not self.layout_var.get().strip():
+            self.layout_var.set(info.layout)
+
+    def _ok(self) -> None:
+        folder = self.folder_var.get().strip()
+        disp = self.machine_var.get().strip()
+        mid = self._display_to_id.get(disp, "")
+        if not mid and disp:
+            # Allow typing a raw machine_id if somehow not in catalog
+            parsed_mid, _ = parse_machine_display(disp)
+            mid = parsed_mid if parsed_mid != UNKNOWN_ID else disp
+        if not folder:
+            messagebox.showerror("Alias", "Folder name is required.", parent=self)
+            return
+        if not mid or mid == UNKNOWN_ID:
+            messagebox.showerror("Alias", "Choose a machine.", parent=self)
+            return
+        label = self.label_var.get().strip() or None
+        layout = self.layout_var.get().strip()
+        self.result = (folder, mid, label, layout)
         self.destroy()
 
 

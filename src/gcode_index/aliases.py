@@ -70,6 +70,7 @@ class AliasMap:
         *,
         local_keys: Optional[set[str]] = None,
         local_raw: Optional[dict[str, dict[str, Any]]] = None,
+        bundled_machines: Optional[dict[str, dict[str, Any]]] = None,
     ):
         # Normalized key → entry (merged view used for resolve)
         self._machines = {normalize_folder_name(k): v for k, v in machines.items()}
@@ -77,7 +78,16 @@ class AliasMap:
         self._local_keys: set[str] = set(local_keys or ())
         # Raw spelling → entry for local file round-trip (preserve folder spelling as key)
         self._local_raw: dict[str, dict[str, Any]] = dict(local_raw or {})
-
+        # Bundled-only snapshot (normalized) so local removals can restore defaults
+        if bundled_machines is not None:
+            self._bundled = {
+                normalize_folder_name(k): dict(v) for k, v in bundled_machines.items()
+            }
+        else:
+            # Pure bundled load: current machines are the bundled set
+            self._bundled = {
+                k: dict(v) for k, v in self._machines.items() if k not in self._local_keys
+            }
     @classmethod
     def load(cls, path: Optional[Path | str] = None) -> "AliasMap":
         p = Path(path) if path else default_aliases_path()
@@ -108,7 +118,12 @@ class AliasMap:
             nk = normalize_folder_name(raw_key)
             merged[nk] = entry
             local_keys.add(nk)
-        return cls(merged, local_keys=local_keys, local_raw=local_raw)
+        return cls(
+            merged,
+            local_keys=local_keys,
+            local_raw=local_raw,
+            bundled_machines=dict(base._machines),
+        )
 
     def with_local_file(self, local: Optional[Path | str]) -> "AliasMap":
         """Return a new map with ``local`` aliases overlaid (no-op if missing)."""
@@ -130,7 +145,12 @@ class AliasMap:
             merged[nk] = entry
             local_keys.add(nk)
             combined_raw[raw_key] = entry
-        return AliasMap(merged, local_keys=local_keys, local_raw=combined_raw)
+        return AliasMap(
+            merged,
+            local_keys=local_keys,
+            local_raw=combined_raw,
+            bundled_machines=dict(self._bundled),
+        )
 
     def _info_from_entry(self, entry: dict[str, Any], machine_folder_raw: str) -> MachineInfo:
         return MachineInfo(
@@ -243,6 +263,84 @@ class AliasMap:
             if normalize_folder_name(old) == nk:
                 del self._local_raw[old]
         self._local_raw[raw] = entry
+
+    def remove_local_alias(self, folder_raw: str) -> bool:
+        """Remove a shop-local alias by folder spelling (or normalized match)."""
+        raw = str(folder_raw).strip()
+        if not raw:
+            return False
+        nk = normalize_folder_name(raw)
+        removed = False
+        for key in list(self._local_raw):
+            if key == raw or normalize_folder_name(key) == nk:
+                del self._local_raw[key]
+                removed = True
+        if nk in self._local_keys:
+            self._local_keys.discard(nk)
+            removed = True
+        if not removed:
+            return False
+        # Restore bundled meaning if this key existed in the catalog
+        if nk in self._bundled:
+            self._machines[nk] = dict(self._bundled[nk])
+        elif nk in self._machines:
+            del self._machines[nk]
+        return True
+
+    def rename_local_alias(self, old_raw: str, new_raw: str) -> bool:
+        """Rename the folder key of a local alias (keeps machine entry)."""
+        old = str(old_raw).strip()
+        new = str(new_raw).strip()
+        if not old or not new:
+            return False
+        entry = None
+        for key, ent in list(self._local_raw.items()):
+            if key == old or normalize_folder_name(key) == normalize_folder_name(old):
+                entry = dict(ent)
+                break
+        if entry is None:
+            return False
+        self.remove_local_alias(old)
+        mid = str(entry.get("machine_id") or "").strip()
+        if not mid:
+            return False
+        self.add_local_alias(
+            new,
+            mid,
+            label=entry.get("label"),
+            control_family=entry.get("control_family"),
+            layout=entry.get("layout"),
+        )
+        return True
+
+    def list_local_aliases(self) -> list[tuple[str, dict[str, Any]]]:
+        """``(folder_raw, entry)`` for shop-local aliases, sorted by name."""
+        rows = list(self._local_raw.items())
+        rows.sort(key=lambda kv: kv[0].casefold())
+        return [(k, dict(v)) for k, v in rows]
+
+    def list_bundled_alias_keys(self) -> list[tuple[str, dict[str, Any]]]:
+        """Bundled aliases (normalized keys) for read-only browsing in the GUI."""
+        rows: list[tuple[str, dict[str, Any]]] = []
+        for nk, entry in self._bundled.items():
+            rows.append((nk, dict(entry)))
+        rows.sort(key=lambda kv: kv[0].casefold())
+        return rows
+
+    def catalog_machines(self) -> list[dict[str, Any]]:
+        """Unique machines from the catalog for picker UIs."""
+        by_id: dict[str, dict[str, Any]] = {}
+        for entry in self._machines.values():
+            mid = str(entry.get("machine_id") or "").strip()
+            if not mid or mid in by_id:
+                continue
+            by_id[mid] = {
+                "machine_id": mid,
+                "label": entry.get("label"),
+                "control_family": entry.get("control_family"),
+                "layout": entry.get("layout"),
+            }
+        return sorted(by_id.values(), key=lambda e: str(e.get("label") or e["machine_id"]).casefold())
 
     def save_local(self, path: Path | str) -> Path:
         """Write only shop-local aliases (does not touch bundled aliases.yaml)."""
