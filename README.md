@@ -43,7 +43,7 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
 
 | Mode | Who | What you see |
 |------|-----|----------------|
-| **Prosty / Simple** (default) | Operators | Folders, scan, open DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract |
+| **Prosty / Simple** (default) | Operators | Folders, scan, open DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract — key fields and the green **Indeksuj** / **Wydobądź** buttons are highlighted |
 | **Pełny / Full** | Power users | Everything above + extra folders, map/aliases, Excel, incremental checkbox, advanced filters, presets, compare, scan report, duplicates |
 
 ### Simple mode (operators)

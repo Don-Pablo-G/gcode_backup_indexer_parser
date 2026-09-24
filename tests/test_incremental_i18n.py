@@ -45,6 +45,17 @@ def test_ui_mode_defaults():
     assert "Prosty" in t("pl", "mode_simple")
     assert "Pełny" in t("pl", "mode_full")
     assert "Wydobądź" in t("pl", "hint_simple")
+    assert t("pl", "folders_step").startswith("1")
+    assert t("pl", "find_programs_step").startswith("2")
+    assert "zielony" in t("pl", "hint_simple")
+
+
+def test_ui_accent_constants():
+    from gcode_index.ui_theme import UI_ACCENT, UI_KEY_FG
+
+    assert UI_ACCENT.startswith("#")
+    assert UI_KEY_FG.startswith("#")
+    assert UI_ACCENT != UI_KEY_FG
 
 
 def test_ui_language_persist(tmp_path: Path):

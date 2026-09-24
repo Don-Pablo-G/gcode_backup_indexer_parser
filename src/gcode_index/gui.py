@@ -96,6 +96,13 @@ from gcode_index.scan_report import (
     scan_report_from_result,
 )
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
+from gcode_index.ui_theme import (
+    UI_ACCENT,
+    UI_ACCENT_HOVER,
+    UI_ACCENT_TEXT,
+    UI_KEY_FG,
+    UI_MUTED_FG,
+)
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +113,7 @@ ALL = "(all)"
 ALL_TOKENS = frozenset({"(all)", "(wszystkie)"})
 UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
-# Re-export helpers for callers that imported them from gui
+# Re-export theme colors for callers / tests that import from gui
 __all__ = [
     "IndexerApp",
     "main",
@@ -114,6 +121,8 @@ __all__ = [
     "format_eta",
     "open_path_in_file_manager",
     "resolve_source_abspath",
+    "UI_ACCENT",
+    "UI_KEY_FG",
 ]
 
 
@@ -157,6 +166,7 @@ class IndexerApp(tk.Tk):
         self._ui_mode = DEFAULT_UI_MODE
         self._hidden_extras: list[str] = []
 
+        self._configure_styles()
         self._build()
         # Seed machine list from aliases before any scan
         self._refresh_filter_choices()
@@ -174,6 +184,67 @@ class IndexerApp(tk.Tk):
 
     def _(self, key: str, **kwargs) -> str:
         return t(self._lang, key, **kwargs)
+
+    def _ui_font(self, *, size: int = 10, bold: bool = False) -> tuple:
+        family = "Segoe UI" if sys.platform == "win32" else "TkDefaultFont"
+        weight = "bold" if bold else "normal"
+        return (family, size, weight)
+
+    def _configure_styles(self) -> None:
+        """Emphasize primary labels / sections; secondary widgets stay muted."""
+        style = ttk.Style(self)
+        style.configure(
+            "Key.TLabel",
+            font=self._ui_font(size=10, bold=True),
+            foreground=UI_KEY_FG,
+        )
+        style.configure(
+            "Muted.TLabel",
+            foreground=UI_MUTED_FG,
+        )
+        style.configure(
+            "Primary.TLabelframe.Label",
+            font=self._ui_font(size=10, bold=True),
+            foreground=UI_ACCENT,
+        )
+        style.configure("Primary.TLabelframe", padding=8)
+        style.configure(
+            "Key.TEntry",
+            font=self._ui_font(size=11, bold=False),
+        )
+
+    def _make_primary_button(self, parent: tk.Misc, text: str, command) -> tk.Button:
+        """Colored primary CTA — tk.Button so accent survives Windows ttk themes."""
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=UI_ACCENT,
+            fg=UI_ACCENT_TEXT,
+            activebackground=UI_ACCENT_HOVER,
+            activeforeground=UI_ACCENT_TEXT,
+            disabledforeground="#c8c8c8",
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=14,
+            pady=5,
+            font=self._ui_font(size=10, bold=True),
+            cursor="hand2",
+            highlightthickness=0,
+        )
+
+    def _set_primary_button_enabled(self, btn: tk.Button, enabled: bool) -> None:
+        if enabled:
+            btn.configure(
+                state=tk.NORMAL,
+                bg=UI_ACCENT,
+                fg=UI_ACCENT_TEXT,
+                activebackground=UI_ACCENT_HOVER,
+                activeforeground=UI_ACCENT_TEXT,
+                cursor="hand2",
+            )
+        else:
+            btn.configure(state=tk.DISABLED, cursor="arrow")
 
     def _all_token(self) -> str:
         return self._("all_paren")
@@ -323,20 +394,27 @@ class IndexerApp(tk.Tk):
         if not self.preview_header_var.get():
             self.preview_header_var.set(self._("preview_idle"))
 
-        paths = ttk.LabelFrame(root, text=self._("folders"), padding=8)
+        paths = ttk.LabelFrame(
+            root,
+            text=(self._("folders_step") if simple else self._("folders")),
+            padding=8,
+            style="Primary.TLabelframe",
+        )
         paths.pack(fill=tk.X, **pad)
 
-        ttk.Label(paths, text=self._("backup_folder")).grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(paths, textvariable=self.backup_var).grid(
-            row=0, column=1, sticky=tk.EW, padx=4
+        ttk.Label(paths, text=self._("backup_folder"), style="Key.TLabel").grid(
+            row=0, column=0, sticky=tk.W
+        )
+        ttk.Entry(paths, textvariable=self.backup_var, style="Key.TEntry").grid(
+            row=0, column=1, sticky=tk.EW, padx=4, ipady=2
         )
         ttk.Button(paths, text=self._("browse"), command=self._pick_backup).grid(row=0, column=2)
 
-        ttk.Label(paths, text=self._("target_folder")).grid(
+        ttk.Label(paths, text=self._("target_folder"), style="Key.TLabel").grid(
             row=1, column=0, sticky=tk.W
         )
-        ttk.Entry(paths, textvariable=self.target_var).grid(
-            row=1, column=1, sticky=tk.EW, padx=4
+        ttk.Entry(paths, textvariable=self.target_var, style="Key.TEntry").grid(
+            row=1, column=1, sticky=tk.EW, padx=4, ipady=2
         )
         ttk.Button(paths, text=self._("browse"), command=self._pick_target).grid(row=1, column=2)
         paths.columnconfigure(1, weight=1)
@@ -366,14 +444,45 @@ class IndexerApp(tk.Tk):
             ttk.Label(
                 extra_btns,
                 text=self._("extra_hint"),
-                foreground="#444",
+                style="Muted.TLabel",
             ).pack(side=tk.LEFT, padx=8)
         elif hasattr(self, "extra_list"):
             delattr(self, "extra_list")
 
         actions = ttk.Frame(root)
         actions.pack(fill=tk.X, **pad)
-        self.scan_btn = ttk.Button(actions, text=self._("run_scan"), command=self._start_scan)
+
+        # Settings sit on the right so primary CTAs read left→right.
+        settings = ttk.Frame(actions)
+        settings.pack(side=tk.RIGHT)
+        ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=(0, 2)
+        )
+        lang_combo = ttk.Combobox(
+            settings,
+            textvariable=self.lang_var,
+            values=["pl", "en"],
+            state="readonly",
+            width=6,
+        )
+        lang_combo.pack(side=tk.LEFT)
+        lang_combo.bind("<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get()))
+        ttk.Label(settings, text=self._("ui_mode"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=(12, 2)
+        )
+        mode_combo = ttk.Combobox(
+            settings,
+            textvariable=self.ui_mode_var,
+            values=[self._("mode_simple"), self._("mode_full")],
+            state="readonly",
+            width=10,
+        )
+        mode_combo.pack(side=tk.LEFT)
+        mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
+
+        self.scan_btn = self._make_primary_button(
+            actions, self._("run_scan"), self._start_scan
+        )
         self.scan_btn.pack(side=tk.LEFT)
         if not simple:
             ttk.Button(actions, text=self._("map_folders"), command=self._open_folder_map).pack(
@@ -383,7 +492,7 @@ class IndexerApp(tk.Tk):
                 side=tk.LEFT, padx=4
             )
         ttk.Button(actions, text=self._("open_db"), command=self._pick_existing_db).pack(
-            side=tk.LEFT, padx=4
+            side=tk.LEFT, padx=8
         )
         if not simple:
             ttk.Button(actions, text=self._("scan_report"), command=self._open_scan_report).pack(
@@ -402,26 +511,6 @@ class IndexerApp(tk.Tk):
             ttk.Checkbutton(
                 actions, text=self._("incremental"), variable=self.incremental_var
             ).pack(side=tk.LEFT, padx=8)
-        ttk.Label(actions, text=self._("language")).pack(side=tk.LEFT, padx=(12, 2))
-        lang_combo = ttk.Combobox(
-            actions,
-            textvariable=self.lang_var,
-            values=["pl", "en"],
-            state="readonly",
-            width=6,
-        )
-        lang_combo.pack(side=tk.LEFT)
-        lang_combo.bind("<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get()))
-        ttk.Label(actions, text=self._("ui_mode")).pack(side=tk.LEFT, padx=(12, 2))
-        mode_combo = ttk.Combobox(
-            actions,
-            textvariable=self.ui_mode_var,
-            values=[self._("mode_simple"), self._("mode_full")],
-            state="readonly",
-            width=10,
-        )
-        mode_combo.pack(side=tk.LEFT)
-        mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
 
         prog_frame = ttk.Frame(root)
         prog_frame.pack(fill=tk.X, **pad)
@@ -436,23 +525,26 @@ class IndexerApp(tk.Tk):
             side=tk.LEFT, padx=(8, 0)
         )
 
-        find_title = self._("find_programs_simple") if simple else self._("find_programs")
-        filt = ttk.LabelFrame(root, text=find_title, padding=8)
+        find_title = self._("find_programs_step") if simple else self._("find_programs")
+        filt = ttk.LabelFrame(root, text=find_title, padding=8, style="Primary.TLabelframe")
         filt.pack(fill=tk.X, **pad)
 
-        ttk.Label(filt, text=self._("text")).grid(row=0, column=0, sticky=tk.W)
-        self.search_entry = ttk.Entry(filt, textvariable=self.search_var)
-        self.search_entry.grid(row=0, column=1, columnspan=4, sticky=tk.EW, padx=4)
+        ttk.Label(filt, text=self._("text"), style="Key.TLabel").grid(row=0, column=0, sticky=tk.W)
+        self.search_entry = ttk.Entry(filt, textvariable=self.search_var, style="Key.TEntry")
+        self.search_entry.grid(row=0, column=1, columnspan=4, sticky=tk.EW, padx=4, ipady=3)
         ttk.Checkbutton(
             filt,
             text=self._("newest_only"),
             variable=self.newest_only_var,
         ).grid(row=0, column=5, sticky=tk.E, padx=4)
-        ttk.Button(filt, text=self._("extract_selected"), command=self._extract_selected).grid(
-            row=0, column=6, padx=4
+        self.extract_btn = self._make_primary_button(
+            filt, self._("extract_selected"), self._extract_selected
         )
+        self.extract_btn.grid(row=0, column=6, padx=4)
 
-        ttk.Label(filt, text=self._("machines")).grid(row=1, column=0, sticky=tk.NW, pady=(6, 0))
+        ttk.Label(filt, text=self._("machines"), style="Key.TLabel").grid(
+            row=1, column=0, sticky=tk.NW, pady=(6, 0)
+        )
         mach_frame = ttk.Frame(filt)
         mach_frame.grid(row=1, column=1, sticky=tk.NSEW, padx=4, pady=(6, 0))
         self.machine_list = tk.Listbox(
@@ -476,11 +568,13 @@ class IndexerApp(tk.Tk):
         ttk.Button(mach_btns, text=self._("none"), width=10, command=self._clear_machine_selection).pack(
             anchor=tk.W, pady=1
         )
-        ttk.Label(mach_btns, text=self._("multi_hint"), foreground="#555").pack(
+        ttk.Label(mach_btns, text=self._("multi_hint"), style="Muted.TLabel").pack(
             anchor=tk.W, pady=(4, 0)
         )
 
-        ttk.Label(filt, text=self._("date_from")).grid(row=1, column=3, sticky=tk.NW, pady=(6, 0))
+        ttk.Label(filt, text=self._("date_from"), style="Key.TLabel").grid(
+            row=1, column=3, sticky=tk.NW, pady=(6, 0)
+        )
         date_box = ttk.Frame(filt)
         date_box.grid(row=1, column=4, columnspan=3, sticky=tk.NW, padx=4, pady=(6, 0))
         ttk.Entry(date_box, textvariable=self.date_from_var, width=11).grid(
@@ -490,7 +584,7 @@ class IndexerApp(tk.Tk):
         ttk.Entry(date_box, textvariable=self.date_to_var, width=11).grid(
             row=0, column=2, sticky=tk.W
         )
-        ttk.Label(date_box, text=self._("date_format"), foreground="#555").grid(
+        ttk.Label(date_box, text=self._("date_format"), style="Muted.TLabel").grid(
             row=1, column=0, columnspan=3, sticky=tk.W, pady=(2, 0)
         )
 
@@ -576,7 +670,7 @@ class IndexerApp(tk.Tk):
             ttk.Label(
                 preset_row,
                 text=self._("preset_hint", filename=PRESETS_FILENAME),
-                foreground="#555",
+                style="Muted.TLabel",
             ).pack(side=tk.LEFT, padx=8)
             hint_row = 5
             hint_key = "hint"
@@ -604,7 +698,7 @@ class IndexerApp(tk.Tk):
         hint = ttk.Label(
             filt,
             text=self._(hint_key),
-            foreground="#444",
+            style="Muted.TLabel",
             wraplength=1100,
         )
         hint.grid(row=hint_row, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
@@ -664,7 +758,9 @@ class IndexerApp(tk.Tk):
             self.tree.bind("<Button-2>", self._on_tree_context)
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
 
-        preview_frame = ttk.LabelFrame(results_pane, text=self._("preview"), padding=4)
+        preview_frame = ttk.LabelFrame(
+            results_pane, text=self._("preview"), padding=4, style="Primary.TLabelframe"
+        )
         results_pane.add(preview_frame, weight=2)
         ttk.Label(preview_frame, textvariable=self.preview_header_var).pack(
             fill=tk.X, padx=2, pady=(0, 2)
@@ -961,7 +1057,7 @@ class IndexerApp(tk.Tk):
                 if messagebox.askyesno("Map folders", prompt):
                     self._open_folder_map()
         self._scan_busy = True
-        self.scan_btn.configure(state=tk.DISABLED)
+        self._set_primary_button_enabled(self.scan_btn, False)
         self.progress_var.set(0.0)
         self.progress_label_var.set("Starting…")
         self.status_var.set("Scanning…")
@@ -1119,7 +1215,7 @@ class IndexerApp(tk.Tk):
         report: Optional[ScanReport] = None,
     ) -> None:
         self._scan_busy = False
-        self.scan_btn.configure(state=tk.NORMAL)
+        self._set_primary_button_enabled(self.scan_btn, True)
         try:
             self.progress.stop()
         except tk.TclError:

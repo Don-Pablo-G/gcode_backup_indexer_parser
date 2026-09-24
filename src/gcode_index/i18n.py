@@ -18,6 +18,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "pl": {
         "app_title": "Indeksator kopii G-code",
         "folders": "Foldery",
+        "folders_step": "1 · Foldery",
         "backup_folder": "Folder kopii zapasowych",
         "target_folder": "Folder docelowy (baza / wydobyte programy)",
         "browse": "Przeglądaj…",
@@ -42,6 +43,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "mode_full": "Pełny",
         "find_programs": "Szukaj programów — tekst · maszyny · data · źródło",
         "find_programs_simple": "Szukaj programów",
+        "find_programs_step": "2 · Szukaj programów",
         "text": "Tekst",
         "newest_only": "Tylko najnowsze",
         "extract_selected": "Wydobądź zaznaczone…",
@@ -77,10 +79,10 @@ STRINGS: dict[str, dict[str, str]] = {
             "Przyrostowy skan pomija niezmienione pliki."
         ),
         "hint_simple": (
-            "1) Wybierz folder kopii i folder docelowy. "
-            "2) Kliknij Indeksuj / skanuj. "
+            "1) Wybierz foldery kopii i docelowy (sekcja zielona). "
+            "2) Kliknij zielony przycisk Indeksuj / skanuj. "
             "3) Szukaj po numerze programu lub części. "
-            "4) Zaznacz wiersz → Wydobądź (lub podwójne kliknięcie). "
+            "4) Zaznacz wiersz → zielony Wydobądź (lub podwójne kliknięcie). "
             "Podgląd pokazuje treść programu. "
             "Tylko najnowsze = jedna pozycja na program+maszynę."
         ),
@@ -114,6 +116,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "app_title": "G-code Backup Indexer",
         "folders": "Folders",
+        "folders_step": "1 · Folders",
         "backup_folder": "Backup folder",
         "target_folder": "Target folder (DB / extracts)",
         "browse": "Browse…",
@@ -138,6 +141,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "mode_full": "Full",
         "find_programs": "Find programs — text · machines (multi-select) · date · source",
         "find_programs_simple": "Find programs",
+        "find_programs_step": "2 · Find programs",
         "text": "Text",
         "newest_only": "Newest only",
         "extract_selected": "Extract selected…",
@@ -173,10 +177,10 @@ STRINGS: dict[str, dict[str, str]] = {
             "Incremental scan skips unchanged files."
         ),
         "hint_simple": (
-            "1) Pick backup + target folders. "
-            "2) Click Run index / scan. "
+            "1) Pick backup + target folders (green section). "
+            "2) Click the green Run index / scan button. "
             "3) Search by program or part number. "
-            "4) Select a row → Extract (or double-click). "
+            "4) Select a row → green Extract (or double-click). "
             "Preview shows the program body. "
             "Newest only = one row per program+machine."
         ),
