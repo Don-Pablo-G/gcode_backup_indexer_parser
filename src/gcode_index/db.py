@@ -226,14 +226,15 @@ def query_digit_count(query: str) -> int:
     return sum(1 for ch in query if ch.isdigit())
 
 
-def validate_search_query(query: str) -> str:
-    """Normalize and validate a search string. Must contain ≥4 digits.
+def validate_search_query(query: str, *, min_chars: int = 1) -> str:
+    """Normalize a free-text search string (letters, digits, punctuation OK).
 
-    Returns the stripped query used for matching.
+    Empty after strip raises ``ValueError``. Digit-count gates were removed —
+    part names like ``P-00253232 VA`` and paths need letters / dashes.
     """
     q = (query or "").strip()
-    if query_digit_count(q) < 4:
-        raise ValueError("search query must contain at least 4 digits")
+    if len(q) < min_chars:
+        raise ValueError("search query is empty")
     return q
 
 
@@ -252,12 +253,153 @@ def _match_rank(value: Optional[str], query: str) -> int:
     return 3
 
 
-def rank_match(program_number: Optional[str], part_number: Optional[str], query: str) -> int:
-    """Combined rank for a row: best of program # / part # (prefer program on ties)."""
-    prog = _match_rank(program_number, query)
-    part = _match_rank(part_number, query)
-    # Prefer program_number when ranks equal (prog*2 vs part*2+1).
-    return min(prog * 2, part * 2 + 1)
+def rank_match(
+    program_number: Optional[str],
+    part_number: Optional[str],
+    query: str,
+    *,
+    source_path: Optional[str] = None,
+    machine_id: Optional[str] = None,
+    machine_label: Optional[str] = None,
+) -> int:
+    """Combined rank for a row (prefer program #, then part, then path/machine)."""
+    ranks = [
+        _match_rank(program_number, query) * 2,
+        _match_rank(part_number, query) * 2 + 1,
+        _match_rank(source_path, query) * 2 + 2,
+        _match_rank(machine_label, query) * 2 + 3,
+        _match_rank(machine_id, query) * 2 + 4,
+    ]
+    return min(ranks)
+
+
+_INSTANCE_SELECT = """
+        SELECT instance_id, program_number, part_number, machine_id, machine_label,
+               machine_folder_raw, date_folder_raw, backup_date, source_path,
+               line_start, line_end, byte_start, byte_end, source_type,
+               folder_path, control_family
+        FROM program_instances
+"""
+
+
+def _normalize_date_bound(value: Optional[str], *, end: bool = False) -> Optional[str]:
+    """Accept ``YYYY-MM-DD`` or ISO datetime; return comparable ISO-ish string."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    # Date-only → expand to day bounds so ISO datetimes compare correctly
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        return f"{s}T23:59:59.999999+00:00" if end else f"{s}T00:00:00+00:00"
+    return s
+
+
+def query_instances(
+    conn: sqlite3.Connection,
+    *,
+    text: Optional[str] = None,
+    machine: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    source_type: Optional[str] = None,
+    control_family: Optional[str] = None,
+    limit: int = 500,
+) -> list[sqlite3.Row]:
+    """Flexible filter/search for GUI and CLI.
+
+    ``text`` — free substring (any characters) across program #, part #, path,
+    machine id/label/folder, FANUC folder_path, date folder.
+    ``machine`` — match machine_id, machine_label, or machine_folder_raw.
+    ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date`` (YYYY-MM-DD OK).
+    ``source_type`` / ``control_family`` — exact match when set.
+    """
+    conn.row_factory = sqlite3.Row
+    clauses: list[str] = []
+    params: list[object] = []
+
+    q: Optional[str] = None
+    if text is not None and str(text).strip():
+        q = validate_search_query(str(text))
+        like = f"%{q}%"
+        clauses.append(
+            """(
+              program_number LIKE ? COLLATE NOCASE
+              OR IFNULL(part_number,'') LIKE ? COLLATE NOCASE
+              OR source_path LIKE ? COLLATE NOCASE
+              OR machine_id LIKE ? COLLATE NOCASE
+              OR IFNULL(machine_label,'') LIKE ? COLLATE NOCASE
+              OR IFNULL(machine_folder_raw,'') LIKE ? COLLATE NOCASE
+              OR IFNULL(folder_path,'') LIKE ? COLLATE NOCASE
+              OR IFNULL(date_folder_raw,'') LIKE ? COLLATE NOCASE
+            )"""
+        )
+        params.extend([like] * 8)
+
+    if machine is not None and str(machine).strip() and str(machine).strip() != "(all)":
+        m = str(machine).strip()
+        # Combobox may show "Label (machine_id)"
+        if m.endswith(")") and "(" in m:
+            inner = m[m.rfind("(") + 1 : -1].strip()
+            if inner:
+                m = inner
+        clauses.append(
+            """(
+              machine_id = ?
+              OR IFNULL(machine_label,'') = ?
+              OR IFNULL(machine_folder_raw,'') = ?
+              OR machine_id LIKE ? COLLATE NOCASE
+              OR IFNULL(machine_label,'') LIKE ? COLLATE NOCASE
+            )"""
+        )
+        params.extend([m, m, m, f"%{m}%", f"%{m}%"])
+
+    d_from = _normalize_date_bound(date_from, end=False)
+    d_to = _normalize_date_bound(date_to, end=True)
+    if d_from:
+        clauses.append("backup_date >= ?")
+        params.append(d_from)
+    if d_to:
+        clauses.append("backup_date <= ?")
+        params.append(d_to)
+
+    if source_type is not None and str(source_type).strip() and str(source_type).strip() != "(all)":
+        clauses.append("source_type = ?")
+        params.append(str(source_type).strip())
+
+    if (
+        control_family is not None
+        and str(control_family).strip()
+        and str(control_family).strip() != "(all)"
+    ):
+        clauses.append("IFNULL(control_family,'') = ?")
+        params.append(str(control_family).strip())
+
+    sql = _INSTANCE_SELECT
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    fetch_limit = max(limit * 5, 200) if q else limit
+    sql += " LIMIT ?"
+    params.append(fetch_limit)
+
+    rows = list(conn.execute(sql, params).fetchall())
+    if q:
+        rows.sort(key=lambda r: (r["machine_id"] or "", r["program_number"] or ""))
+        rows.sort(key=lambda r: r["backup_date"] or "", reverse=True)
+        rows.sort(
+            key=lambda r: rank_match(
+                r["program_number"],
+                r["part_number"],
+                q,
+                source_path=r["source_path"],
+                machine_id=r["machine_id"],
+                machine_label=r["machine_label"],
+            )
+        )
+    else:
+        rows.sort(key=lambda r: (r["machine_id"] or "", r["program_number"] or ""))
+        rows.sort(key=lambda r: r["backup_date"] or "", reverse=True)
+    return rows[:limit]
 
 
 def search_instances(
@@ -266,34 +408,8 @@ def search_instances(
     *,
     limit: int = 100,
 ) -> list[sqlite3.Row]:
-    """Substring search on program_number, part_number, and source_path.
-
-    Query must contain ≥4 digits. Results prefer prefix matches over mid-string
-    hits, then newer ``backup_date``, then machine / program number.
-    """
-    q = validate_search_query(query)
-    conn.row_factory = sqlite3.Row
-    # Wider fetch, then re-rank in Python (LIKE alone cannot prefer prefixes).
-    fetch_limit = max(limit * 5, 200)
-    cur = conn.execute(
-        """
-        SELECT instance_id, program_number, part_number, machine_id, machine_label,
-               backup_date, source_path, line_start, line_end, byte_start, byte_end,
-               source_type
-        FROM program_instances
-        WHERE program_number LIKE '%' || ? || '%'
-           OR part_number LIKE '%' || ? || '%'
-           OR source_path LIKE '%' || ? || '%'
-        LIMIT ?
-        """,
-        (q, q, q, fetch_limit),
-    )
-    rows = list(cur.fetchall())
-    # Stable multi-key sort: least → most significant.
-    rows.sort(key=lambda r: (r["machine_id"] or "", r["program_number"] or ""))
-    rows.sort(key=lambda r: r["backup_date"] or "", reverse=True)
-    rows.sort(key=lambda r: rank_match(r["program_number"], r["part_number"], q))
-    return rows[:limit]
+    """Free-text search (any characters) across program / part / path / machine."""
+    return query_instances(conn, text=query, limit=limit)
 
 
 def list_instances(
@@ -302,19 +418,46 @@ def list_instances(
     limit: int = 500,
 ) -> list[sqlite3.Row]:
     """Browse newest program instances (no query) — used by GUI after scan."""
+    return query_instances(conn, limit=limit)
+
+
+def list_filter_values(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Distinct values for GUI filter dropdowns."""
     conn.row_factory = sqlite3.Row
-    cur = conn.execute(
+    machines: list[str] = []
+    seen: set[str] = set()
+    for r in conn.execute(
         """
-        SELECT instance_id, program_number, part_number, machine_id, machine_label,
-               backup_date, source_path, line_start, line_end, byte_start, byte_end,
-               source_type
+        SELECT DISTINCT machine_id, machine_label
         FROM program_instances
-        ORDER BY backup_date DESC, machine_id, program_number
-        LIMIT ?
-        """,
-        (limit,),
-    )
-    return list(cur.fetchall())
+        ORDER BY IFNULL(machine_label, machine_id)
+        """
+    ):
+        mid = r["machine_id"] or ""
+        label = (r["machine_label"] or "").strip()
+        display = f"{label} ({mid})" if label and label != mid else mid
+        if display and display not in seen:
+            seen.add(display)
+            machines.append(display)
+
+    types = [
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT source_type FROM program_instances ORDER BY source_type"
+        )
+        if r[0]
+    ]
+    families = [
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT DISTINCT control_family FROM program_instances
+            WHERE control_family IS NOT NULL AND control_family != ''
+            ORDER BY control_family
+            """
+        )
+    ]
+    return {"machines": machines, "source_types": types, "control_families": families}
 
 
 def format_location(row: sqlite3.Row | dict) -> str:

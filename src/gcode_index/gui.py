@@ -19,10 +19,9 @@ from typing import Optional
 from gcode_index.aliases import AliasMap, default_aliases_path
 from gcode_index.db import (
     format_location,
-    list_instances,
+    list_filter_values,
     open_db,
-    query_digit_count,
-    search_instances,
+    query_instances,
     write_scan_result,
 )
 from gcode_index.excel_export import export_excel
@@ -35,10 +34,10 @@ from gcode_index.scanner import scan_backup_tree
 
 log = logging.getLogger(__name__)
 
-SEARCH_DEBOUNCE_MS = 200
-MIN_DIGITS = 4
+SEARCH_DEBOUNCE_MS = 250
 DEFAULT_DB_NAME = "gcode_index.sqlite"
 BROWSE_LIMIT = 500
+ALL = "(all)"
 
 
 class IndexerApp(tk.Tk):
@@ -47,12 +46,17 @@ class IndexerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("G-code Backup Indexer")
-        self.minsize(960, 520)
-        self.geometry("1180x620")
+        self.minsize(1000, 560)
+        self.geometry("1280x680")
 
         self.backup_var = tk.StringVar()
         self.target_var = tk.StringVar()
         self.search_var = tk.StringVar()
+        self.machine_var = tk.StringVar(value=ALL)
+        self.date_from_var = tk.StringVar()
+        self.date_to_var = tk.StringVar()
+        self.source_type_var = tk.StringVar(value=ALL)
+        self.control_var = tk.StringVar(value=ALL)
         self.status_var = tk.StringVar(
             value="Pick a backup folder and a target folder for the database."
         )
@@ -60,9 +64,18 @@ class IndexerApp(tk.Tk):
         self._search_after_id: Optional[str] = None
         self._result_rows: list = []
         self._scan_busy = False
+        self._filter_trace_lock = False
 
         self._build()
-        self.search_var.trace_add("write", self._on_search_changed)
+        self.search_var.trace_add("write", self._on_filter_changed)
+        for var in (
+            self.machine_var,
+            self.date_from_var,
+            self.date_to_var,
+            self.source_type_var,
+            self.control_var,
+        ):
+            var.trace_add("write", self._on_filter_changed)
 
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 4}
@@ -94,7 +107,7 @@ class IndexerApp(tk.Tk):
         ttk.Button(actions, text="Open existing DB…", command=self._pick_existing_db).pack(
             side=tk.LEFT, padx=8
         )
-        ttk.Button(actions, text="Show all in DB", command=self._browse_all).pack(
+        ttk.Button(actions, text="Clear filters", command=self._clear_filters).pack(
             side=tk.LEFT, padx=4
         )
         self.excel_var = tk.BooleanVar(value=True)
@@ -102,19 +115,59 @@ class IndexerApp(tk.Tk):
             side=tk.LEFT
         )
 
-        search_frame = ttk.LabelFrame(
-            root, text="Search (≥4 digits in program #, part #, or path) — empty = browse",
+        filt = ttk.LabelFrame(
+            root,
+            text="Find programs — text (letters/digits/symbols OK) · machine · date · source",
             padding=8,
         )
-        search_frame.pack(fill=tk.X, **pad)
-        ttk.Label(search_frame, text="Query").pack(side=tk.LEFT)
-        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
-        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
-        ttk.Button(search_frame, text="Extract selected…", command=self._extract_selected).pack(
-            side=tk.LEFT
+        filt.pack(fill=tk.X, **pad)
+
+        ttk.Label(filt, text="Text").grid(row=0, column=0, sticky=tk.W)
+        self.search_entry = ttk.Entry(filt, textvariable=self.search_var)
+        self.search_entry.grid(row=0, column=1, columnspan=5, sticky=tk.EW, padx=4)
+        ttk.Button(filt, text="Extract selected…", command=self._extract_selected).grid(
+            row=0, column=6, padx=4
         )
 
-        cols = ("program", "part", "machine", "date", "type", "path", "location")
+        ttk.Label(filt, text="Machine").grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
+        self.machine_combo = ttk.Combobox(
+            filt, textvariable=self.machine_var, values=[ALL], state="readonly", width=28
+        )
+        self.machine_combo.grid(row=1, column=1, sticky=tk.EW, padx=4, pady=(6, 0))
+
+        ttk.Label(filt, text="Date from").grid(row=1, column=2, sticky=tk.W, pady=(6, 0))
+        ttk.Entry(filt, textvariable=self.date_from_var, width=12).grid(
+            row=1, column=3, sticky=tk.W, padx=4, pady=(6, 0)
+        )
+        ttk.Label(filt, text="to").grid(row=1, column=4, sticky=tk.W, pady=(6, 0))
+        ttk.Entry(filt, textvariable=self.date_to_var, width=12).grid(
+            row=1, column=5, sticky=tk.W, padx=4, pady=(6, 0)
+        )
+        ttk.Label(filt, text="YYYY-MM-DD").grid(row=1, column=6, sticky=tk.W, pady=(6, 0))
+
+        ttk.Label(filt, text="Source type").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
+        self.type_combo = ttk.Combobox(
+            filt, textvariable=self.source_type_var, values=[ALL], state="readonly", width=22
+        )
+        self.type_combo.grid(row=2, column=1, sticky=tk.EW, padx=4, pady=(6, 0))
+
+        ttk.Label(filt, text="Control").grid(row=2, column=2, sticky=tk.W, pady=(6, 0))
+        self.control_combo = ttk.Combobox(
+            filt, textvariable=self.control_var, values=[ALL], state="readonly", width=14
+        )
+        self.control_combo.grid(row=2, column=3, sticky=tk.W, padx=4, pady=(6, 0))
+
+        hint = ttk.Label(
+            filt,
+            text="Text matches program #, part #, path, machine, FANUC folder. "
+            "Empty text + filters still works.",
+            foreground="#444",
+        )
+        hint.grid(row=3, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
+
+        filt.columnconfigure(1, weight=1)
+
+        cols = ("program", "part", "machine", "date", "type", "control", "path", "location")
         tree_frame = ttk.Frame(root)
         tree_frame.pack(fill=tk.BOTH, expand=True, **pad)
         self.tree = ttk.Treeview(
@@ -122,17 +175,18 @@ class IndexerApp(tk.Tk):
         )
         headings = {
             "program": ("Program #", 90),
-            "part": ("Part number", 160),
+            "part": ("Part number", 150),
             "machine": ("Machine", 120),
-            "date": ("Date", 140),
+            "date": ("Date", 130),
             "type": ("Source type", 110),
-            "path": ("Source path", 320),
-            "location": ("In-file location", 150),
+            "control": ("Control", 80),
+            "path": ("Source path", 280),
+            "location": ("In-file location", 140),
         }
         for key, (label, width) in headings.items():
             self.tree.heading(key, text=label)
             stretch = key in ("path", "part")
-            self.tree.column(key, width=width, stretch=stretch, minwidth=60)
+            self.tree.column(key, width=width, stretch=stretch, minwidth=50)
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -168,8 +222,8 @@ class IndexerApp(tk.Tk):
         db = Path(path)
         self.target_var.set(str(db.parent))
         self.status_var.set(f"Using existing DB: {db}")
-        self.search_var.set("")
-        self._browse_all()
+        self._refresh_filter_choices()
+        self._clear_filters()
 
     def _db_path(self) -> Optional[Path]:
         target = self.target_var.get().strip()
@@ -207,7 +261,6 @@ class IndexerApp(tk.Tk):
             alias_map = AliasMap.load(aliases_path)
             result = scan_backup_tree(backup, alias_map)
             db_path = target / DEFAULT_DB_NAME
-            # Fresh DB each scan so the table matches this backup pass.
             if db_path.is_file():
                 db_path.unlink()
             conn = open_db(db_path)
@@ -242,23 +295,52 @@ class IndexerApp(tk.Tk):
         self.status_var.set(message)
         if not ok:
             messagebox.showerror("Scan failed", message)
-        else:
-            # Clear search so we browse all indexed rows (including loose .nc).
+            return
+        self._refresh_filter_choices()
+        self._clear_filters(status_prefix=message)
+
+    # --- filters / search -------------------------------------------------------
+
+    def _refresh_filter_choices(self) -> None:
+        db_path = self._db_path()
+        if db_path is None or not db_path.is_file():
+            return
+        try:
+            conn = open_db(db_path)
+            try:
+                vals = list_filter_values(conn)
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            return
+        self.machine_combo["values"] = [ALL, *vals["machines"]]
+        self.type_combo["values"] = [ALL, *vals["source_types"]]
+        self.control_combo["values"] = [ALL, *vals["control_families"]]
+
+    def _clear_filters(self, status_prefix: Optional[str] = None) -> None:
+        self._filter_trace_lock = True
+        try:
             self.search_var.set("")
-            self._browse_all(status_prefix=message)
+            self.machine_var.set(ALL)
+            self.date_from_var.set("")
+            self.date_to_var.set("")
+            self.source_type_var.set(ALL)
+            self.control_var.set(ALL)
+        finally:
+            self._filter_trace_lock = False
+        self._run_query_now(status_prefix=status_prefix)
 
-    # --- search / browse --------------------------------------------------------
-
-    def _on_search_changed(self, *_args) -> None:
+    def _on_filter_changed(self, *_args) -> None:
+        if self._filter_trace_lock:
+            return
         if self._search_after_id is not None:
             try:
                 self.after_cancel(self._search_after_id)
             except tk.TclError:
                 pass
-        self._search_after_id = self.after(SEARCH_DEBOUNCE_MS, self._run_search_now)
+        self._search_after_id = self.after(SEARCH_DEBOUNCE_MS, self._run_query_now)
 
-    def _browse_all(self, status_prefix: Optional[str] = None) -> None:
-        """Fill the table with newest DB rows (no digit query required)."""
+    def _run_query_now(self, status_prefix: Optional[str] = None) -> None:
         self._search_after_id = None
         self.tree.delete(*self.tree.get_children())
         self._result_rows = []
@@ -268,56 +350,27 @@ class IndexerApp(tk.Tk):
             self.status_var.set("No database yet — run a scan or open an existing DB.")
             return
 
+        text = self.search_var.get().strip() or None
+        machine = self.machine_var.get().strip()
+        date_from = self.date_from_var.get().strip() or None
+        date_to = self.date_to_var.get().strip() or None
+        source_type = self.source_type_var.get().strip()
+        control = self.control_var.get().strip()
+
         try:
             conn = open_db(db_path)
             try:
-                rows = list_instances(conn, limit=BROWSE_LIMIT)
+                rows = query_instances(
+                    conn,
+                    text=text,
+                    machine=machine,
+                    date_from=date_from,
+                    date_to=date_to,
+                    source_type=source_type,
+                    control_family=control,
+                    limit=BROWSE_LIMIT,
+                )
                 total = conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0]
-            finally:
-                conn.close()
-        except Exception as exc:  # noqa: BLE001
-            self.status_var.set(f"Browse error: {exc}")
-            return
-
-        self._fill_tree(rows)
-        shown = len(rows)
-        base = (
-            f"Showing {shown} of {total} indexed program(s)"
-            if total > shown
-            else f"Showing all {total} indexed program(s)"
-        )
-        if status_prefix:
-            self.status_var.set(f"{status_prefix} — {base}")
-        else:
-            self.status_var.set(base)
-
-    def _run_search_now(self) -> None:
-        self._search_after_id = None
-        query = self.search_var.get().strip()
-
-        if not query:
-            self._browse_all()
-            return
-
-        self.tree.delete(*self.tree.get_children())
-        self._result_rows = []
-
-        if query_digit_count(query) < MIN_DIGITS:
-            self.status_var.set(
-                f"Type at least {MIN_DIGITS} digits to search "
-                f"(or clear the box to browse all)."
-            )
-            return
-
-        db_path = self._db_path()
-        if db_path is None or not db_path.is_file():
-            self.status_var.set("No database yet — run a scan or open an existing DB.")
-            return
-
-        try:
-            conn = open_db(db_path)
-            try:
-                rows = search_instances(conn, query, limit=200)
             finally:
                 conn.close()
         except ValueError as exc:
@@ -328,13 +381,32 @@ class IndexerApp(tk.Tk):
             return
 
         self._fill_tree(rows)
-        self.status_var.set(f"{len(rows)} match(es) for {query!r}")
+        bits = [f"{len(rows)} shown"]
+        if total > len(rows):
+            bits.append(f"of {total} in DB")
+        if text:
+            bits.append(f"text={text!r}")
+        if machine and machine != ALL:
+            bits.append(f"machine={machine}")
+        if date_from or date_to:
+            bits.append(f"dates={date_from or '…'}→{date_to or '…'}")
+        if source_type and source_type != ALL:
+            bits.append(f"type={source_type}")
+        if control and control != ALL:
+            bits.append(f"control={control}")
+        summary = " · ".join(bits)
+        if status_prefix:
+            self.status_var.set(f"{status_prefix} — {summary}")
+        else:
+            self.status_var.set(summary)
 
     def _fill_tree(self, rows: list) -> None:
         self._result_rows = rows
         for i, r in enumerate(rows):
             date = str(r["backup_date"] or "")[:19].replace("T", " ")
             machine = r["machine_label"] or r["machine_id"] or ""
+            keys = r.keys() if hasattr(r, "keys") else ()
+            control = r["control_family"] if "control_family" in keys else ""
             self.tree.insert(
                 "",
                 tk.END,
@@ -345,6 +417,7 @@ class IndexerApp(tk.Tk):
                     machine,
                     date,
                     r["source_type"] or "",
+                    control or "",
                     r["source_path"] or "",
                     format_location(r),
                 ),

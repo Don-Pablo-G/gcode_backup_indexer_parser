@@ -8,7 +8,7 @@ import typer
 
 from gcode_index import __version__
 from gcode_index.aliases import AliasMap, default_aliases_path
-from gcode_index.db import open_db, search_instances, write_scan_result
+from gcode_index.db import open_db, write_scan_result
 from gcode_index.excel_export import export_excel
 from gcode_index.extract import ExtractError, extract_instance_to_path, extract_text, fetch_instance
 from gcode_index.scanner import scan_backup_tree
@@ -98,13 +98,38 @@ def scan_cmd(
 @app.command("search")
 def search_cmd(
     db: Path = typer.Argument(..., exists=True, dir_okay=False),
-    query: str = typer.Argument(..., help="Must contain ≥4 digits."),
+    query: str = typer.Argument(
+        ...,
+        help="Free text (letters/digits/symbols) — program #, part #, path, machine.",
+    ),
     limit: int = typer.Option(50, "--limit", "-n"),
+    machine: Optional[str] = typer.Option(
+        None, "--machine", "-m", help="Filter by machine id or label."
+    ),
+    date_from: Optional[str] = typer.Option(
+        None, "--from", help="Inclusive start date (YYYY-MM-DD)."
+    ),
+    date_to: Optional[str] = typer.Option(
+        None, "--to", help="Inclusive end date (YYYY-MM-DD)."
+    ),
+    source_type: Optional[str] = typer.Option(
+        None, "--type", help="Filter source_type (e.g. loose_nc, haas_pgm_glued)."
+    ),
 ) -> None:
-    """Search program_number / part_number (prefix preferred). Requires ≥4 digits."""
+    """Search / filter the index (free text + optional machine / date / type)."""
+    from gcode_index.db import query_instances
+
     conn = open_db(db)
     try:
-        rows = search_instances(conn, query, limit=limit)
+        rows = query_instances(
+            conn,
+            text=query,
+            machine=machine,
+            date_from=date_from,
+            date_to=date_to,
+            source_type=source_type,
+            limit=limit,
+        )
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=2) from exc

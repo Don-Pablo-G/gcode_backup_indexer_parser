@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from gcode_index.db import open_db, rank_match, search_instances, validate_search_query
+from gcode_index.db import open_db, query_instances, rank_match, search_instances, validate_search_query
 from gcode_index.extract import (
     ExtractError,
     default_extract_filename,
@@ -16,10 +16,12 @@ from gcode_index.extract import (
 def test_validate_search_query():
     assert validate_search_query("1234") == "1234"
     assert validate_search_query("  O1234  ") == "O1234"
+    assert validate_search_query("P-00253232 VA") == "P-00253232 VA"
+    assert validate_search_query("abc") == "abc"
     with pytest.raises(ValueError):
-        validate_search_query("12")
+        validate_search_query("   ")
     with pytest.raises(ValueError):
-        validate_search_query("abc")
+        validate_search_query("")
 
 
 def test_rank_prefers_prefix_and_exact():
@@ -73,6 +75,30 @@ def test_search_ranking_order(tmp_path: Path):
         assert "e" not in ids
         # exact → program prefix → part prefix → program substring
         assert ids == ["c", "b", "d", "a"]
+    finally:
+        conn.close()
+
+
+def test_search_letters_and_filters(tmp_path: Path):
+    conn = _seed_search_db(tmp_path)
+    try:
+        # Letter / punctuation free-text on part name
+        hits = search_instances(conn, "BRACKET", limit=20)
+        assert [r["instance_id"] for r in hits] == ["d"]
+
+        # Machine filter
+        by_machine = query_instances(conn, machine="puma", limit=50)
+        assert {r["instance_id"] for r in by_machine} == {"c", "e"}
+
+        # Date range (inclusive day bounds)
+        by_date = query_instances(
+            conn, date_from="2026-02-01", date_to="2026-03-31", limit=50
+        )
+        assert {r["instance_id"] for r in by_date} == {"b", "c"}
+
+        # Combined text + machine
+        combo = query_instances(conn, text="1234", machine="haas-sl-20", limit=50)
+        assert [r["instance_id"] for r in combo] == ["b"]
     finally:
         conn.close()
 

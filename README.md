@@ -42,11 +42,16 @@ python -m gcode_index.gui
 1. **Browse** → pick the main **backup folder** tree.  
 2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
 3. Click **Run index / scan** (optional Excel export checkbox).  
-   After a successful scan the table **lists indexed programs** (including loose / tree-wide `.nc`) with **source path** and **in-file location** (`whole file` or `Lstart–end` / bytes for glued dumps). Use **Show all in DB** anytime.  
-4. Type a query with **≥4 digits** — matches program #, part #, or **source path**. Results show **program #**, **part number**, **machine**, **date**, **source type**, **path**, **location**.  
+   After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
+4. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`), plus filters:  
+   - **Machine** (dropdown of indexed machines)  
+   - **Date from / to** (`YYYY-MM-DD`)  
+   - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
+   - **Control** (`haas`, `fanuc`, `sinumerik`)  
+   Text matches program #, part #, path, machine names, and FANUC folder paths. Empty text + filters still works.  
 5. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.
 
-You can also **Open existing DB…** without re-scanning.
+You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar.
 
 ## Windows standalone app (`.exe`)
 
@@ -131,11 +136,13 @@ Unmapped machine folders are logged to the `unknowns` table — the scanner does
 
 ```bat
 gcode-index search gcode_index.sqlite 1234
+gcode-index search gcode_index.sqlite "P-00253232" --machine haas-umc750 --from 2026-01-01 --to 2026-12-31
 gcode-index extract gcode_index.sqlite <instance_id> --backup-root "D:\CNC\Backups" -o slice.nc
 ```
 
-- Search requires a query with **≥4 digits**.
-- Matches **substring** on `program_number` and `part_number`; **prefix** hits rank above mid-string hits.
+- Free-text query (letters / digits / symbols) on program #, part #, path, machine.
+- Optional `--machine`, `--from` / `--to` (`YYYY-MM-DD`), `--type`.
+- Prefix hits rank above mid-string hits.
 - Extract slices glued dumps by stored line/byte span, or copies whole-file `.nc` types, for an **external** parser.
 
 ## Machine aliases

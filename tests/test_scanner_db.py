@@ -111,12 +111,11 @@ def test_scanner_routes_and_sqlite(tmp_path: Path):
     assert xlsx.is_file() and xlsx.stat().st_size > 0
 
 
-def test_search_rejects_short_digits(tmp_path: Path):
+def test_search_allows_short_and_letter_queries(tmp_path: Path):
     conn = open_db(tmp_path / "empty.sqlite")
     try:
-        import pytest
-
-        with pytest.raises(ValueError):
-            search_instances(conn, "12")
+        # Empty DB + free-text / short queries just return [] (no digit gate)
+        assert search_instances(conn, "12") == []
+        assert search_instances(conn, "VA") == []
     finally:
         conn.close()
