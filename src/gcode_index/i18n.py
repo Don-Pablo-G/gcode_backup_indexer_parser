@@ -10,6 +10,8 @@ import yaml
 UI_SETTINGS_FILENAME = "ui_settings.yaml"
 DEFAULT_LANG = "pl"
 LANG_CHOICES = ("pl", "en")
+DEFAULT_UI_MODE = "simple"
+UI_MODE_CHOICES = ("simple", "full")
 
 # Keys used by the GUI. Missing keys fall back to English, then the key itself.
 STRINGS: dict[str, dict[str, str]] = {
@@ -17,7 +19,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "app_title": "Indeksator kopii G-code",
         "folders": "Foldery",
         "backup_folder": "Folder kopii zapasowych",
-        "target_folder": "Folder docelowy (baza / ekstrakty)",
+        "target_folder": "Folder docelowy (baza / wydobyte programy)",
         "browse": "Przeglądaj…",
         "extra_folders": "Dodatkowe foldery (żółta flaga — nie z kopii maszyny)",
         "add_folder": "Dodaj folder…",
@@ -35,10 +37,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "language": "Język",
         "lang_pl": "Polski",
         "lang_en": "English",
+        "ui_mode": "Tryb",
+        "mode_simple": "Prosty",
+        "mode_full": "Pełny",
         "find_programs": "Szukaj programów — tekst · maszyny · data · źródło",
+        "find_programs_simple": "Szukaj programów",
         "text": "Tekst",
         "newest_only": "Tylko najnowsze",
-        "extract_selected": "Ekstrahuj zaznaczone…",
+        "extract_selected": "Wydobądź zaznaczone…",
         "machines": "Maszyny",
         "all": "Wszystkie",
         "none": "Żadne",
@@ -63,12 +69,20 @@ STRINGS: dict[str, dict[str, str]] = {
             "Żółta = z dodatkowego folderu. "
             "Programista = następna linia (LP1)/(MS1) gdy obecna. "
             "Tylko najnowsze = jedna pozycja na program+maszynę. "
-            "Ctrl/Shift+klik = wielokrotny wybór do ekstrakcji. "
+            "Ctrl/Shift+klik = wielokrotny wybór do wydobycia. "
             "Podgląd pokazuje treść zaznaczonego programu. "
             "Porównaj… wymaga dokładnie dwóch wierszy. "
             "Szukanie numeru: O03232 / 03232 / 3232 to ten sam program. "
             "Zapamiętane filtry zapisują ustawienia paska wyszukiwania. "
             "Przyrostowy skan pomija niezmienione pliki."
+        ),
+        "hint_simple": (
+            "1) Wybierz folder kopii i folder docelowy. "
+            "2) Kliknij Indeksuj / skanuj. "
+            "3) Szukaj po numerze programu lub części. "
+            "4) Zaznacz wiersz → Wydobądź (lub podwójne kliknięcie). "
+            "Podgląd pokazuje treść programu. "
+            "Tylko najnowsze = jedna pozycja na program+maszynę."
         ),
         "col_flag": "Flaga",
         "col_program": "Nr programu",
@@ -86,7 +100,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag_green": "zielona — kopia (była na maszynie)",
         "flag_yellow": "żółta — dodatkowa (nie jechała)",
         "all_paren": "(wszystkie)",
-        "ctx_extract": "Ekstrahuj zaznaczone…",
+        "ctx_extract": "Wydobądź zaznaczone…",
         "ctx_compare": "Porównaj…",
         "ctx_open": "Otwórz folder",
         "ctx_copy": "Kopiuj ścieżkę",
@@ -119,7 +133,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "language": "Language",
         "lang_pl": "Polski",
         "lang_en": "English",
+        "ui_mode": "Mode",
+        "mode_simple": "Simple",
+        "mode_full": "Full",
         "find_programs": "Find programs — text · machines (multi-select) · date · source",
+        "find_programs_simple": "Find programs",
         "text": "Text",
         "newest_only": "Newest only",
         "extract_selected": "Extract selected…",
@@ -153,6 +171,14 @@ STRINGS: dict[str, dict[str, str]] = {
             "Program search: O03232 / 03232 / 3232 match the same O-number. "
             "Presets save/restore the find-bar filters. "
             "Incremental scan skips unchanged files."
+        ),
+        "hint_simple": (
+            "1) Pick backup + target folders. "
+            "2) Click Run index / scan. "
+            "3) Search by program or part number. "
+            "4) Select a row → Extract (or double-click). "
+            "Preview shows the program body. "
+            "Newest only = one row per program+machine."
         ),
         "col_flag": "Flag",
         "col_program": "Program #",
@@ -191,6 +217,15 @@ def normalize_lang(lang: Optional[str]) -> str:
     return "pl"
 
 
+def normalize_ui_mode(mode: Optional[str]) -> str:
+    raw = (mode or DEFAULT_UI_MODE).strip().casefold()
+    if raw in ("full", "advanced", "expert", "pełny", "pelny"):
+        return "full"
+    if raw in ("simple", "basic", "prosty", "minimal", "easy"):
+        return "simple"
+    return DEFAULT_UI_MODE
+
+
 def t(lang: str, key: str, **kwargs: Any) -> str:
     code = normalize_lang(lang)
     text = STRINGS.get(code, {}).get(key)
@@ -208,29 +243,61 @@ def ui_settings_path_for_target(target: Path | str) -> Path:
     return Path(target) / UI_SETTINGS_FILENAME
 
 
-def load_ui_language(path: Path | str | None = None) -> str:
+def load_ui_settings(path: Path | str | None = None) -> dict[str, str]:
+    """Return ``{"language": ..., "ui_mode": ...}`` with defaults."""
+    out = {"language": DEFAULT_LANG, "ui_mode": DEFAULT_UI_MODE}
     if path is None:
-        return DEFAULT_LANG
+        return out
     p = Path(path)
     if not p.is_file():
-        return DEFAULT_LANG
+        return out
     try:
         with p.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         if isinstance(data, dict):
-            return normalize_lang(str(data.get("language") or DEFAULT_LANG))
+            out["language"] = normalize_lang(str(data.get("language") or DEFAULT_LANG))
+            out["ui_mode"] = normalize_ui_mode(str(data.get("ui_mode") or DEFAULT_UI_MODE))
     except OSError:
         pass
-    return DEFAULT_LANG
+    return out
 
 
-def save_ui_language(path: Path | str, lang: str) -> Path:
+def save_ui_settings(
+    path: Path | str,
+    *,
+    language: Optional[str] = None,
+    ui_mode: Optional[str] = None,
+) -> Path:
+    """Write UI settings, merging with any existing file values."""
     p = Path(path)
+    existing = load_ui_settings(p if p.is_file() else None)
+    lang = normalize_lang(language if language is not None else existing["language"])
+    mode = normalize_ui_mode(ui_mode if ui_mode is not None else existing["ui_mode"])
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "language": normalize_lang(lang),
-        "_comment": "GUI language for G-code Backup Indexer (pl default, en optional).",
+        "language": lang,
+        "ui_mode": mode,
+        "_comment": (
+            "GUI settings for G-code Backup Indexer "
+            "(language: pl default; ui_mode: simple|full)."
+        ),
     }
     with p.open("w", encoding="utf-8") as f:
         yaml.safe_dump(payload, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
     return p
+
+
+def load_ui_language(path: Path | str | None = None) -> str:
+    return load_ui_settings(path)["language"]
+
+
+def save_ui_language(path: Path | str, lang: str) -> Path:
+    return save_ui_settings(path, language=lang)
+
+
+def load_ui_mode(path: Path | str | None = None) -> str:
+    return load_ui_settings(path)["ui_mode"]
+
+
+def save_ui_mode(path: Path | str, mode: str) -> Path:
+    return save_ui_settings(path, ui_mode=mode)

@@ -39,6 +39,23 @@ REM or:
 python -m gcode_index.gui
 ```
 
+The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings.yaml` next to the DB):
+
+| Mode | Who | What you see |
+|------|-----|----------------|
+| **Prosty / Simple** (default) | Operators | Folders, scan, open DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract |
+| **Pełny / Full** | Power users | Everything above + extra folders, map/aliases, Excel, incremental checkbox, advanced filters, presets, compare, scan report, duplicates |
+
+### Simple mode (operators)
+
+1. **Browse** → pick the main **backup folder** tree.  
+2. **Browse** → pick a **target folder** (`gcode_index.sqlite` + extracted programs live here).  
+3. Click **Indeksuj / skanuj** (Run index / scan).  
+4. **Szukaj** by program or part number; optionally filter by **machines** / **dates**; tick **Tylko najnowsze**.  
+5. Select a row → **Wydobądź zaznaczone…** (or double-click). Preview shows the program body first.
+
+### Full mode (power users)
+
 1. **Browse** → pick the main **backup folder** tree.  
 2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
 3. Optionally **Add folder…** under **Extra folders** for other trees to index (and their subfolders).  
@@ -68,7 +85,7 @@ python -m gcode_index.gui
    Text matches program #, part #, path, machine names, FANUC folder paths, and programmer.  
    Program-number search is **O / zero-padding aware**: `O03232`, `03232`, and `3232` find the same program.  
    Empty text + filters still works.  
-7. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.  
+7. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser.  
    **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).  
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
    Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).  

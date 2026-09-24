@@ -6,7 +6,17 @@ from pathlib import Path
 
 from gcode_index.aliases import AliasMap
 from gcode_index.db import open_db, write_scan_result
-from gcode_index.i18n import DEFAULT_LANG, load_ui_language, save_ui_language, t
+from gcode_index.i18n import (
+    DEFAULT_LANG,
+    DEFAULT_UI_MODE,
+    load_ui_language,
+    load_ui_mode,
+    load_ui_settings,
+    normalize_ui_mode,
+    save_ui_language,
+    save_ui_settings,
+    t,
+)
 from gcode_index.scan_cache import load_scan_cache
 from gcode_index.scanner import scan_backup_tree
 
@@ -21,6 +31,20 @@ def test_i18n_polish_default():
     assert "(LP1)" in t("pl", "hint")
     assert "(MS1)" in t("pl", "hint")
     assert "(LP1)" in t("en", "hint")
+    assert t("pl", "extract_selected").startswith("Wydobądź")
+    assert "Ekstrahuj" not in t("pl", "extract_selected")
+    assert "Ekstrahuj" not in t("pl", "ctx_extract")
+    assert "Wydobądź" in t("pl", "ctx_extract")
+
+
+def test_ui_mode_defaults():
+    assert DEFAULT_UI_MODE == "simple"
+    assert normalize_ui_mode("full") == "full"
+    assert normalize_ui_mode("Prosty") == "simple"
+    assert normalize_ui_mode("pełny") == "full"
+    assert "Prosty" in t("pl", "mode_simple")
+    assert "Pełny" in t("pl", "mode_full")
+    assert "Wydobądź" in t("pl", "hint_simple")
 
 
 def test_ui_language_persist(tmp_path: Path):
@@ -28,6 +52,21 @@ def test_ui_language_persist(tmp_path: Path):
     save_ui_language(path, "en")
     assert load_ui_language(path) == "en"
     save_ui_language(path, "pl")
+    assert load_ui_language(path) == "pl"
+
+
+def test_ui_settings_mode_and_language(tmp_path: Path):
+    path = tmp_path / "ui_settings.yaml"
+    save_ui_settings(path, language="en", ui_mode="full")
+    settings = load_ui_settings(path)
+    assert settings["language"] == "en"
+    assert settings["ui_mode"] == "full"
+    # Language-only save keeps mode
+    save_ui_language(path, "pl")
+    assert load_ui_language(path) == "pl"
+    assert load_ui_mode(path) == "full"
+    save_ui_settings(path, ui_mode="simple")
+    assert load_ui_mode(path) == "simple"
     assert load_ui_language(path) == "pl"
 
 
