@@ -17,7 +17,12 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
-from gcode_index.aliases import AliasMap, default_aliases_path
+from gcode_index.aliases import (
+    AliasMap,
+    LOCAL_ALIASES_FILENAME,
+    default_aliases_path,
+    local_aliases_path_for_target,
+)
 from gcode_index.db import (
     format_display_date,
     format_location,
@@ -36,10 +41,12 @@ from gcode_index.folder_map import (
     UNKNOWN_ID,
     UNKNOWN_LABEL,
     FolderMachineMap,
+    FolderPartition,
     discover_machine_folders,
     display_for_machine,
     map_path_for_target,
     parse_machine_display,
+    partition_folders,
     suggest_assignments,
 )
 from gcode_index.path_util import (
@@ -332,6 +339,16 @@ class IndexerApp(tk.Tk):
             return None
         return map_path_for_target(target)
 
+    def _local_aliases_path(self) -> Optional[Path]:
+        target = self.target_var.get().strip()
+        if not target:
+            return None
+        return local_aliases_path_for_target(target)
+
+    def _load_alias_map(self) -> AliasMap:
+        local = self._local_aliases_path()
+        return AliasMap.load_merged(default_aliases_path(), local)
+
     def _load_folder_map(self) -> FolderMachineMap:
         path = self._folder_map_path()
         if path is None or not path.is_file():
@@ -351,12 +368,12 @@ class IndexerApp(tk.Tk):
         if not target:
             messagebox.showerror(
                 "Target folder",
-                "Choose a target folder (map is saved next to the database).",
+                "Choose a target folder (map + local aliases are saved next to the database).",
             )
             return
         Path(target).mkdir(parents=True, exist_ok=True)
         try:
-            aliases = AliasMap.load(default_aliases_path())
+            aliases = self._load_alias_map()
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Aliases", str(exc))
             return
@@ -369,21 +386,39 @@ class IndexerApp(tk.Tk):
             )
             return
         existing = self._load_folder_map()
+        part = partition_folders(folders, aliases, existing)
+        if not part.needs_manual:
+            auto_n = part.auto_count
+            prev_n = len(part.previously_mapped)
+            messagebox.showinfo(
+                "Map folders",
+                f"All machine folders are already connected.\n\n"
+                f"Auto-matched via aliases: {auto_n}\n"
+                f"Previously mapped: {prev_n}\n\n"
+                f"Nothing left for manual mapping.",
+            )
+            return
         suggested = suggest_assignments(folders, aliases, existing)
         suggested.backup_root = str(Path(backup).resolve())
         dlg = FolderMapDialog(
             self,
-            folders=folders,
+            partition=part,
             suggested=suggested,
+            existing_map=existing,
+            aliases=aliases,
             machine_choices=[
                 display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
                 *aliases.known_machine_displays(),
             ],
             save_path=map_path_for_target(target),
+            local_aliases_path=local_aliases_path_for_target(target),
         )
         self.wait_window(dlg)
         if dlg.saved:
-            self.status_var.set(f"Saved folder map → {map_path_for_target(target).name}")
+            bits = [f"Saved folder map → {map_path_for_target(target).name}"]
+            if dlg.aliases_saved:
+                bits.append(f"local aliases → {LOCAL_ALIASES_FILENAME}")
+            self.status_var.set("; ".join(bits))
 
     # --- scan -------------------------------------------------------------------
 
@@ -399,15 +434,21 @@ class IndexerApp(tk.Tk):
             messagebox.showerror("Target folder", "Choose a target folder for the database.")
             return
         Path(target).mkdir(parents=True, exist_ok=True)
-        # Offer map editor once when no map file exists yet
-        map_file = map_path_for_target(target)
-        if not map_file.is_file():
-            if messagebox.askyesno(
-                "Map folders",
-                "No folder→machine map yet for this target.\n\n"
-                "Open the mapper now? (Assign each machine folder once; "
-                "subfolders inherit. You can also use Map folders… later.)",
-            ):
+        # Offer mapper only when unmatched folders remain
+        try:
+            aliases = self._load_alias_map()
+            folders = discover_machine_folders(backup)
+            part = partition_folders(folders, aliases, self._load_folder_map())
+        except Exception:  # noqa: BLE001
+            log.exception("folder partition before scan failed")
+            part = None
+        if part is not None and part.needs_manual:
+            prompt = (
+                f"{part.manual_count} folder(s) could not be matched automatically "
+                f"({part.auto_count} auto-matched via aliases).\n\n"
+                "Open the mapper to assign only the unmatched folders?"
+            )
+            if messagebox.askyesno("Map folders", prompt):
                 self._open_folder_map()
         self._scan_busy = True
         self.scan_btn.configure(state=tk.DISABLED)
@@ -458,7 +499,8 @@ class IndexerApp(tk.Tk):
     def _scan_worker(self, backup: Path, target: Path, write_excel: bool) -> None:
         try:
             aliases_path = default_aliases_path()
-            alias_map = AliasMap.load(aliases_path)
+            local_path = local_aliases_path_for_target(target)
+            alias_map = AliasMap.load_merged(aliases_path, local_path)
             folder_map = FolderMachineMap.load(map_path_for_target(target))
             result = scan_backup_tree(
                 backup,
@@ -490,10 +532,15 @@ class IndexerApp(tk.Tk):
                 if unknown_prog
                 else "; 0 MACHINE UNKNOWN programs"
             )
+            local_note = (
+                f"; +{alias_map.local_alias_count} local aliases"
+                if alias_map.local_alias_count
+                else ""
+            )
             msg = (
                 f"Indexed {len(result.instances)} programs "
                 f"[{type_note}] "
-                f"({len(result.unknowns)} unknown folders{unk_note}) → {db_path.name} "
+                f"({len(result.unknowns)} unknown folders{unk_note}{local_note}) → {db_path.name} "
                 f"(run {run_id[:8]}…){excel_note}"
             )
             self.after(0, lambda: self._scan_done(True, msg))
@@ -546,7 +593,7 @@ class IndexerApp(tk.Tk):
         db_path = self._db_path()
         seed: list[str] = []
         try:
-            seed = AliasMap.load(default_aliases_path()).known_machine_displays()
+            seed = self._load_alias_map().known_machine_displays()
         except Exception:  # noqa: BLE001
             seed = []
         # Always offer unassigned bucket even when the last scan found none
@@ -808,35 +855,69 @@ class IndexerApp(tk.Tk):
 
 
 class FolderMapDialog(tk.Toplevel):
-    """Assign each discovered machine folder to a catalog machine (or UNKNOWN)."""
+    """Assign unmatched machine folders; auto-matched ones stay out of the way.
+
+    On save, writes ``machine_folders.yaml`` and optionally shop-local aliases
+    (``aliases.local.yaml``) so the same folder names auto-match on later scans.
+    """
 
     def __init__(
         self,
         master: tk.Tk,
         *,
-        folders: list[str],
+        partition: FolderPartition,
         suggested: FolderMachineMap,
+        existing_map: FolderMachineMap,
+        aliases: AliasMap,
         machine_choices: list[str],
         save_path: Path,
+        local_aliases_path: Path,
     ) -> None:
         super().__init__(master)
-        self.title("Map folders → machines")
-        self.minsize(520, 360)
-        self.geometry("640x480")
+        self.title("Map unmatched folders → machines")
+        self.minsize(560, 400)
+        self.geometry("680x520")
         self.transient(master)
         self.grab_set()
         self.saved = False
+        self.aliases_saved = False
         self._save_path = Path(save_path)
+        self._local_aliases_path = Path(local_aliases_path)
         self._suggested = suggested
+        self._existing = existing_map
+        self._partition = partition
+        self._aliases = aliases
         self._choices = list(machine_choices)
         self._vars: dict[str, tk.StringVar] = {}
 
+        summary = (
+            f"Auto-matched via aliases: {partition.auto_count}  ·  "
+            f"Previously mapped: {len(partition.previously_mapped)}  ·  "
+            f"Need manual assign: {partition.manual_count}"
+        )
+        ttk.Label(self, text=summary, wraplength=640).pack(
+            fill=tk.X, padx=12, pady=(12, 4)
+        )
         ttk.Label(
             self,
-            text="Assign each machine folder (top of branch under a date). "
-            "Subfolders inherit. Map is saved next to the database and wins over aliases.",
-            wraplength=600,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+            text="Only unmatched folders are listed. Assign a machine, then Save. "
+            "Optional: also store the folder name as a local alias for future scans "
+            f"({LOCAL_ALIASES_FILENAME} next to the database).",
+            wraplength=640,
+        ).pack(fill=tk.X, padx=12, pady=(0, 6))
+
+        if partition.auto_matched:
+            auto_frame = ttk.LabelFrame(self, text="Auto-matched (skipped)")
+            auto_frame.pack(fill=tk.X, padx=12, pady=4)
+            preview = ", ".join(
+                f"{name}→{info.label or info.machine_id}"
+                for name, info in partition.auto_matched[:12]
+            )
+            if len(partition.auto_matched) > 12:
+                preview += f", … (+{len(partition.auto_matched) - 12} more)"
+            ttk.Label(auto_frame, text=preview, wraplength=620).pack(
+                fill=tk.X, padx=8, pady=6
+            )
 
         outer = ttk.Frame(self)
         outer.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
@@ -855,7 +936,7 @@ class FolderMapDialog(tk.Toplevel):
         ttk.Label(inner, text="Folder").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
         ttk.Label(inner, text="Machine").grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
 
-        for i, folder in enumerate(folders, start=1):
+        for i, folder in enumerate(partition.needs_manual, start=1):
             a = suggested.get(folder)
             mid = a.machine_id if a else UNKNOWN_ID
             label = a.label if a else UNKNOWN_LABEL
@@ -870,9 +951,16 @@ class FolderMapDialog(tk.Toplevel):
                 textvariable=var,
                 values=self._choices,
                 state="readonly",
-                width=40,
+                width=42,
             ).grid(row=i, column=1, sticky=tk.EW, padx=4, pady=3)
         inner.columnconfigure(1, weight=1)
+
+        self._save_aliases_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            self,
+            text="Also save assignments as local aliases (for new scans)",
+            variable=self._save_aliases_var,
+        ).pack(anchor=tk.W, padx=12, pady=(4, 0))
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
@@ -881,15 +969,30 @@ class FolderMapDialog(tk.Toplevel):
 
     def _save(self) -> None:
         out = FolderMachineMap()
-        out.backup_root = self._suggested.backup_root
+        out.backup_root = self._suggested.backup_root or self._existing.backup_root
+        # Keep previous real mappings + auto-matched as explicit map entries
+        for folder, prev in self._partition.previously_mapped:
+            out.set(folder, prev.machine_id, prev.label)
+        for folder, info in self._partition.auto_matched:
+            out.set(folder, info.machine_id, info.label)
         for folder, var in self._vars.items():
             mid, label = parse_machine_display(var.get())
             out.set(folder, mid, label)
+            if self._save_aliases_var.get() and mid not in {UNKNOWN_ID, ""}:
+                if not mid.startswith("unmapped:"):
+                    self._aliases.add_local_alias(folder, mid, label=label)
         try:
             out.save(self._save_path)
         except OSError as exc:
             messagebox.showerror("Save map", str(exc), parent=self)
             return
+        if self._save_aliases_var.get() and self._aliases.local_alias_count:
+            try:
+                self._aliases.save_local(self._local_aliases_path)
+                self.aliases_saved = True
+            except OSError as exc:
+                messagebox.showerror("Save local aliases", str(exc), parent=self)
+                return
         self.saved = True
         self.destroy()
 

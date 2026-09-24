@@ -29,6 +29,23 @@ class FolderAssignment:
 
 
 @dataclass
+class FolderPartition:
+    """Result of auto-scanning the machine-folder list against aliases + existing map."""
+
+    auto_matched: list[tuple[str, MachineInfo]] = field(default_factory=list)
+    needs_manual: list[str] = field(default_factory=list)
+    previously_mapped: list[tuple[str, FolderAssignment]] = field(default_factory=list)
+
+    @property
+    def auto_count(self) -> int:
+        return len(self.auto_matched)
+
+    @property
+    def manual_count(self) -> int:
+        return len(self.needs_manual)
+
+
+@dataclass
 class FolderMachineMap:
     """folder_raw → assignment (also indexed by normalized key)."""
 
@@ -199,6 +216,34 @@ def suggest_assignments(
         else:
             out.set(folder, UNKNOWN_ID, UNKNOWN_LABEL)
     return out
+
+
+def partition_folders(
+    folders: Iterable[str],
+    aliases: AliasMap,
+    existing: Optional[FolderMachineMap] = None,
+) -> FolderPartition:
+    """Split discovered folders into auto-matched vs needing manual mapping.
+
+    - Existing map with a real machine_id → previously_mapped (not shown for edit).
+    - Alias resolves → auto_matched (skipped in the mapper UI).
+    - Else → needs_manual (only rows the user must assign).
+    Existing UNKNOWN map entries still appear under needs_manual so the user can fix them.
+    """
+    part = FolderPartition()
+    for folder in folders:
+        if existing is not None:
+            prev = existing.get(folder)
+            if prev is not None and prev.machine_id not in {UNKNOWN_ID, ""}:
+                if not prev.machine_id.startswith("unmapped:"):
+                    part.previously_mapped.append((folder, prev))
+                    continue
+        info = aliases.resolve(folder)
+        if info.mapped:
+            part.auto_matched.append((folder, info))
+        else:
+            part.needs_manual.append(folder)
+    return part
 
 
 def display_for_machine(machine_id: str, label: Optional[str] = None) -> str:

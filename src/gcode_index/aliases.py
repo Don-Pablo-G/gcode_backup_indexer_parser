@@ -11,6 +11,8 @@ from gcode_index.models import MachineInfo
 
 _PUNCT_RE = re.compile(r"[^a-z0-9]+")
 
+LOCAL_ALIASES_FILENAME = "aliases.local.yaml"
+
 
 def normalize_folder_name(raw: str) -> str:
     """Lowercase, strip spaces/-/_, then strip remaining punctuation."""
@@ -42,24 +44,93 @@ def default_aliases_path() -> Path:
     return pkg / "data" / "aliases.yaml"
 
 
+def local_aliases_path_for_target(target: Path | str) -> Path:
+    """Shop-local alias overlay stored next to the index database."""
+    return Path(target) / LOCAL_ALIASES_FILENAME
+
+
 # Substring / prefix fallbacks (avoid tiny keys like "sl" matching both SL-10 and SL-20).
 _MIN_SUBSTRING_ALIAS_LEN = 4
 _MIN_PREFIX_ALIAS_LEN = 3
 
 
+def _machines_from_yaml_data(data: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(data, dict):
+        return {}
+    machines = data.get("machines") or {}
+    if not isinstance(machines, dict):
+        raise ValueError("aliases file must have a 'machines' mapping")
+    return {str(k): dict(v) if isinstance(v, dict) else {"machine_id": str(v)} for k, v in machines.items()}
+
+
 class AliasMap:
-    def __init__(self, machines: dict[str, dict[str, Any]]):
+    def __init__(
+        self,
+        machines: dict[str, dict[str, Any]],
+        *,
+        local_keys: Optional[set[str]] = None,
+        local_raw: Optional[dict[str, dict[str, Any]]] = None,
+    ):
+        # Normalized key → entry (merged view used for resolve)
         self._machines = {normalize_folder_name(k): v for k, v in machines.items()}
+        # Keys that came from the local overlay (normalized)
+        self._local_keys: set[str] = set(local_keys or ())
+        # Raw spelling → entry for local file round-trip (preserve folder spelling as key)
+        self._local_raw: dict[str, dict[str, Any]] = dict(local_raw or {})
 
     @classmethod
     def load(cls, path: Optional[Path | str] = None) -> "AliasMap":
         p = Path(path) if path else default_aliases_path()
         with p.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        machines = data.get("machines") or {}
-        if not isinstance(machines, dict):
-            raise ValueError(f"aliases file {p} must have a 'machines' mapping")
+        machines = _machines_from_yaml_data(data)
         return cls(machines)
+
+    @classmethod
+    def load_merged(
+        cls,
+        bundled: Optional[Path | str] = None,
+        local: Optional[Path | str] = None,
+    ) -> "AliasMap":
+        """Load bundled aliases, then overlay shop-local aliases (local wins)."""
+        base = cls.load(bundled)
+        local_path = Path(local) if local else None
+        if local_path is None or not local_path.is_file():
+            return base
+        with local_path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        local_raw = _machines_from_yaml_data(data)
+        if not local_raw:
+            return base
+        merged = dict(base._machines)
+        local_keys: set[str] = set()
+        for raw_key, entry in local_raw.items():
+            nk = normalize_folder_name(raw_key)
+            merged[nk] = entry
+            local_keys.add(nk)
+        return cls(merged, local_keys=local_keys, local_raw=local_raw)
+
+    def with_local_file(self, local: Optional[Path | str]) -> "AliasMap":
+        """Return a new map with ``local`` aliases overlaid (no-op if missing)."""
+        if local is None:
+            return self
+        local_path = Path(local)
+        if not local_path.is_file():
+            return self
+        with local_path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        local_raw = _machines_from_yaml_data(data)
+        if not local_raw:
+            return self
+        merged = dict(self._machines)
+        local_keys = set(self._local_keys)
+        combined_raw = dict(self._local_raw)
+        for raw_key, entry in local_raw.items():
+            nk = normalize_folder_name(raw_key)
+            merged[nk] = entry
+            local_keys.add(nk)
+            combined_raw[raw_key] = entry
+        return AliasMap(merged, local_keys=local_keys, local_raw=combined_raw)
 
     def _info_from_entry(self, entry: dict[str, Any], machine_folder_raw: str) -> MachineInfo:
         return MachineInfo(
@@ -137,3 +208,63 @@ class AliasMap:
             if str(entry.get("machine_id") or "").strip() == mid:
                 return self._info_from_entry(entry, machine_folder_raw)
         return None
+
+    def add_local_alias(
+        self,
+        folder_raw: str,
+        machine_id: str,
+        *,
+        label: Optional[str] = None,
+        control_family: Optional[str] = None,
+        layout: Optional[str] = None,
+    ) -> None:
+        """Add/update a shop-local alias keyed by the folder name spelling."""
+        raw = str(folder_raw).strip()
+        mid = str(machine_id).strip()
+        if not raw or not mid or mid == "unknown" or mid.startswith("unmapped:"):
+            return
+        # Prefer catalog metadata when available
+        catalog = self.info_for_machine_id(mid, raw)
+        entry: dict[str, Any] = {"machine_id": mid}
+        lab = (label or (catalog.label if catalog else None) or "").strip()
+        if lab:
+            entry["label"] = lab
+        cf = control_family or (catalog.control_family if catalog else None)
+        if cf:
+            entry["control_family"] = cf
+        lay = layout or (catalog.layout if catalog else None)
+        if lay:
+            entry["layout"] = lay
+        nk = normalize_folder_name(raw)
+        self._machines[nk] = entry
+        self._local_keys.add(nk)
+        # Drop prior local raw keys that normalize to the same spelling
+        for old in list(self._local_raw):
+            if normalize_folder_name(old) == nk:
+                del self._local_raw[old]
+        self._local_raw[raw] = entry
+
+    def save_local(self, path: Path | str) -> Path:
+        """Write only shop-local aliases (does not touch bundled aliases.yaml)."""
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        machines: dict[str, Any] = {}
+        for raw, entry in sorted(self._local_raw.items(), key=lambda kv: kv[0].casefold()):
+            machines[raw] = dict(entry)
+        payload = {
+            "machines": machines,
+            "_comment": "Shop-local aliases for this index target. Overlay on bundled aliases.yaml.",
+        }
+        with p.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                payload,
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+        return p
+
+    @property
+    def local_alias_count(self) -> int:
+        return len(self._local_raw)

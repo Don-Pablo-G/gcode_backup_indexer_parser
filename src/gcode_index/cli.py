@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 
 from gcode_index import __version__
-from gcode_index.aliases import AliasMap, default_aliases_path
+from gcode_index.aliases import AliasMap, default_aliases_path, local_aliases_path_for_target
 from gcode_index.db import open_db, write_scan_result
 from gcode_index.excel_export import export_excel
 from gcode_index.extract import ExtractError, extract_instance_to_path, extract_text, fetch_instance
@@ -69,6 +69,12 @@ def scan_cmd(
         dir_okay=False,
         help="YAML alias map (default: bundled aliases.yaml).",
     ),
+    local_aliases: Optional[Path] = typer.Option(
+        None,
+        "--local-aliases",
+        dir_okay=False,
+        help="Shop-local aliases overlay (default: aliases.local.yaml next to --db).",
+    ),
     folder_map: Optional[Path] = typer.Option(
         None,
         "--folder-map",
@@ -81,7 +87,12 @@ def scan_cmd(
     """Scan a backup tree and write program_instances into SQLite (+ optional Excel)."""
     _setup_logging(verbose)
     aliases_path = aliases or default_aliases_path()
-    alias_map = AliasMap.load(aliases_path)
+    local_path = local_aliases
+    if local_path is None:
+        candidate = local_aliases_path_for_target(db.parent)
+        if candidate.is_file():
+            local_path = candidate
+    alias_map = AliasMap.load_merged(aliases_path, local_path)
     fmap = FolderMachineMap.load(folder_map) if folder_map else None
     typer.echo(f"Scanning {backup_root} …")
     result = scan_backup_tree(

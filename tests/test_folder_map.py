@@ -9,6 +9,7 @@ from gcode_index.folder_map import (
     FolderMachineMap,
     discover_machine_folders,
     parse_machine_display,
+    partition_folders,
     suggest_assignments,
 )
 from gcode_index.scanner import scan_backup_tree
@@ -28,6 +29,30 @@ def test_discover_and_suggest(tmp_path: Path):
     suggested = suggest_assignments(names, am)
     assert suggested.get("VF2S").machine_id == "haas-vf-2"
     assert suggested.get("OddName").machine_id == "unknown"
+
+
+def test_partition_skips_auto_matched(tmp_path: Path):
+    root = tmp_path / "bak"
+    (root / "15.09.2026" / "VF2S").mkdir(parents=True)
+    (root / "15.09.2026" / "OddName").mkdir(parents=True)
+    (root / "15.09.2026" / "UMC750").mkdir(parents=True)
+    am = AliasMap.load(ALIASES)
+    part = partition_folders(discover_machine_folders(root), am)
+    assert part.manual_count == 1
+    assert part.needs_manual == ["OddName"]
+    auto_names = {n for n, _ in part.auto_matched}
+    assert "VF2S" in auto_names
+    assert "UMC750" in auto_names
+
+
+def test_partition_respects_existing_map(tmp_path: Path):
+    am = AliasMap.load(ALIASES)
+    existing = FolderMachineMap()
+    existing.set("OddMill", "haas-vf-2", "HAAS VF-2")
+    part = partition_folders(["OddMill", "Mystery"], am, existing)
+    assert part.needs_manual == ["Mystery"]
+    assert len(part.previously_mapped) == 1
+    assert part.previously_mapped[0][0] == "OddMill"
 
 
 def test_folder_map_roundtrip(tmp_path: Path):

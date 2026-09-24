@@ -41,3 +41,30 @@ def test_unmapped_machine():
     info = am.resolve("Mystery Lathe")
     assert not info.mapped
     assert info.machine_id.startswith("unmapped:")
+
+
+def test_local_aliases_overlay_and_persist(tmp_path: Path):
+    from gcode_index.aliases import local_aliases_path_for_target
+    from gcode_index.folder_map import partition_folders
+
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    target = tmp_path / "index"
+    target.mkdir()
+    local_path = local_aliases_path_for_target(target)
+
+    am = AliasMap.load(bundled)
+    assert not am.resolve("ShopOddMill").mapped
+    am.add_local_alias("ShopOddMill", "haas-vf-2", label="HAAS VF-2")
+    am.save_local(local_path)
+    assert local_path.is_file()
+
+    merged = AliasMap.load_merged(bundled, local_path)
+    hit = merged.resolve("ShopOddMill")
+    assert hit.mapped
+    assert hit.machine_id == "haas-vf-2"
+    assert hit.label == "HAAS VF-2"
+    assert merged.resolve("VF2S").machine_id == "haas-vf-2"
+
+    part = partition_folders(["ShopOddMill", "Mystery"], merged)
+    assert part.needs_manual == ["Mystery"]
+    assert any(n == "ShopOddMill" for n, _ in part.auto_matched)

@@ -41,12 +41,15 @@ python -m gcode_index.gui
 
 1. **Browse** → pick the main **backup folder** tree.  
 2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
-3. Click **Map folders…** (optional but recommended) to assign each `<date>/<machine>` folder to a catalog machine. Subfolders inherit. The map is saved as `machine_folders.yaml` next to the DB and **wins over** aliases. First scan offers to open the mapper if no map exists yet.  
+3. Click **Map folders…** (optional but recommended). The app scans `<date>/<machine>` folders, **auto-matches** names it knows from aliases, and lists **only unmatched** folders for manual assign. Subfolders inherit.  
+   - Map is saved as `machine_folders.yaml` next to the DB (wins over aliases).  
+   - Optional checkbox: also save assignments as **local aliases** (`aliases.local.yaml` next to the DB) so the same odd folder names auto-match on later scans.  
+   - First scan prompts only when unmatched folders remain.  
 4. Click **Run index / scan** (optional Excel export checkbox).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
 5. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
    - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  
-     The list is seeded from `aliases.yaml` (so **HAAS UMC750**, ST-20Y, … always appear) plus **MACHINE UNKNOWN**, and merged with machines seen in the last scan.  
+     The list is seeded from `aliases.yaml` + local aliases (so **HAAS UMC750**, ST-20Y, … always appear) plus **MACHINE UNKNOWN**, and merged with machines seen in the last scan.  
      VF-2 has three entries (legacy / **nowa** / **stara**); selecting **HAAS VF-2** also matches the nowa/stara ids.  
    - **Date from / to** (`DD.MM.YYYY`, e.g. `15.09.2026`)  
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
@@ -102,7 +105,8 @@ gcode-index scan "D:\CNC\Backups" --db "D:\CNC\Index\gcode_index.sqlite" --excel
 gcode-index scan /path/to/backup --db ./gcode_index.sqlite --excel ./gcode_index.xlsx
 ```
 
-Optional `--aliases path\to\aliases.yaml` overrides the bundled machine alias map.
+Optional `--aliases path\to\aliases.yaml` overrides the bundled machine alias map.  
+Shop-local overlay: `aliases.local.yaml` next to `--db` is loaded automatically (or pass `--local-aliases`).
 
 ### Expected backup layout
 
