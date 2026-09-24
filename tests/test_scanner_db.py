@@ -157,6 +157,33 @@ def test_umc750_memory_tree_indexes(tmp_path: Path):
     assert all(i.machine_label == "HAAS UMC750" for i in umc)
 
 
+def test_vf2s_folder_indexes_pgm(tmp_path: Path):
+    """Folder VF2S (sample dump basename) must map to haas-vf-2 and index .pgm."""
+    root = tmp_path / "backup"
+    dest = root / "15.09.2026" / "VF2S"
+    dest.mkdir(parents=True)
+    (dest / "VF2S.PGM").write_bytes((FIX / "tiny.pgm").read_bytes())
+    am = AliasMap.load(ALIASES)
+    result = scan_backup_tree(root, am)
+    vf = [i for i in result.instances if i.machine_id == "haas-vf-2"]
+    assert vf
+    assert all(i.source_type == "haas_pgm_glued" for i in vf)
+
+
+def test_unmapped_folder_still_indexes_pgm(tmp_path: Path):
+    """Odd folder names must not drop .pgm — index as MACHINE UNKNOWN."""
+    root = tmp_path / "backup"
+    dest = root / "15.09.2026" / "MysteryMill"
+    dest.mkdir(parents=True)
+    (dest / "DUMP.PGM").write_bytes((FIX / "tiny.pgm").read_bytes())
+    am = AliasMap.load(ALIASES)
+    result = scan_backup_tree(root, am)
+    assert any(u.machine_folder_raw == "MysteryMill" for u in result.unknowns)
+    mystery = [i for i in result.instances if "DUMP.PGM" in i.source_path]
+    assert mystery
+    assert all(i.machine_id == "unknown" for i in mystery)
+
+
 def test_search_allows_short_and_letter_queries(tmp_path: Path):
     conn = open_db(tmp_path / "empty.sqlite")
     try:

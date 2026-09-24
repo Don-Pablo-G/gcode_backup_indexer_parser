@@ -42,8 +42,9 @@ def default_aliases_path() -> Path:
     return pkg / "data" / "aliases.yaml"
 
 
-# Substring fallback: alias key must be at least this long (avoids "sl" → SL-10/20).
+# Substring / prefix fallbacks (avoid tiny keys like "sl" matching both SL-10 and SL-20).
 _MIN_SUBSTRING_ALIAS_LEN = 4
+_MIN_PREFIX_ALIAS_LEN = 3
 
 
 class AliasMap:
@@ -70,19 +71,33 @@ class AliasMap:
             mapped=True,
         )
 
+    def _lookup_fuzzy(self, key: str) -> Optional[dict[str, Any]]:
+        """Longest alias contained in key, else longest alias that is a prefix of key."""
+        best_key = ""
+        for ak in self._machines:
+            if len(ak) < _MIN_SUBSTRING_ALIAS_LEN:
+                continue
+            if ak in key and len(ak) > len(best_key):
+                best_key = ak
+        if best_key:
+            return self._machines[best_key]
+
+        # Prefix: "VF2S" / "VF2 old" → vf2; prefer longer (vf2nowa before vf2)
+        best_key = ""
+        for ak in self._machines:
+            if len(ak) < _MIN_PREFIX_ALIAS_LEN:
+                continue
+            if key.startswith(ak) and len(ak) > len(best_key):
+                best_key = ak
+        if best_key:
+            return self._machines[best_key]
+        return None
+
     def resolve(self, machine_folder_raw: str) -> MachineInfo:
         key = normalize_folder_name(machine_folder_raw)
         entry = self._machines.get(key)
         if entry is None:
-            # Folder longer than alias: e.g. "UMC750SS" / "haasumc750backup" → umc750
-            best_key = ""
-            for ak in self._machines:
-                if len(ak) < _MIN_SUBSTRING_ALIAS_LEN:
-                    continue
-                if ak in key and len(ak) > len(best_key):
-                    best_key = ak
-            if best_key:
-                entry = self._machines[best_key]
+            entry = self._lookup_fuzzy(key)
         if entry is None:
             return MachineInfo(
                 machine_id=f"unmapped:{machine_folder_raw}",

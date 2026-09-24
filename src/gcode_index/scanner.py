@@ -149,7 +149,11 @@ def _scan_machine_folder_dumps(
     result: ScanResult,
     prog: Optional[_ScanProgress] = None,
 ) -> None:
-    """Index glued dumps only. Unmapped folders are logged; .nc handled tree-wide."""
+    """Index glued dumps (.pgm / ALL-FLDR / ALL-PROG).
+
+    Unmapped folders still get dumps indexed as MACHINE UNKNOWN (same idea as
+    tree-wide .nc) so a slightly odd folder name does not hide all programs.
+    """
     machine_folder_raw = machine_dir.name
     info = aliases.resolve(machine_folder_raw)
 
@@ -157,10 +161,11 @@ def _scan_machine_folder_dumps(
         key = normalize_folder_name(machine_folder_raw)
         log.warning(
             "unknown machine folder %r (normalized=%r) under %s — "
-            ".nc still indexed as MACHINE UNKNOWN if present; no glued-dump guess",
+            "glued dumps indexed as %s; .nc still handled tree-wide",
             machine_folder_raw,
             key,
             date_folder_raw,
+            UNKNOWN_MACHINE_LABEL,
         )
         result.unknowns.append(
             UnknownFolder(
@@ -169,7 +174,12 @@ def _scan_machine_folder_dumps(
                 normalized_key=key,
             )
         )
-        return
+        info = MachineInfo(
+            machine_id=UNKNOWN_MACHINE_ID,
+            label=UNKNOWN_MACHINE_LABEL,
+            machine_folder_raw=machine_folder_raw,
+            mapped=False,
+        )
 
     indexed_any = False
     for path in sorted(machine_dir.rglob("*")):
@@ -191,7 +201,7 @@ def _scan_machine_folder_dumps(
             if prog:
                 prog.tick(f"Indexing {rel_path(path, root)}")
 
-    if not indexed_any:
+    if not indexed_any and info.mapped:
         # .nc may still be picked up by tree-wide pass; note dump absence only
         result.files_seen.append(
             FileSeen(

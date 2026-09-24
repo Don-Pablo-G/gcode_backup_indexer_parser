@@ -94,12 +94,18 @@ machines:
     layout: haas_pgm
 
   # Older Haas VF-2 (legacy / nowa / stara)
+  # Sample dump basename is often VF2S.PGM — folder may be VF2S / VF2 / VF-2
   haasvf2:
     machine_id: haas-vf-2
     label: HAAS VF-2
     control_family: haas
     layout: haas_pgm
   vf2:
+    machine_id: haas-vf-2
+    label: HAAS VF-2
+    control_family: haas
+    layout: haas_pgm
+  vf2s:
     machine_id: haas-vf-2
     label: HAAS VF-2
     control_family: haas

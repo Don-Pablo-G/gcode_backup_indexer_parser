@@ -28,6 +28,10 @@ def test_alias_map_known_machines(tmp_path: Path):
     assert am.resolve("UMC").machine_id == "haas-umc750"
     assert am.resolve("UMC750SS").machine_id == "haas-umc750"
     assert am.resolve("Haas UMC750").machine_id == "haas-umc750"
+    assert am.resolve("VF2S").machine_id == "haas-vf-2"
+    assert am.resolve("VF2 old").machine_id == "haas-vf-2"
+    assert am.resolve("VF2 nowa").machine_id == "haas-vf-2-nowa"
+    assert am.resolve("VF2 stara").machine_id == "haas-vf-2-stara"
     displays = am.known_machine_displays()
     assert any("UMC750" in d and "haas-umc750" in d for d in displays)
 
