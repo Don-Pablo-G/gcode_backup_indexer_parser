@@ -9,6 +9,7 @@ Stdlib only (no MSVC / extra GUI wheels). Launch::
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import tkinter as tk
 from collections import Counter
@@ -30,6 +31,11 @@ from gcode_index.extract import (
     default_extract_filename,
     extract_to_path,
 )
+from gcode_index.path_util import (
+    format_eta,
+    open_path_in_file_manager,
+    resolve_source_abspath,
+)
 from gcode_index.scanner import scan_backup_tree
 
 log = logging.getLogger(__name__)
@@ -39,6 +45,16 @@ DEFAULT_DB_NAME = "gcode_index.sqlite"
 BROWSE_LIMIT = 500
 ALL = "(all)"
 
+# Re-export helpers for callers that imported them from gui
+__all__ = [
+    "IndexerApp",
+    "main",
+    "SEARCH_DEBOUNCE_MS",
+    "format_eta",
+    "open_path_in_file_manager",
+    "resolve_source_abspath",
+]
+
 
 class IndexerApp(tk.Tk):
     """Main window: backup + target folders, scan, live search, extract."""
@@ -46,13 +62,12 @@ class IndexerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("G-code Backup Indexer")
-        self.minsize(1000, 560)
-        self.geometry("1280x680")
+        self.minsize(1040, 620)
+        self.geometry("1320x720")
 
         self.backup_var = tk.StringVar()
         self.target_var = tk.StringVar()
         self.search_var = tk.StringVar()
-        self.machine_var = tk.StringVar(value=ALL)
         self.date_from_var = tk.StringVar()
         self.date_to_var = tk.StringVar()
         self.source_type_var = tk.StringVar(value=ALL)
@@ -60,16 +75,18 @@ class IndexerApp(tk.Tk):
         self.status_var = tk.StringVar(
             value="Pick a backup folder and a target folder for the database."
         )
+        self.progress_var = tk.DoubleVar(value=0.0)
+        self.progress_label_var = tk.StringVar(value="")
 
         self._search_after_id: Optional[str] = None
         self._result_rows: list = []
         self._scan_busy = False
         self._filter_trace_lock = False
+        self._machine_names: list[str] = []
 
         self._build()
         self.search_var.trace_add("write", self._on_filter_changed)
         for var in (
-            self.machine_var,
             self.date_from_var,
             self.date_to_var,
             self.source_type_var,
@@ -115,9 +132,22 @@ class IndexerApp(tk.Tk):
             side=tk.LEFT
         )
 
+        prog_frame = ttk.Frame(root)
+        prog_frame.pack(fill=tk.X, **pad)
+        self.progress = ttk.Progressbar(
+            prog_frame,
+            mode="determinate",
+            maximum=100.0,
+            variable=self.progress_var,
+        )
+        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(prog_frame, textvariable=self.progress_label_var, width=42).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+
         filt = ttk.LabelFrame(
             root,
-            text="Find programs — text (letters/digits/symbols OK) · machine · date · source",
+            text="Find programs — text · machines (multi-select) · date · source",
             padding=8,
         )
         filt.pack(fill=tk.X, **pad)
@@ -129,21 +159,41 @@ class IndexerApp(tk.Tk):
             row=0, column=6, padx=4
         )
 
-        ttk.Label(filt, text="Machine").grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
-        self.machine_combo = ttk.Combobox(
-            filt, textvariable=self.machine_var, values=[ALL], state="readonly", width=28
+        ttk.Label(filt, text="Machines").grid(row=1, column=0, sticky=tk.NW, pady=(6, 0))
+        mach_frame = ttk.Frame(filt)
+        mach_frame.grid(row=1, column=1, sticky=tk.NSEW, padx=4, pady=(6, 0))
+        self.machine_list = tk.Listbox(
+            mach_frame,
+            selectmode=tk.EXTENDED,
+            height=5,
+            exportselection=False,
+            width=36,
         )
-        self.machine_combo.grid(row=1, column=1, sticky=tk.EW, padx=4, pady=(6, 0))
+        mach_sb = ttk.Scrollbar(mach_frame, orient=tk.VERTICAL, command=self.machine_list.yview)
+        self.machine_list.configure(yscrollcommand=mach_sb.set)
+        self.machine_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        mach_sb.pack(side=tk.LEFT, fill=tk.Y)
+        self.machine_list.bind("<<ListboxSelect>>", self._on_filter_changed)
 
-        ttk.Label(filt, text="Date from").grid(row=1, column=2, sticky=tk.W, pady=(6, 0))
-        ttk.Entry(filt, textvariable=self.date_from_var, width=12).grid(
-            row=1, column=3, sticky=tk.W, padx=4, pady=(6, 0)
+        mach_btns = ttk.Frame(filt)
+        mach_btns.grid(row=1, column=2, sticky=tk.NW, pady=(6, 0))
+        ttk.Button(mach_btns, text="All", width=8, command=self._select_all_machines).pack(
+            anchor=tk.W, pady=1
         )
-        ttk.Label(filt, text="to").grid(row=1, column=4, sticky=tk.W, pady=(6, 0))
-        ttk.Entry(filt, textvariable=self.date_to_var, width=12).grid(
-            row=1, column=5, sticky=tk.W, padx=4, pady=(6, 0)
+        ttk.Button(mach_btns, text="None", width=8, command=self._clear_machine_selection).pack(
+            anchor=tk.W, pady=1
         )
-        ttk.Label(filt, text="YYYY-MM-DD").grid(row=1, column=6, sticky=tk.W, pady=(6, 0))
+        ttk.Label(mach_btns, text="Ctrl/Shift+click\nfor multi-select", foreground="#555").pack(
+            anchor=tk.W, pady=(4, 0)
+        )
+
+        ttk.Label(filt, text="Date from").grid(row=1, column=3, sticky=tk.NW, pady=(6, 0))
+        date_box = ttk.Frame(filt)
+        date_box.grid(row=1, column=4, columnspan=2, sticky=tk.NW, padx=4, pady=(6, 0))
+        ttk.Entry(date_box, textvariable=self.date_from_var, width=12).pack(side=tk.LEFT)
+        ttk.Label(date_box, text=" to ").pack(side=tk.LEFT)
+        ttk.Entry(date_box, textvariable=self.date_to_var, width=12).pack(side=tk.LEFT)
+        ttk.Label(date_box, text="  YYYY-MM-DD").pack(side=tk.LEFT)
 
         ttk.Label(filt, text="Source type").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
         self.type_combo = ttk.Combobox(
@@ -151,16 +201,25 @@ class IndexerApp(tk.Tk):
         )
         self.type_combo.grid(row=2, column=1, sticky=tk.EW, padx=4, pady=(6, 0))
 
-        ttk.Label(filt, text="Control").grid(row=2, column=2, sticky=tk.W, pady=(6, 0))
+        ttk.Label(filt, text="Control").grid(row=2, column=3, sticky=tk.W, pady=(6, 0))
         self.control_combo = ttk.Combobox(
             filt, textvariable=self.control_var, values=[ALL], state="readonly", width=14
         )
-        self.control_combo.grid(row=2, column=3, sticky=tk.W, padx=4, pady=(6, 0))
+        self.control_combo.grid(row=2, column=4, sticky=tk.W, padx=4, pady=(6, 0))
+
+        row_actions = ttk.Frame(filt)
+        row_actions.grid(row=2, column=6, sticky=tk.E, pady=(6, 0))
+        ttk.Button(row_actions, text="Open folder", command=self._open_selected_folder).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(row_actions, text="Copy path", command=self._copy_selected_path).pack(
+            side=tk.LEFT, padx=2
+        )
 
         hint = ttk.Label(
             filt,
-            text="Text is case-insensitive (P-00045613 Va = p-00045613 va). "
-            "Matches program #, part #, path, machine, FANUC folder. "
+            text="Text is case-insensitive. Empty machine selection = all machines. "
+            "Right-click a row for Open folder / Copy path. "
             "Extract refuses if the source file changed since the scan (SHA-256).",
             foreground="#444",
         )
@@ -197,6 +256,15 @@ class IndexerApp(tk.Tk):
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
         self.tree.bind("<Double-1>", lambda _e: self._extract_selected())
+        self.tree.bind("<Button-3>", self._on_tree_context)
+        if sys.platform == "darwin":
+            self.tree.bind("<Button-2>", self._on_tree_context)
+            self.tree.bind("<Control-Button-1>", self._on_tree_context)
+
+        self._ctx_menu = tk.Menu(self, tearoff=0)
+        self._ctx_menu.add_command(label="Extract selected…", command=self._extract_selected)
+        self._ctx_menu.add_command(label="Open folder", command=self._open_selected_folder)
+        self._ctx_menu.add_command(label="Copy path", command=self._copy_selected_path)
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
         status.pack(fill=tk.X, **pad)
@@ -248,6 +316,8 @@ class IndexerApp(tk.Tk):
         Path(target).mkdir(parents=True, exist_ok=True)
         self._scan_busy = True
         self.scan_btn.configure(state=tk.DISABLED)
+        self.progress_var.set(0.0)
+        self.progress_label_var.set("Starting…")
         self.status_var.set("Scanning…")
         write_excel = bool(self.excel_var.get())
         threading.Thread(
@@ -256,11 +326,45 @@ class IndexerApp(tk.Tk):
             daemon=True,
         ).start()
 
+    def _on_scan_progress(self, info: dict) -> None:
+        """Marshal scanner progress onto the Tk thread."""
+        self.after(0, lambda: self._apply_scan_progress(info))
+
+    def _apply_scan_progress(self, info: dict) -> None:
+        phase = info.get("phase") or ""
+        message = info.get("message") or ""
+        current = int(info.get("current") or 0)
+        total = int(info.get("total") or 0)
+        eta = format_eta(info.get("eta_s"))
+
+        if phase == "counting" or total <= 0:
+            self.progress.configure(mode="indeterminate")
+            try:
+                self.progress.start(12)
+            except tk.TclError:
+                pass
+            self.progress_label_var.set(message or "Counting…")
+            self.status_var.set(message or "Counting source files…")
+            return
+
+        try:
+            self.progress.stop()
+        except tk.TclError:
+            pass
+        self.progress.configure(mode="determinate", maximum=100.0)
+        pct = min(100.0, 100.0 * current / max(total, 1))
+        self.progress_var.set(pct)
+        label = f"{current} / {total}"
+        if eta:
+            label = f"{label}  {eta}"
+        self.progress_label_var.set(label)
+        self.status_var.set(message or label)
+
     def _scan_worker(self, backup: Path, target: Path, write_excel: bool) -> None:
         try:
             aliases_path = default_aliases_path()
             alias_map = AliasMap.load(aliases_path)
-            result = scan_backup_tree(backup, alias_map)
+            result = scan_backup_tree(backup, alias_map, progress=self._on_scan_progress)
             db_path = target / DEFAULT_DB_NAME
             if db_path.is_file():
                 db_path.unlink()
@@ -293,6 +397,17 @@ class IndexerApp(tk.Tk):
     def _scan_done(self, ok: bool, message: str) -> None:
         self._scan_busy = False
         self.scan_btn.configure(state=tk.NORMAL)
+        try:
+            self.progress.stop()
+        except tk.TclError:
+            pass
+        self.progress.configure(mode="determinate")
+        if ok:
+            self.progress_var.set(100.0)
+            self.progress_label_var.set("Done")
+        else:
+            self.progress_var.set(0.0)
+            self.progress_label_var.set("")
         self.status_var.set(message)
         if not ok:
             messagebox.showerror("Scan failed", message)
@@ -301,6 +416,24 @@ class IndexerApp(tk.Tk):
         self._clear_filters(status_prefix=message)
 
     # --- filters / search -------------------------------------------------------
+
+    def _selected_machines(self) -> list[str]:
+        sel = self.machine_list.curselection()
+        if not sel:
+            return []
+        names = [self.machine_list.get(i) for i in sel]
+        # Treating "all selected" the same as none keeps the query unfiltered
+        if self._machine_names and len(names) == len(self._machine_names):
+            return []
+        return names
+
+    def _select_all_machines(self) -> None:
+        self.machine_list.selection_set(0, tk.END)
+        self._on_filter_changed()
+
+    def _clear_machine_selection(self) -> None:
+        self.machine_list.selection_clear(0, tk.END)
+        self._on_filter_changed()
 
     def _refresh_filter_choices(self) -> None:
         db_path = self._db_path()
@@ -314,7 +447,14 @@ class IndexerApp(tk.Tk):
                 conn.close()
         except Exception:  # noqa: BLE001
             return
-        self.machine_combo["values"] = [ALL, *vals["machines"]]
+        prev = set(self._selected_machines())
+        self._machine_names = list(vals["machines"])
+        self.machine_list.delete(0, tk.END)
+        for name in self._machine_names:
+            self.machine_list.insert(tk.END, name)
+        for i, name in enumerate(self._machine_names):
+            if name in prev:
+                self.machine_list.selection_set(i)
         self.type_combo["values"] = [ALL, *vals["source_types"]]
         self.control_combo["values"] = [ALL, *vals["control_families"]]
 
@@ -322,7 +462,7 @@ class IndexerApp(tk.Tk):
         self._filter_trace_lock = True
         try:
             self.search_var.set("")
-            self.machine_var.set(ALL)
+            self.machine_list.selection_clear(0, tk.END)
             self.date_from_var.set("")
             self.date_to_var.set("")
             self.source_type_var.set(ALL)
@@ -352,7 +492,7 @@ class IndexerApp(tk.Tk):
             return
 
         text = self.search_var.get().strip() or None
-        machine = self.machine_var.get().strip()
+        machines = self._selected_machines()
         date_from = self.date_from_var.get().strip() or None
         date_to = self.date_to_var.get().strip() or None
         source_type = self.source_type_var.get().strip()
@@ -364,7 +504,7 @@ class IndexerApp(tk.Tk):
                 rows = query_instances(
                     conn,
                     text=text,
-                    machine=machine,
+                    machines=machines or None,
                     date_from=date_from,
                     date_to=date_to,
                     source_type=source_type,
@@ -387,8 +527,8 @@ class IndexerApp(tk.Tk):
             bits.append(f"of {total} in DB")
         if text:
             bits.append(f"text={text!r}")
-        if machine and machine != ALL:
-            bits.append(f"machine={machine}")
+        if machines:
+            bits.append(f"machines={len(machines)}")
         if date_from or date_to:
             bits.append(f"dates={date_from or '…'}→{date_to or '…'}")
         if source_type and source_type != ALL:
@@ -424,7 +564,7 @@ class IndexerApp(tk.Tk):
                 ),
             )
 
-    # --- extract ----------------------------------------------------------------
+    # --- row actions ------------------------------------------------------------
 
     def _selected_row(self):
         sel = self.tree.selection()
@@ -437,6 +577,59 @@ class IndexerApp(tk.Tk):
         if idx < 0 or idx >= len(self._result_rows):
             return None
         return self._result_rows[idx]
+
+    def _on_tree_context(self, event) -> None:
+        row_id = self.tree.identify_row(event.y)
+        if row_id:
+            self.tree.selection_set(row_id)
+            self.tree.focus(row_id)
+        try:
+            self._ctx_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._ctx_menu.grab_release()
+
+    def _row_source_path(self) -> Optional[Path]:
+        row = self._selected_row()
+        if row is None:
+            messagebox.showinfo("Selection", "Select a search result first.")
+            return None
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        sp = str(row["source_path"] or "")
+        if not sp:
+            messagebox.showerror("Path", "This row has no source path.")
+            return None
+        return resolve_source_abspath(sp, backup or None)
+
+    def _open_selected_folder(self) -> None:
+        path = self._row_source_path()
+        if path is None:
+            return
+        if not path.exists():
+            messagebox.showerror(
+                "Open folder",
+                f"Path not found on disk:\n{path}\n\n"
+                "Check that the backup folder is set correctly.",
+            )
+            return
+        try:
+            open_path_in_file_manager(path)
+            self.status_var.set(f"Opened folder for {path.name}")
+        except OSError as exc:
+            messagebox.showerror("Open folder", str(exc))
+
+    def _copy_selected_path(self) -> None:
+        path = self._row_source_path()
+        if path is None:
+            return
+        text = str(path)
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update_idletasks()
+        except tk.TclError as exc:
+            messagebox.showerror("Copy path", str(exc))
+            return
+        self.status_var.set(f"Copied path: {text}")
 
     def _extract_selected(self) -> None:
         row = self._selected_row()

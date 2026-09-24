@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from gcode_index.aliases import AliasMap, normalize_folder_name
 from gcode_index.birthtime import file_mtime
@@ -22,6 +23,40 @@ _HAAS_BACKUP_DIR = re.compile(r"^HaasBackup\(.*\)$", re.IGNORECASE)
 # Authoritative (user 2026-09-23): do not force machine assignment for orphan .nc
 UNKNOWN_MACHINE_ID = "unknown"
 UNKNOWN_MACHINE_LABEL = "MACHINE UNKNOWN"
+
+ProgressCallback = Callable[[dict], None]
+
+
+class _ScanProgress:
+    """Lightweight progress reporter for GUI / CLI."""
+
+    def __init__(self, callback: Optional[ProgressCallback], total: int) -> None:
+        self.callback = callback
+        self.total = max(total, 1)
+        self.current = 0
+        self.t0 = time.monotonic()
+
+    def emit(self, *, phase: str, message: str) -> None:
+        if not self.callback:
+            return
+        elapsed = time.monotonic() - self.t0
+        eta = None
+        if self.current > 0 and self.current < self.total:
+            eta = elapsed / self.current * (self.total - self.current)
+        self.callback(
+            {
+                "phase": phase,
+                "message": message,
+                "current": self.current,
+                "total": self.total,
+                "elapsed_s": elapsed,
+                "eta_s": eta,
+            }
+        )
+
+    def tick(self, message: str) -> None:
+        self.current += 1
+        self.emit(phase="scanning", message=message)
 
 
 def rel_path(path: Path, root: Path) -> str:
@@ -43,14 +78,44 @@ def _basename_is(path: Path, name: str) -> bool:
     return path.name.upper() == name.upper()
 
 
+def _count_indexable_files(root: Path) -> int:
+    """Count dump + .nc files we expect to touch (for progress denominator)."""
+    n = 0
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if _is_nc(path) or _is_pgm(path) or _basename_is(path, "ALL-FLDR.TXT") or _basename_is(
+            path, "ALL-PROG.TXT"
+        ):
+            n += 1
+    return n
+
+
 def scan_backup_tree(
     backup_root: Path | str,
     aliases: AliasMap,
+    *,
+    progress: Optional[ProgressCallback] = None,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
     if not root.is_dir():
         raise NotADirectoryError(f"backup root is not a directory: {root}")
+
+    if progress:
+        progress(
+            {
+                "phase": "counting",
+                "message": "Counting source files…",
+                "current": 0,
+                "total": 0,
+                "elapsed_s": 0.0,
+                "eta_s": None,
+            }
+        )
+    total = _count_indexable_files(root)
+    prog = _ScanProgress(progress, total)
+    prog.emit(phase="scanning", message=f"Scanning 0 / {total} files…")
 
     # date → machine: glued dumps (.pgm / ALL-FLDR / ALL-PROG) + unknown-folder log
     for date_dir in sorted(p for p in root.iterdir() if p.is_dir()):
@@ -62,11 +127,16 @@ def scan_backup_tree(
                 date_folder_raw=date_folder_raw,
                 aliases=aliases,
                 result=result,
+                prog=prog,
             )
 
     # Individual .nc: whole tree from backup root (any depth)
-    _index_all_nc_files(root, aliases, result)
+    _index_all_nc_files(root, aliases, result, prog=prog)
 
+    prog.emit(
+        phase="done",
+        message=f"Scan complete — {prog.current} / {prog.total} files",
+    )
     return result
 
 
@@ -77,6 +147,7 @@ def _scan_machine_folder_dumps(
     date_folder_raw: str,
     aliases: AliasMap,
     result: ScanResult,
+    prog: Optional[_ScanProgress] = None,
 ) -> None:
     """Index glued dumps only. Unmapped folders are logged; .nc handled tree-wide."""
     machine_folder_raw = machine_dir.name
@@ -107,12 +178,18 @@ def _scan_machine_folder_dumps(
         if _is_pgm(path):
             _index_pgm(path, root, date_folder_raw, info, result)
             indexed_any = True
+            if prog:
+                prog.tick(f"Indexing {rel_path(path, root)}")
         elif _basename_is(path, "ALL-FLDR.TXT"):
             _index_all_fldr(path, root, date_folder_raw, info, result)
             indexed_any = True
+            if prog:
+                prog.tick(f"Indexing {rel_path(path, root)}")
         elif _basename_is(path, "ALL-PROG.TXT"):
             _index_all_prog(path, root, date_folder_raw, info, result)
             indexed_any = True
+            if prog:
+                prog.tick(f"Indexing {rel_path(path, root)}")
 
     if not indexed_any:
         # .nc may still be picked up by tree-wide pass; note dump absence only
@@ -128,7 +205,13 @@ def _scan_machine_folder_dumps(
         )
 
 
-def _index_all_nc_files(root: Path, aliases: AliasMap, result: ScanResult) -> None:
+def _index_all_nc_files(
+    root: Path,
+    aliases: AliasMap,
+    result: ScanResult,
+    *,
+    prog: Optional[_ScanProgress] = None,
+) -> None:
     """Walk entire backup tree for *.nc / *.NC; fuzzy-match machine or leave unknown."""
     seen: set[Path] = set()
     for path in sorted(root.rglob("*")):
@@ -139,6 +222,8 @@ def _index_all_nc_files(root: Path, aliases: AliasMap, result: ScanResult) -> No
             continue
         seen.add(rp)
         _index_one_nc(path, root, aliases, result)
+        if prog:
+            prog.tick(f"Indexing {rel_path(path, root)}")
 
 
 def _path_parts_under_root(path: Path, root: Path) -> Tuple[str, ...]:

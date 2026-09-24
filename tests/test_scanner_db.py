@@ -111,6 +111,22 @@ def test_scanner_routes_and_sqlite(tmp_path: Path):
     assert xlsx.is_file() and xlsx.stat().st_size > 0
 
 
+def test_scan_progress_callback(tmp_path: Path):
+    root = _build_mini_tree(tmp_path)
+    am = AliasMap.load(ALIASES)
+    events: list[dict] = []
+    result = scan_backup_tree(root, am, progress=events.append)
+    assert result.instances
+    phases = [e["phase"] for e in events]
+    assert "counting" in phases
+    assert "scanning" in phases
+    assert phases[-1] == "done"
+    scanned = [e for e in events if e["phase"] == "scanning" and e["current"] > 0]
+    assert scanned
+    assert scanned[-1]["total"] >= scanned[-1]["current"]
+    assert any(e.get("eta_s") is not None or e["current"] >= e["total"] for e in scanned)
+
+
 def test_search_allows_short_and_letter_queries(tmp_path: Path):
     conn = open_db(tmp_path / "empty.sqlite")
     try:

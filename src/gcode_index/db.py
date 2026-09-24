@@ -312,6 +312,7 @@ def query_instances(
     *,
     text: Optional[str] = None,
     machine: Optional[str] = None,
+    machines: Optional[Iterable[str]] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     source_type: Optional[str] = None,
@@ -322,7 +323,8 @@ def query_instances(
 
     ``text`` — free substring (any characters) across program #, part #, path,
     machine id/label/folder, FANUC folder_path, date folder.
-    ``machine`` — match machine_id, machine_label, or machine_folder_raw.
+    ``machine`` — single machine id/label (CLI); ignored if ``machines`` is set.
+    ``machines`` — one or more machine ids/labels (multi-select GUI).
     ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date`` (YYYY-MM-DD OK).
     ``source_type`` / ``control_family`` — exact match when set.
     """
@@ -350,24 +352,32 @@ def query_instances(
         )
         params.extend([like] * 8)
 
-    if machine is not None and str(machine).strip() and str(machine).strip() != "(all)":
-        m = str(machine).strip()
-        # Combobox may show "Label (machine_id)"
-        if m.endswith(")") and "(" in m:
-            inner = m[m.rfind("(") + 1 : -1].strip()
-            if inner:
-                m = inner
-        m_fold = m.casefold()
-        clauses.append(
-            """(
-              LOWER(machine_id) = ?
-              OR LOWER(IFNULL(machine_label,'')) = ?
-              OR LOWER(IFNULL(machine_folder_raw,'')) = ?
-              OR LOWER(machine_id) LIKE ?
-              OR LOWER(IFNULL(machine_label,'')) LIKE ?
-            )"""
-        )
-        params.extend([m_fold, m_fold, m_fold, f"%{m_fold}%", f"%{m_fold}%"])
+    machine_list: list[str] = []
+    if machines is not None:
+        machine_list = [str(m).strip() for m in machines if str(m).strip() and str(m).strip() != "(all)"]
+    elif machine is not None and str(machine).strip() and str(machine).strip() != "(all)":
+        machine_list = [str(machine).strip()]
+
+    if machine_list:
+        or_parts: list[str] = []
+        for raw in machine_list:
+            m = raw
+            if m.endswith(")") and "(" in m:
+                inner = m[m.rfind("(") + 1 : -1].strip()
+                if inner:
+                    m = inner
+            m_fold = m.casefold()
+            or_parts.append(
+                """(
+                  LOWER(machine_id) = ?
+                  OR LOWER(IFNULL(machine_label,'')) = ?
+                  OR LOWER(IFNULL(machine_folder_raw,'')) = ?
+                  OR LOWER(machine_id) LIKE ?
+                  OR LOWER(IFNULL(machine_label,'')) LIKE ?
+                )"""
+            )
+            params.extend([m_fold, m_fold, m_fold, f"%{m_fold}%", f"%{m_fold}%"])
+        clauses.append("(" + " OR ".join(or_parts) + ")")
 
     d_from = _normalize_date_bound(date_from, end=False)
     d_to = _normalize_date_bound(date_to, end=True)

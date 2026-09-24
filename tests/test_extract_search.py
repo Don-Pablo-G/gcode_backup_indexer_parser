@@ -112,6 +112,18 @@ def test_search_letters_and_filters(tmp_path: Path):
         # Combined text + machine
         combo = query_instances(conn, text="1234", machine="haas-sl-20", limit=50)
         assert [r["instance_id"] for r in combo] == ["b"]
+
+        # Multi-select machines (OR)
+        multi = query_instances(
+            conn, machines=["puma", "haas-sl-20"], limit=50
+        )
+        assert {r["instance_id"] for r in multi} == {"b", "c", "e"}
+
+        # machines= wins over machine=
+        override = query_instances(
+            conn, machine="puma", machines=["haas-sl-10"], limit=50
+        )
+        assert {r["instance_id"] for r in override} == {"a"}
     finally:
         conn.close()
 
@@ -224,7 +236,21 @@ def test_extract_refuses_changed_source(tmp_path: Path):
     assert "G00" in extract_text(row, backup_root=tmp_path, skip_integrity=True)
 
 
+def test_path_util_helpers():
+    from gcode_index.path_util import format_eta, resolve_source_abspath
+
+    assert format_eta(None) == ""
+    assert "s left" in format_eta(12)
+    assert "m" in format_eta(125)
+    p = resolve_source_abspath("sub/a.nc", "/bak")
+    assert p == Path("/bak") / "sub" / "a.nc"
+    abs_p = resolve_source_abspath("/abs/x.nc", "/bak")
+    assert abs_p == Path("/abs/x.nc")
+
+
 def test_gui_module_importable():
+    tkinter = pytest.importorskip("tkinter")
+    assert tkinter is not None
     from gcode_index import gui
 
     assert hasattr(gui, "IndexerApp")
