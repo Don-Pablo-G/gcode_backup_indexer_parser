@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -8,6 +9,9 @@ from typing import Iterable, Optional
 
 from gcode_index import PARSER_VERSION, __version__
 from gcode_index.models import FileSeen, ProgramInstance, ScanResult, UnknownFolder
+
+# Optional leading O + digits only → treat as a program-number search (#20)
+_PROGRAM_QUERY_RE = re.compile(r"^O?\d+$", re.IGNORECASE)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS index_runs (
@@ -272,6 +276,60 @@ def validate_search_query(query: str, *, min_chars: int = 1) -> str:
     return q
 
 
+def is_program_number_query(query: str) -> bool:
+    """True when ``query`` is only an optional ``O`` plus digits (program search)."""
+    q = (query or "").strip()
+    return bool(q) and _PROGRAM_QUERY_RE.fullmatch(q) is not None
+
+
+def program_digit_core(value: Optional[str]) -> Optional[str]:
+    """Strip optional leading ``O`` and leading zeros → digit core.
+
+    ``O03232`` / ``03232`` / ``3232`` → ``3232``. All-zeros → ``0``.
+    Returns ``None`` if the value is not program-number-shaped.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s or not _PROGRAM_QUERY_RE.fullmatch(s):
+        return None
+    if s[:1] in "Oo":
+        s = s[1:]
+    if not s.isdigit():
+        return None
+    core = s.lstrip("0")
+    return core if core else "0"
+
+
+def program_search_variants(query: str) -> list[str]:
+    """LIKE needles for a program-ish query (``O`` / padding variants).
+
+    Non-program queries return a single casefolded needle (caller uses as-is).
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    fold = q.casefold()
+    if not is_program_number_query(q):
+        return [fold]
+    variants: set[str] = {fold}
+    digits = q[1:] if q[:1] in "Oo" else q
+    variants.add(digits.casefold())
+    core = program_digit_core(q)
+    if core is not None:
+        variants.add(core)
+        for width in (4, 5, 6):
+            if len(core) <= width:
+                variants.add(core.zfill(width))
+        # Also try with a leading O (for any future storage that keeps O)
+        variants.add(f"o{core}")
+        for width in (4, 5):
+            if len(core) <= width:
+                variants.add(f"o{core.zfill(width)}")
+    # Longest first so SQL OR order is irrelevant but lists are stable
+    return sorted(variants, key=lambda s: (-len(s), s))
+
+
 def _match_rank(value: Optional[str], query: str) -> int:
     """Lower is better: 0 exact, 1 prefix, 2 substring, 3 no match on this field."""
     if not value:
@@ -287,6 +345,25 @@ def _match_rank(value: Optional[str], query: str) -> int:
     return 3
 
 
+def _program_match_rank(program_number: Optional[str], query: str) -> int:
+    """Rank program # with O/zero-padding normalize when query is program-ish."""
+    literal = _match_rank(program_number, query)
+    if not is_program_number_query(query):
+        return literal
+    q_core = program_digit_core(query)
+    p_core = program_digit_core(program_number)
+    if q_core is not None and p_core is not None and q_core == p_core:
+        return 0  # same logical O-number
+    # Also try literal variants (O03232 vs stored 03232)
+    best = literal
+    for needle in program_search_variants(query):
+        best = min(best, _match_rank(program_number, needle))
+        # stored may lack O while needle has it — compare without O on value
+        if program_number:
+            best = min(best, _match_rank(f"O{program_number}", needle))
+    return best
+
+
 def rank_match(
     program_number: Optional[str],
     part_number: Optional[str],
@@ -298,7 +375,7 @@ def rank_match(
 ) -> int:
     """Combined rank for a row (prefer program #, then part, then path/machine)."""
     ranks = [
-        _match_rank(program_number, query) * 2,
+        _program_match_rank(program_number, query) * 2,
         _match_rank(part_number, query) * 2 + 1,
         _match_rank(source_path, query) * 2 + 2,
         _match_rank(machine_label, query) * 2 + 3,
@@ -405,6 +482,8 @@ def query_instances(
 
     ``text`` — free substring (any characters) across program #, part #, path,
     machine id/label/folder, FANUC folder_path, date folder, programmer.
+    Program-shaped queries (optional ``O`` + digits) also match ``program_number``
+    after stripping ``O`` / leading zeros (``1234`` ↔ ``O01234`` ↔ ``01234``).
     ``machine`` — single machine id/label (CLI); ignored if ``machines`` is set.
     ``machines`` — one or more machine ids/labels (multi-select GUI).
     ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date``
@@ -424,20 +503,30 @@ def query_instances(
         # LOWER() on both sides → case-insensitive for ASCII letters
         # (P-00045613 Va == p-00045613 va)
         like = f"%{q.casefold()}%"
-        clauses.append(
-            """(
-              LOWER(program_number) LIKE ?
-              OR LOWER(IFNULL(part_number,'')) LIKE ?
-              OR LOWER(source_path) LIKE ?
-              OR LOWER(machine_id) LIKE ?
-              OR LOWER(IFNULL(machine_label,'')) LIKE ?
-              OR LOWER(IFNULL(machine_folder_raw,'')) LIKE ?
-              OR LOWER(IFNULL(folder_path,'')) LIKE ?
-              OR LOWER(IFNULL(date_folder_raw,'')) LIKE ?
-              OR LOWER(IFNULL(programmer,'')) LIKE ?
-            )"""
-        )
-        params.extend([like] * 9)
+        field_ors = [
+            "LOWER(program_number) LIKE ?",
+            "LOWER(IFNULL(part_number,'')) LIKE ?",
+            "LOWER(source_path) LIKE ?",
+            "LOWER(machine_id) LIKE ?",
+            "LOWER(IFNULL(machine_label,'')) LIKE ?",
+            "LOWER(IFNULL(machine_folder_raw,'')) LIKE ?",
+            "LOWER(IFNULL(folder_path,'')) LIKE ?",
+            "LOWER(IFNULL(date_folder_raw,'')) LIKE ?",
+            "LOWER(IFNULL(programmer,'')) LIKE ?",
+        ]
+        field_params: list[object] = [like] * 9
+        # #20: also match program_number against O/padding variants
+        if is_program_number_query(q):
+            for needle in program_search_variants(q):
+                if needle == q.casefold():
+                    continue  # already covered
+                field_ors.append("LOWER(program_number) LIKE ?")
+                field_params.append(f"%{needle}%")
+                # Stored value with synthetic leading O (rare / future-proof)
+                field_ors.append("LOWER('o' || program_number) LIKE ?")
+                field_params.append(f"%{needle}%")
+        clauses.append("(" + " OR ".join(field_ors) + ")")
+        params.extend(field_params)
 
     machine_list: list[str] = []
     if machines is not None:

@@ -27,7 +27,9 @@ def test_validate_search_query():
 def test_rank_prefers_prefix_and_exact():
     assert rank_match("1234", None, "1234") < rank_match("X1234", None, "1234")
     assert rank_match("12345", None, "1234") < rank_match("991234", None, "1234")
-    assert rank_match("O1234", "PART-1234", "1234") == rank_match("xx1234", None, "1234")
+    # O-prefix / padding normalize: O1234 and 1234 are the same logical program
+    assert rank_match("O1234", "PART-1234", "1234") == 0
+    assert rank_match("01234", None, "O1234") == 0
     # program exact beats part prefix
     assert rank_match("1234", "other", "1234") < rank_match("Z", "1234-A", "1234")
 

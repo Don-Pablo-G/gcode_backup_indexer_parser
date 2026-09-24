@@ -14,7 +14,7 @@ import threading
 import tkinter as tk
 from collections import Counter
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Optional
 
 from gcode_index.aliases import (
@@ -67,6 +67,15 @@ from gcode_index.path_util import (
     open_path_in_file_manager,
     resolve_source_abspath,
 )
+from gcode_index.presets import (
+    PRESETS_FILENAME,
+    FilterPreset,
+    delete_preset,
+    get_preset,
+    load_presets,
+    presets_path_for_target,
+    upsert_preset,
+)
 from gcode_index.scan_report import (
     DuplicateGroup,
     ScanReport,
@@ -115,6 +124,7 @@ class IndexerApp(tk.Tk):
         self.provenance_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
+        self.preset_var = tk.StringVar(value="")
         self.preview_header_var = tk.StringVar(value="Preview — select a result row")
         self.status_var = tk.StringVar(
             value="Pick a backup folder and a target folder for the database."
@@ -339,6 +349,32 @@ class IndexerApp(tk.Tk):
             side=tk.LEFT, padx=2
         )
 
+        ttk.Label(filt, text="Preset").grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
+        preset_row = ttk.Frame(filt)
+        preset_row.grid(row=4, column=1, columnspan=6, sticky=tk.EW, padx=4, pady=(6, 0))
+        self.preset_combo = ttk.Combobox(
+            preset_row,
+            textvariable=self.preset_var,
+            values=[],
+            state="readonly",
+            width=28,
+        )
+        self.preset_combo.pack(side=tk.LEFT)
+        ttk.Button(preset_row, text="Load", command=self._load_selected_preset).pack(
+            side=tk.LEFT, padx=4
+        )
+        ttk.Button(preset_row, text="Save current…", command=self._save_current_preset).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(preset_row, text="Delete", command=self._delete_selected_preset).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Label(
+            preset_row,
+            text=f"Stored as {PRESETS_FILENAME} next to the DB",
+            foreground="#555",
+        ).pack(side=tk.LEFT, padx=8)
+
         hint = ttk.Label(
             filt,
             text="Green flag = from main backup (ran on machine). "
@@ -347,10 +383,12 @@ class IndexerApp(tk.Tk):
             "Newest only keeps the latest date per program+machine. "
             "Ctrl/Shift+click rows to multi-select for batch extract. "
             "Preview shows the selected program body. "
-            "Compare… needs exactly two selected rows.",
+            "Compare… needs exactly two selected rows. "
+            "Program search: O03232 / 03232 / 3232 match the same O-number. "
+            "Presets save/restore the find-bar filters.",
             foreground="#444",
         )
-        hint.grid(row=4, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
+        hint.grid(row=5, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
 
         filt.columnconfigure(1, weight=1)
 
@@ -457,6 +495,7 @@ class IndexerApp(tk.Tk):
         if path:
             self.target_var.set(path)
             self._load_extra_roots_into_list()
+            self._refresh_preset_combo()
 
     def _pick_existing_db(self) -> None:
         path = filedialog.askopenfilename(
@@ -949,6 +988,145 @@ class IndexerApp(tk.Tk):
         self.type_combo["values"] = [ALL, *vals["source_types"]]
         self.control_combo["values"] = [ALL, *vals["control_families"]]
         self.programmer_combo["values"] = [ALL, *vals.get("programmers", [])]
+        self._refresh_preset_combo()
+
+    def _presets_path(self) -> Optional[Path]:
+        target = self.target_var.get().strip()
+        if not target:
+            return None
+        return presets_path_for_target(target)
+
+    def _refresh_preset_combo(self) -> None:
+        path = self._presets_path()
+        names: list[str] = []
+        if path is not None:
+            try:
+                names = [p.name for p in load_presets(path)]
+            except Exception:  # noqa: BLE001
+                log.exception("load presets failed")
+                names = []
+        prev = self.preset_var.get().strip()
+        self.preset_combo["values"] = names
+        if prev and prev in names:
+            self.preset_var.set(prev)
+        elif names:
+            # Keep empty selection until user picks / loads
+            if prev not in names:
+                self.preset_var.set("")
+        else:
+            self.preset_var.set("")
+
+    def _current_filter_preset(self, name: str) -> FilterPreset:
+        return FilterPreset(
+            name=name.strip(),
+            text=self.search_var.get().strip(),
+            machines=self._selected_machines(),
+            date_from=self.date_from_var.get().strip(),
+            date_to=self.date_to_var.get().strip(),
+            source_type=self.source_type_var.get().strip() or ALL,
+            control=self.control_var.get().strip() or ALL,
+            provenance=self.provenance_var.get().strip() or ALL,
+            programmer=self.programmer_var.get().strip() or ALL,
+            newest_only=bool(self.newest_only_var.get()),
+        )
+
+    def _apply_filter_preset(self, preset: FilterPreset) -> None:
+        self._filter_trace_lock = True
+        try:
+            self.search_var.set(preset.text or "")
+            self.date_from_var.set(preset.date_from or "")
+            self.date_to_var.set(preset.date_to or "")
+            self.source_type_var.set(preset.source_type or ALL)
+            self.control_var.set(preset.control or ALL)
+            self.provenance_var.set(preset.provenance or ALL)
+            self.programmer_var.set(preset.programmer or ALL)
+            self.newest_only_var.set(bool(preset.newest_only))
+            wanted = {m.strip() for m in (preset.machines or []) if m.strip()}
+            self.machine_list.selection_clear(0, tk.END)
+            if wanted:
+                for i, name in enumerate(self._machine_names):
+                    if name in wanted:
+                        self.machine_list.selection_set(i)
+            self.preset_var.set(preset.name)
+        finally:
+            self._filter_trace_lock = False
+        self._run_query_now(status_prefix=f"Loaded preset {preset.name!r}")
+
+    def _save_current_preset(self) -> None:
+        path = self._presets_path()
+        if path is None:
+            messagebox.showerror(
+                "Presets",
+                "Choose a target folder first (presets are saved next to the database).",
+            )
+            return
+        Path(path.parent).mkdir(parents=True, exist_ok=True)
+        initial = self.preset_var.get().strip()
+        name = simpledialog.askstring(
+            "Save preset",
+            "Name for this filter set:",
+            initialvalue=initial,
+            parent=self,
+        )
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            messagebox.showerror("Presets", "Preset name cannot be empty.")
+            return
+        existing = get_preset(path, name)
+        if existing is not None:
+            if not messagebox.askyesno(
+                "Presets",
+                f"Replace existing preset {name!r}?",
+                parent=self,
+            ):
+                return
+        preset = self._current_filter_preset(name)
+        try:
+            upsert_preset(path, preset)
+        except OSError as exc:
+            messagebox.showerror("Presets", str(exc))
+            return
+        self._refresh_preset_combo()
+        self.preset_var.set(name)
+        self.status_var.set(f"Saved preset {name!r} → {PRESETS_FILENAME}")
+
+    def _load_selected_preset(self) -> None:
+        path = self._presets_path()
+        name = self.preset_var.get().strip()
+        if path is None:
+            messagebox.showerror("Presets", "Choose a target folder first.")
+            return
+        if not name:
+            messagebox.showinfo("Presets", "Select a preset name, then Load.")
+            return
+        preset = get_preset(path, name)
+        if preset is None:
+            messagebox.showinfo("Presets", f"Preset {name!r} not found.")
+            self._refresh_preset_combo()
+            return
+        self._apply_filter_preset(preset)
+
+    def _delete_selected_preset(self) -> None:
+        path = self._presets_path()
+        name = self.preset_var.get().strip()
+        if path is None:
+            messagebox.showerror("Presets", "Choose a target folder first.")
+            return
+        if not name:
+            messagebox.showinfo("Presets", "Select a preset to delete.")
+            return
+        if not messagebox.askyesno("Presets", f"Delete preset {name!r}?", parent=self):
+            return
+        try:
+            delete_preset(path, name)
+        except OSError as exc:
+            messagebox.showerror("Presets", str(exc))
+            return
+        self.preset_var.set("")
+        self._refresh_preset_combo()
+        self.status_var.set(f"Deleted preset {name!r}")
 
     def _clear_filters(self, status_prefix: Optional[str] = None) -> None:
         self._filter_trace_lock = True
