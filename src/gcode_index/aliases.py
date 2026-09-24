@@ -123,3 +123,17 @@ class AliasMap:
             display = f"{label} ({mid})" if label and label != mid else mid
             out.append(display)
         return out
+
+    def info_for_machine_id(
+        self,
+        machine_id: str,
+        machine_folder_raw: str,
+    ) -> Optional[MachineInfo]:
+        """Look up catalog fields (label/control/layout) by ``machine_id``."""
+        mid = str(machine_id or "").strip()
+        if not mid:
+            return None
+        for entry in self._machines.values():
+            if str(entry.get("machine_id") or "").strip() == mid:
+                return self._info_from_entry(entry, machine_folder_raw)
+        return None

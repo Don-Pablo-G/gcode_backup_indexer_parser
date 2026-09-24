@@ -14,6 +14,7 @@ from typing import Callable, Optional, Tuple
 
 from gcode_index.aliases import AliasMap, normalize_folder_name
 from gcode_index.birthtime import file_mtime
+from gcode_index.folder_map import FolderMachineMap
 from gcode_index.locators.fanuc_all_fldr import locate_fanuc_all_fldr
 from gcode_index.locators.fanuc_all_prog import locate_fanuc_all_prog
 from gcode_index.locators.haas_pgm import locate_haas_pgm
@@ -107,11 +108,25 @@ def _count_indexable_files(root: Path) -> int:
     return n
 
 
+def _resolve_machine(
+    folder_raw: str,
+    aliases: AliasMap,
+    folder_map: Optional[FolderMachineMap] = None,
+) -> MachineInfo:
+    """Folder map wins; then aliases; else unmapped."""
+    if folder_map is not None:
+        mapped = folder_map.resolve(folder_raw, aliases)
+        if mapped is not None:
+            return mapped
+    return aliases.resolve(folder_raw)
+
+
 def scan_backup_tree(
     backup_root: Path | str,
     aliases: AliasMap,
     *,
     progress: Optional[ProgressCallback] = None,
+    folder_map: Optional[FolderMachineMap] = None,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -144,10 +159,11 @@ def scan_backup_tree(
                 aliases=aliases,
                 result=result,
                 prog=prog,
+                folder_map=folder_map,
             )
 
     # Individual .nc / .nc.copy: whole tree from backup root (any depth)
-    _index_all_nc_files(root, aliases, result, prog=prog)
+    _index_all_nc_files(root, aliases, result, prog=prog, folder_map=folder_map)
 
     prog.emit(
         phase="done",
@@ -164,6 +180,7 @@ def _scan_machine_folder_dumps(
     aliases: AliasMap,
     result: ScanResult,
     prog: Optional[_ScanProgress] = None,
+    folder_map: Optional[FolderMachineMap] = None,
 ) -> None:
     """Index glued dumps (.pgm / ALL-FLDR / ALL-PROG).
 
@@ -171,7 +188,7 @@ def _scan_machine_folder_dumps(
     tree-wide .nc) so a slightly odd folder name does not hide all programs.
     """
     machine_folder_raw = machine_dir.name
-    info = aliases.resolve(machine_folder_raw)
+    info = _resolve_machine(machine_folder_raw, aliases, folder_map)
 
     if not info.mapped:
         key = normalize_folder_name(machine_folder_raw)
@@ -270,10 +287,12 @@ def _infer_machine_and_date(
     path: Path,
     root: Path,
     aliases: AliasMap,
+    folder_map: Optional[FolderMachineMap] = None,
 ) -> Tuple[MachineInfo, Optional[str]]:
-    """Fuzzy-match a machine folder from the path; never invent an assignment.
+    """Resolve a machine folder from the path; never invent an assignment.
 
-    Returns (MachineInfo, date_folder_raw). Unmatched → MACHINE UNKNOWN.
+    Folder map wins, then aliases. Unmatched → MACHINE UNKNOWN.
+    Returns (MachineInfo, date_folder_raw).
     """
     parts = _path_parts_under_root(path, root)
     if not parts:
@@ -310,7 +329,7 @@ def _infer_machine_and_date(
         candidates.append(part)
 
     for name in candidates:
-        info = aliases.resolve(name)
+        info = _resolve_machine(name, aliases, folder_map)
         if info.mapped:
             # date folder only when classic date/machine/... and machine is 2nd slot
             date_out: Optional[str] = None
@@ -364,6 +383,7 @@ def _index_all_nc_files(
     result: ScanResult,
     *,
     prog: Optional[_ScanProgress] = None,
+    folder_map: Optional[FolderMachineMap] = None,
 ) -> None:
     """Walk entire backup tree for *.nc / *.nc.copy; fuzzy-match machine or leave unknown."""
     seen: set[Path] = set()
@@ -374,7 +394,7 @@ def _index_all_nc_files(
         if rp in seen:
             continue
         seen.add(rp)
-        _index_one_nc(path, root, aliases, result)
+        _index_one_nc(path, root, aliases, result, folder_map=folder_map)
         if prog:
             prog.tick(f"Indexing {rel_path(path, root)}")
 
@@ -384,9 +404,13 @@ def _index_one_nc(
     root: Path,
     aliases: AliasMap,
     result: ScanResult,
+    *,
+    folder_map: Optional[FolderMachineMap] = None,
 ) -> None:
     parts = _path_parts_under_root(path, root)
-    info, date_folder_raw = _infer_machine_and_date(path, root, aliases)
+    info, date_folder_raw = _infer_machine_and_date(
+        path, root, aliases, folder_map=folder_map
+    )
     is_copy = _is_nc_copy(path)
     source_type = _classify_nc_source_type(parts, info, is_copy=is_copy)
     folder_under = (

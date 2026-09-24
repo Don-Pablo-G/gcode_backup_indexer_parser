@@ -41,9 +41,10 @@ python -m gcode_index.gui
 
 1. **Browse** → pick the main **backup folder** tree.  
 2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
-3. Click **Run index / scan** (optional Excel export checkbox).  
+3. Click **Map folders…** (optional but recommended) to assign each `<date>/<machine>` folder to a catalog machine. Subfolders inherit. The map is saved as `machine_folders.yaml` next to the DB and **wins over** aliases. First scan offers to open the mapper if no map exists yet.  
+4. Click **Run index / scan** (optional Excel export checkbox).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
-4. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
+5. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
    - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  
      The list is seeded from `aliases.yaml` (so **HAAS UMC750**, ST-20Y, … always appear) plus **MACHINE UNKNOWN**, and merged with machines seen in the last scan.  
      VF-2 has three entries (legacy / **nowa** / **stara**); selecting **HAAS VF-2** also matches the nowa/stara ids.  
@@ -51,7 +52,7 @@ python -m gcode_index.gui
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
    - **Control** (`haas`, `fanuc`, `sinumerik`)  
    Text matches program #, part #, path, machine names, and FANUC folder paths. Empty text + filters still works.  
-5. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.  
+6. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.  
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
    Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).
 

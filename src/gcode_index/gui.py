@@ -32,6 +32,16 @@ from gcode_index.extract import (
     default_extract_filename,
     extract_to_path,
 )
+from gcode_index.folder_map import (
+    UNKNOWN_ID,
+    UNKNOWN_LABEL,
+    FolderMachineMap,
+    discover_machine_folders,
+    display_for_machine,
+    map_path_for_target,
+    parse_machine_display,
+    suggest_assignments,
+)
 from gcode_index.path_util import (
     format_eta,
     open_path_in_file_manager,
@@ -125,8 +135,11 @@ class IndexerApp(tk.Tk):
         actions.pack(fill=tk.X, **pad)
         self.scan_btn = ttk.Button(actions, text="Run index / scan", command=self._start_scan)
         self.scan_btn.pack(side=tk.LEFT)
-        ttk.Button(actions, text="Open existing DB…", command=self._pick_existing_db).pack(
+        ttk.Button(actions, text="Map folders…", command=self._open_folder_map).pack(
             side=tk.LEFT, padx=8
+        )
+        ttk.Button(actions, text="Open existing DB…", command=self._pick_existing_db).pack(
+            side=tk.LEFT, padx=4
         )
         ttk.Button(actions, text="Clear filters", command=self._clear_filters).pack(
             side=tk.LEFT, padx=4
@@ -311,6 +324,67 @@ class IndexerApp(tk.Tk):
             return None
         return Path(target) / DEFAULT_DB_NAME
 
+    # --- folder map -------------------------------------------------------------
+
+    def _folder_map_path(self) -> Optional[Path]:
+        target = self.target_var.get().strip()
+        if not target:
+            return None
+        return map_path_for_target(target)
+
+    def _load_folder_map(self) -> FolderMachineMap:
+        path = self._folder_map_path()
+        if path is None or not path.is_file():
+            return FolderMachineMap()
+        try:
+            return FolderMachineMap.load(path)
+        except Exception:  # noqa: BLE001
+            log.exception("failed to load folder map %s", path)
+            return FolderMachineMap()
+
+    def _open_folder_map(self) -> None:
+        backup = self.backup_var.get().strip()
+        target = self.target_var.get().strip()
+        if not backup or not Path(backup).is_dir():
+            messagebox.showerror("Backup folder", "Choose a valid backup folder first.")
+            return
+        if not target:
+            messagebox.showerror(
+                "Target folder",
+                "Choose a target folder (map is saved next to the database).",
+            )
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        try:
+            aliases = AliasMap.load(default_aliases_path())
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Aliases", str(exc))
+            return
+        folders = discover_machine_folders(backup)
+        if not folders:
+            messagebox.showinfo(
+                "Map folders",
+                "No date/machine folders found under the backup root.\n"
+                "Expected layout: <date>/<machine>/…",
+            )
+            return
+        existing = self._load_folder_map()
+        suggested = suggest_assignments(folders, aliases, existing)
+        suggested.backup_root = str(Path(backup).resolve())
+        dlg = FolderMapDialog(
+            self,
+            folders=folders,
+            suggested=suggested,
+            machine_choices=[
+                display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
+                *aliases.known_machine_displays(),
+            ],
+            save_path=map_path_for_target(target),
+        )
+        self.wait_window(dlg)
+        if dlg.saved:
+            self.status_var.set(f"Saved folder map → {map_path_for_target(target).name}")
+
     # --- scan -------------------------------------------------------------------
 
     def _start_scan(self) -> None:
@@ -325,6 +399,16 @@ class IndexerApp(tk.Tk):
             messagebox.showerror("Target folder", "Choose a target folder for the database.")
             return
         Path(target).mkdir(parents=True, exist_ok=True)
+        # Offer map editor once when no map file exists yet
+        map_file = map_path_for_target(target)
+        if not map_file.is_file():
+            if messagebox.askyesno(
+                "Map folders",
+                "No folder→machine map yet for this target.\n\n"
+                "Open the mapper now? (Assign each machine folder once; "
+                "subfolders inherit. You can also use Map folders… later.)",
+            ):
+                self._open_folder_map()
         self._scan_busy = True
         self.scan_btn.configure(state=tk.DISABLED)
         self.progress_var.set(0.0)
@@ -375,7 +459,13 @@ class IndexerApp(tk.Tk):
         try:
             aliases_path = default_aliases_path()
             alias_map = AliasMap.load(aliases_path)
-            result = scan_backup_tree(backup, alias_map, progress=self._on_scan_progress)
+            folder_map = FolderMachineMap.load(map_path_for_target(target))
+            result = scan_backup_tree(
+                backup,
+                alias_map,
+                progress=self._on_scan_progress,
+                folder_map=folder_map if folder_map.assignments else None,
+            )
             db_path = target / DEFAULT_DB_NAME
             if db_path.is_file():
                 db_path.unlink()
@@ -715,6 +805,93 @@ class IndexerApp(tk.Tk):
                 conn.close()
         except Exception:  # noqa: BLE001
             return None
+
+
+class FolderMapDialog(tk.Toplevel):
+    """Assign each discovered machine folder to a catalog machine (or UNKNOWN)."""
+
+    def __init__(
+        self,
+        master: tk.Tk,
+        *,
+        folders: list[str],
+        suggested: FolderMachineMap,
+        machine_choices: list[str],
+        save_path: Path,
+    ) -> None:
+        super().__init__(master)
+        self.title("Map folders → machines")
+        self.minsize(520, 360)
+        self.geometry("640x480")
+        self.transient(master)
+        self.grab_set()
+        self.saved = False
+        self._save_path = Path(save_path)
+        self._suggested = suggested
+        self._choices = list(machine_choices)
+        self._vars: dict[str, tk.StringVar] = {}
+
+        ttk.Label(
+            self,
+            text="Assign each machine folder (top of branch under a date). "
+            "Subfolders inherit. Map is saved next to the database and wins over aliases.",
+            wraplength=600,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        outer = ttk.Frame(self)
+        outer.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        sb = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.create_window((0, 0), window=inner, anchor=tk.NW)
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        ttk.Label(inner, text="Folder").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(inner, text="Machine").grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
+
+        for i, folder in enumerate(folders, start=1):
+            a = suggested.get(folder)
+            mid = a.machine_id if a else UNKNOWN_ID
+            label = a.label if a else UNKNOWN_LABEL
+            initial = display_for_machine(mid, label)
+            if initial not in self._choices:
+                self._choices.append(initial)
+            var = tk.StringVar(value=initial)
+            self._vars[folder] = var
+            ttk.Label(inner, text=folder).grid(row=i, column=0, sticky=tk.W, padx=4, pady=3)
+            ttk.Combobox(
+                inner,
+                textvariable=var,
+                values=self._choices,
+                state="readonly",
+                width=40,
+            ).grid(row=i, column=1, sticky=tk.EW, padx=4, pady=3)
+        inner.columnconfigure(1, weight=1)
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text="Save map", command=self._save).pack(side=tk.RIGHT, padx=8)
+
+    def _save(self) -> None:
+        out = FolderMachineMap()
+        out.backup_root = self._suggested.backup_root
+        for folder, var in self._vars.items():
+            mid, label = parse_machine_display(var.get())
+            out.set(folder, mid, label)
+        try:
+            out.save(self._save_path)
+        except OSError as exc:
+            messagebox.showerror("Save map", str(exc), parent=self)
+            return
+        self.saved = True
+        self.destroy()
 
 
 def main() -> None:
