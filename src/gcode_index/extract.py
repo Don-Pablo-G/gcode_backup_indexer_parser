@@ -155,6 +155,9 @@ def default_extract_filename(row: RowLike) -> str:
     """Suggest a safe output basename from program/part numbers."""
     prog = str(row["program_number"] or "program").strip() or "program"
     safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in prog)
+    source_type = str(row["source_type"] or "")
+    if source_type.endswith("_copy"):
+        return f"{safe}.nc.copy"
     return f"{safe}.nc"
 
 

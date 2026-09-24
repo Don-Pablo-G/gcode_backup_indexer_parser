@@ -129,8 +129,11 @@ backup_folder/
 | `ALL-FLDR.TXT` | `fanuc_all_fldr` | line + byte span; `&F=` folder |
 | `ALL-PROG.TXT` | `fanuc_all_prog` | line + byte span |
 | `HaasBackup(*)/Memory/**/*.nc` | `haas_ngc_nc` | whole file; program # from in-file `O#####` (not filename) |
+| `HaasBackup(*)/Memory/**/*.nc.copy` | `haas_ngc_nc_copy` | same as `.nc`, but marked as Haas NGC **copy** sibling |
 | Manual `.nc` (SBL / config) | `manual_nc_folder` | whole file |
+| Manual `*.nc.copy` | `manual_nc_folder_copy` | copy sibling under manual layout |
 | Any other `*.nc` under the backup tree | `loose_nc` | whole file; machine via fuzzy folder match, else **MACHINE UNKNOWN** |
+| Any other `*.nc.copy` | `loose_nc_copy` | copy sibling; same machine rules as `loose_nc` |
 
 **Date source of truth:** filesystem **creation/birth time** of the dump or `.nc` (`backup_date` / `file_ctime`, `date_source=birth`). On Linux, birth time is used when the filesystem exposes it via `statx`; otherwise the indexer falls back to **mtime** and records `date_source=mtime`. On Windows, creation time (`st_ctime`) is used as birth.
 

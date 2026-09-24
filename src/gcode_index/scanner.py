@@ -70,6 +70,15 @@ def _is_nc(path: Path) -> bool:
     return path.suffix.lower() == ".nc"
 
 
+def _is_nc_copy(path: Path) -> bool:
+    """Haas NGC edited/backup sibling: ``*.nc.copy`` (suffix is ``.copy``, not ``.nc``)."""
+    return path.name.lower().endswith(".nc.copy")
+
+
+def _is_nc_like(path: Path) -> bool:
+    return _is_nc(path) or _is_nc_copy(path)
+
+
 def _is_pgm(path: Path) -> bool:
     return path.suffix.lower() == ".pgm"
 
@@ -79,13 +88,16 @@ def _basename_is(path: Path, name: str) -> bool:
 
 
 def _count_indexable_files(root: Path) -> int:
-    """Count dump + .nc files we expect to touch (for progress denominator)."""
+    """Count dump + .nc / .nc.copy files we expect to touch (for progress denominator)."""
     n = 0
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if _is_nc(path) or _is_pgm(path) or _basename_is(path, "ALL-FLDR.TXT") or _basename_is(
-            path, "ALL-PROG.TXT"
+        if (
+            _is_nc_like(path)
+            or _is_pgm(path)
+            or _basename_is(path, "ALL-FLDR.TXT")
+            or _basename_is(path, "ALL-PROG.TXT")
         ):
             n += 1
     return n
@@ -130,7 +142,7 @@ def scan_backup_tree(
                 prog=prog,
             )
 
-    # Individual .nc: whole tree from backup root (any depth)
+    # Individual .nc / .nc.copy: whole tree from backup root (any depth)
     _index_all_nc_files(root, aliases, result, prog=prog)
 
     prog.emit(
@@ -213,27 +225,6 @@ def _scan_machine_folder_dumps(
                 note=f"mapped machine ({info.machine_id}) but no glued dump found",
             )
         )
-
-
-def _index_all_nc_files(
-    root: Path,
-    aliases: AliasMap,
-    result: ScanResult,
-    *,
-    prog: Optional[_ScanProgress] = None,
-) -> None:
-    """Walk entire backup tree for *.nc / *.NC; fuzzy-match machine or leave unknown."""
-    seen: set[Path] = set()
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or not _is_nc(path):
-            continue
-        rp = path.resolve()
-        if rp in seen:
-            continue
-        seen.add(rp)
-        _index_one_nc(path, root, aliases, result)
-        if prog:
-            prog.tick(f"Indexing {rel_path(path, root)}")
 
 
 def _path_parts_under_root(path: Path, root: Path) -> Tuple[str, ...]:
@@ -349,13 +340,39 @@ def _infer_machine_and_date(
     )
 
 
-def _classify_nc_source_type(parts: Tuple[str, ...], info: MachineInfo) -> str:
+def _classify_nc_source_type(
+    parts: Tuple[str, ...],
+    info: MachineInfo,
+    *,
+    is_copy: bool = False,
+) -> str:
     if _under_haas_memory(parts):
-        return "haas_ngc_nc"
+        return "haas_ngc_nc_copy" if is_copy else "haas_ngc_nc"
     layout = (info.layout or "").lower() if info.mapped else ""
     if layout == "manual_nc_folder":
-        return "manual_nc_folder"
-    return "loose_nc"
+        return "manual_nc_folder_copy" if is_copy else "manual_nc_folder"
+    return "loose_nc_copy" if is_copy else "loose_nc"
+
+
+def _index_all_nc_files(
+    root: Path,
+    aliases: AliasMap,
+    result: ScanResult,
+    *,
+    prog: Optional[_ScanProgress] = None,
+) -> None:
+    """Walk entire backup tree for *.nc / *.nc.copy; fuzzy-match machine or leave unknown."""
+    seen: set[Path] = set()
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or not _is_nc_like(path):
+            continue
+        rp = path.resolve()
+        if rp in seen:
+            continue
+        seen.add(rp)
+        _index_one_nc(path, root, aliases, result)
+        if prog:
+            prog.tick(f"Indexing {rel_path(path, root)}")
 
 
 def _index_one_nc(
@@ -366,21 +383,27 @@ def _index_one_nc(
 ) -> None:
     parts = _path_parts_under_root(path, root)
     info, date_folder_raw = _infer_machine_and_date(path, root, aliases)
-    source_type = _classify_nc_source_type(parts, info)
-    folder_under = _folder_under_memory(parts) if source_type == "haas_ngc_nc" else None
+    is_copy = _is_nc_copy(path)
+    source_type = _classify_nc_source_type(parts, info, is_copy=is_copy)
+    folder_under = (
+        _folder_under_memory(parts)
+        if source_type in {"haas_ngc_nc", "haas_ngc_nc_copy"}
+        else None
+    )
     sp = rel_path(path, root)
 
     if not info.mapped:
         log.info(
-            "indexing .nc %s with %s (no fuzzy machine match)",
+            "indexing %s %s with %s (no fuzzy machine match)",
+            ".nc.copy" if is_copy else ".nc",
             sp,
             UNKNOWN_MACHINE_LABEL,
         )
 
     control = info.control_family
-    if control is None and source_type == "haas_ngc_nc":
+    if control is None and source_type in {"haas_ngc_nc", "haas_ngc_nc_copy"}:
         control = "haas"
-    elif control is None and source_type == "manual_nc_folder":
+    elif control is None and source_type in {"manual_nc_folder", "manual_nc_folder_copy"}:
         control = "sinumerik"
 
     inst = locate_whole_file_nc(
@@ -396,6 +419,11 @@ def _index_one_nc(
         parser_id=source_type,
     )
     result.instances.append(inst)
+    notes: list[str] = []
+    if is_copy:
+        notes.append("Haas NGC .nc.copy")
+    if not info.mapped:
+        notes.append(UNKNOWN_MACHINE_LABEL)
     result.files_seen.append(
         FileSeen(
             source_path=sp,
@@ -403,7 +431,7 @@ def _index_one_nc(
             size=inst.source_size,
             mtime=inst.source_mtime,
             status="indexed",
-            note=None if info.mapped else UNKNOWN_MACHINE_LABEL,
+            note="; ".join(notes) if notes else None,
         )
     )
 

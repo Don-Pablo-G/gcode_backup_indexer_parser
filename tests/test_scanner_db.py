@@ -170,6 +170,46 @@ def test_vf2s_folder_indexes_pgm(tmp_path: Path):
     assert all(i.source_type == "haas_pgm_glued" for i in vf)
 
 
+def test_nc_copy_indexed_as_special_type(tmp_path: Path):
+    """Haas NGC ``*.nc.copy`` files are indexed with ``*_copy`` source types."""
+    body = b"%\r\nO03232 (P-COPY OP1)\r\nM30\r\n%\r\n"
+    root = tmp_path / "backup"
+    mem = root / "15.09.2026" / "UMC750" / "HaasBackup(09-15-2026)" / "Memory" / "sub"
+    mem.mkdir(parents=True)
+    (mem / "P-00253232 VA.nc").write_bytes(body)
+    (mem / "P-00253232 VA.nc.copy").write_bytes(body)
+    (root / "orphan.nc.copy").write_bytes(body)
+
+    am = AliasMap.load(ALIASES)
+    result = scan_backup_tree(root, am)
+
+    by_type = {}
+    for i in result.instances:
+        by_type.setdefault(i.source_type, []).append(i)
+
+    assert "haas_ngc_nc" in by_type
+    assert "haas_ngc_nc_copy" in by_type
+    assert "loose_nc_copy" in by_type
+
+    copy_ngc = by_type["haas_ngc_nc_copy"][0]
+    assert copy_ngc.machine_id == "haas-umc750"
+    assert copy_ngc.program_number == "03232"
+    assert copy_ngc.source_path.endswith(".nc.copy")
+
+    loose_copy = by_type["loose_nc_copy"][0]
+    assert loose_copy.machine_id == "unknown"
+    assert loose_copy.program_number == "03232"
+
+    from gcode_index.extract import default_extract_filename
+
+    assert default_extract_filename(
+        {
+            "program_number": "03232",
+            "source_type": "haas_ngc_nc_copy",
+        }
+    ) == "03232.nc.copy"
+
+
 def test_unmapped_folder_still_indexes_pgm(tmp_path: Path):
     """Odd folder names must not drop .pgm — index as MACHINE UNKNOWN."""
     root = tmp_path / "backup"
