@@ -151,6 +151,7 @@ gcode-index extract gcode_index.sqlite <instance_id> --backup-root "D:\CNC\Backu
 - Optional `--machine`, `--from` / `--to` (`DD.MM.YYYY` or `YYYY-MM-DD`), `--type`.
 - Prefix hits rank above mid-string hits.
 - Extract slices glued dumps by stored line/byte span, or copies whole-file `.nc` types, for an **external** parser.
+- Extracted text is wrapped with `%` … `%` when those lines are not already present (glued Haas/FANUC spans omit the dump’s file-level frame).
 
 ## Machine aliases
 

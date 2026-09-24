@@ -157,12 +157,17 @@ def test_extract_glued_line_span(tmp_path: Path):
         "program_number": "O00001",
     }
     text = extract_text(row)
-    assert text.startswith("O00001")
+    assert text.lstrip().startswith("%")
+    assert "O00001" in text
+    assert text.rstrip().endswith("%")
     assert "PART-A" in text
     assert "O00002" not in text
     out = extract_to_path(row, tmp_path / "out" / "O00001.nc")
     assert out.is_file()
-    assert "PART-A" in out.read_text(encoding="utf-8")
+    written = out.read_text(encoding="utf-8")
+    assert "PART-A" in written
+    assert written.lstrip().startswith("%")
+    assert written.rstrip().endswith("%")
 
 
 def test_extract_glued_byte_span(tmp_path: Path):
@@ -181,8 +186,22 @@ def test_extract_glued_byte_span(tmp_path: Path):
         "program_number": "O1234",
     }
     text = extract_text(row, backup_root=tmp_path)
-    assert text.startswith("O1234")
+    assert text.lstrip().startswith("%")
+    assert "O1234" in text
+    assert text.rstrip().endswith("%")
     assert "BBB" not in text
+
+
+def test_ensure_percent_frame_idempotent():
+    from gcode_index.extract import ensure_percent_frame
+
+    already = "%\nO1\nM30\n%\n"
+    assert ensure_percent_frame(already) == already
+    bare = "O1\nM30\n"
+    framed = ensure_percent_frame(bare)
+    assert framed.startswith("%\n")
+    assert framed.rstrip().endswith("%")
+    assert framed.count("%") == 2
 
 
 def test_extract_whole_file_nc(tmp_path: Path):

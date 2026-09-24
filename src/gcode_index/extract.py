@@ -99,6 +99,33 @@ def fetch_instance(
     return row
 
 
+def ensure_percent_frame(text: str) -> str:
+    """Wrap program text with leading/trailing ``%`` lines when missing.
+
+    Glued Haas/FANUC spans intentionally exclude the dump's file-level ``%``
+    frame. Standalone extracts for an external parser / control reload need
+    ``%`` … ``%``. Whole-file ``.nc`` that already has the frame is unchanged.
+    """
+    if text is None:
+        return "%\n%\n"
+    eol = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    nonempty = [ln.strip() for ln in lines if ln.strip() != ""]
+    has_open = bool(nonempty) and nonempty[0] == "%"
+    has_close = bool(nonempty) and nonempty[-1] == "%"
+    if has_open and has_close:
+        return text if text.endswith(("\n", "\r")) else text + eol
+
+    body = text
+    if body and not body.endswith(("\n", "\r")):
+        body = body + eol
+    if not has_open:
+        body = f"%{eol}" + body
+    if not has_close:
+        body = body + f"%{eol}"
+    return body
+
+
 def extract_text(
     row: RowLike,
     *,
@@ -109,6 +136,9 @@ def extract_text(
 
     Preference for glued dumps: byte span when both ends are set, else line span
     (1-based inclusive). Whole-file types return the entire file as text.
+
+    Output is wrapped with ``%`` … ``%`` when those lines are not already present
+    (glued spans omit the dump frame; many NGC files already include it).
 
     By default verifies ``content_sha256`` / ``source_size`` when present in ``row``.
     """
@@ -129,7 +159,7 @@ def extract_text(
         with open(src, "rb") as f:
             f.seek(int(byte_start))
             data = f.read(int(byte_end) - int(byte_start))
-        return data.decode("ascii", errors="replace")
+        return ensure_percent_frame(data.decode("ascii", errors="replace"))
 
     if glued and line_start is not None and line_end is not None:
         # splitlines(keepends=True) is CRLF-aware (keeps \\r\\n as one line ending).
@@ -141,14 +171,16 @@ def extract_text(
                 f"invalid line span {line_start}-{line_end} for {src} "
                 f"({len(lines)} lines)"
             )
-        return b"".join(lines[start:end]).decode("ascii", errors="replace")
+        return ensure_percent_frame(
+            b"".join(lines[start:end]).decode("ascii", errors="replace")
+        )
 
     if glued:
         raise ExtractError(
             f"glued source_type={source_type!r} has no line/byte span for {src}"
         )
 
-    return src.read_text(encoding="ascii", errors="replace")
+    return ensure_percent_frame(src.read_text(encoding="ascii", errors="replace"))
 
 
 def default_extract_filename(row: RowLike) -> str:
