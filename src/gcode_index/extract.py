@@ -102,9 +102,8 @@ def fetch_instance(
 def ensure_percent_frame(text: str) -> str:
     """Wrap program text with leading/trailing ``%`` lines when missing.
 
-    Glued Haas/FANUC spans intentionally exclude the dump's file-level ``%``
-    frame. Standalone extracts for an external parser / control reload need
-    ``%`` … ``%``. Whole-file ``.nc`` that already has the frame is unchanged.
+    Used for **glued** Haas/FANUC extracts only (dump spans omit the file-level
+    ``%`` frame). Whole-file ``.nc`` copies must not call this.
     """
     if text is None:
         return "%\n%\n"
@@ -137,8 +136,9 @@ def extract_text(
     Preference for glued dumps: byte span when both ends are set, else line span
     (1-based inclusive). Whole-file types return the entire file as text.
 
-    Output is wrapped with ``%`` … ``%`` when those lines are not already present
-    (glued spans omit the dump frame; many NGC files already include it).
+    Output for **glued** dumps is wrapped with ``%`` … ``%`` when missing
+    (those spans omit the dump’s file-level frame). Whole-file ``.nc`` /
+    ``.nc.copy`` are copied **as-is** — no ``%`` is invented.
 
     By default verifies ``content_sha256`` / ``source_size`` when present in ``row``.
     """
@@ -180,7 +180,8 @@ def extract_text(
             f"glued source_type={source_type!r} has no line/byte span for {src}"
         )
 
-    return ensure_percent_frame(src.read_text(encoding="ascii", errors="replace"))
+    # Whole-file .nc / .nc.copy: copy as-is (do not invent a % frame)
+    return src.read_text(encoding="ascii", errors="replace")
 
 
 def default_extract_filename(row: RowLike) -> str:

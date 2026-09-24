@@ -220,6 +220,24 @@ def test_extract_whole_file_nc(tmp_path: Path):
     assert default_extract_filename(row) == "O1234.nc"
 
 
+def test_extract_loose_nc_without_percent_left_alone(tmp_path: Path):
+    """Whole-file .nc must not get an invented % frame (e.g. some ST-20Y dumps)."""
+    src = tmp_path / "bare.nc"
+    src.write_text("O9278\nG00 X0\nM30\n", encoding="ascii")
+    row = {
+        "source_path": "bare.nc",
+        "source_type": "loose_nc",
+        "line_start": None,
+        "line_end": None,
+        "byte_start": None,
+        "byte_end": None,
+        "program_number": "9278",
+    }
+    text = extract_text(row, backup_root=tmp_path)
+    assert text == "O9278\nG00 X0\nM30\n"
+    assert not text.lstrip().startswith("%")
+
+
 def test_extract_missing_file(tmp_path: Path):
     row = {
         "source_path": "missing.nc",
