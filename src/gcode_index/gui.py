@@ -38,7 +38,6 @@ from gcode_index.extract import (
     extract_to_path,
 )
 from gcode_index.extra_roots import (
-    EXTRA_ROOTS_FILENAME,
     extra_roots_path_for_target,
     load_extra_roots,
     normalize_extra_roots,
