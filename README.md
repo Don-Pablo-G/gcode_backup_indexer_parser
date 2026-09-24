@@ -66,7 +66,9 @@ python -m gcode_index.gui
 7. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.  
    **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).  
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
-   Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).
+   Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).  
+8. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.  
+9. **Duplicates…** finds **exact** copies (same content SHA-256) and **near**-duplicates (same program # + similar size, different hash) across machines/dates; **Show in results** loads a group into the main table.
 
 While **Run index / scan** is running, a progress bar shows file count and ETA. You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar.
 

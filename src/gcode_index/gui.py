@@ -62,6 +62,14 @@ from gcode_index.path_util import (
     open_path_in_file_manager,
     resolve_source_abspath,
 )
+from gcode_index.scan_report import (
+    DuplicateGroup,
+    ScanReport,
+    find_duplicate_groups,
+    format_scan_report,
+    load_scan_report,
+    scan_report_from_result,
+)
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
 
 log = logging.getLogger(__name__)
@@ -113,6 +121,7 @@ class IndexerApp(tk.Tk):
         self._scan_busy = False
         self._filter_trace_lock = False
         self._machine_names: list[str] = []
+        self._last_scan_report: Optional[ScanReport] = None
 
         self._build()
         # Seed machine list from aliases before any scan
@@ -190,6 +199,12 @@ class IndexerApp(tk.Tk):
             side=tk.LEFT, padx=4
         )
         ttk.Button(actions, text="Open existing DB…", command=self._pick_existing_db).pack(
+            side=tk.LEFT, padx=4
+        )
+        ttk.Button(actions, text="Scan report…", command=self._open_scan_report).pack(
+            side=tk.LEFT, padx=4
+        )
+        ttk.Button(actions, text="Duplicates…", command=self._open_duplicates).pack(
             side=tk.LEFT, padx=4
         )
         ttk.Button(actions, text="Clear filters", command=self._clear_filters).pack(
@@ -321,7 +336,8 @@ class IndexerApp(tk.Tk):
             "Yellow = from an extra folder (not in backup). "
             "Programmer = next-line (PG1)/(LP2) when present. "
             "Newest only keeps the latest date per program+machine. "
-            "Ctrl/Shift+click rows to multi-select for batch extract.",
+            "Ctrl/Shift+click rows to multi-select for batch extract. "
+            "Scan report = post-scan quality; Duplicates = same SHA or same O# + similar size.",
             foreground="#444",
         )
         hint.grid(row=4, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
@@ -734,12 +750,19 @@ class IndexerApp(tk.Tk):
                 f"→ {db_path.name} "
                 f"(run {run_id[:8]}…){excel_note}"
             )
-            self.after(0, lambda: self._scan_done(True, msg))
+            report = scan_report_from_result(result, run_id=run_id)
+            self.after(0, lambda: self._scan_done(True, msg, report=report))
         except Exception as exc:  # noqa: BLE001 — show in UI
             log.exception("scan failed")
             self.after(0, lambda: self._scan_done(False, str(exc)))
 
-    def _scan_done(self, ok: bool, message: str) -> None:
+    def _scan_done(
+        self,
+        ok: bool,
+        message: str,
+        *,
+        report: Optional[ScanReport] = None,
+    ) -> None:
         self._scan_busy = False
         self.scan_btn.configure(state=tk.NORMAL)
         try:
@@ -757,8 +780,72 @@ class IndexerApp(tk.Tk):
         if not ok:
             messagebox.showerror("Scan failed", message)
             return
+        if report is not None:
+            self._last_scan_report = report
         self._refresh_filter_choices()
         self._clear_filters(status_prefix=message)
+        if report is not None:
+            self._show_scan_report(report)
+
+    def _open_scan_report(self) -> None:
+        report = self._last_scan_report
+        if report is None:
+            db_path = self._db_path()
+            if db_path is None or not db_path.is_file():
+                messagebox.showinfo(
+                    "Scan report",
+                    "No database yet — run a scan or open an existing DB first.",
+                )
+                return
+            try:
+                conn = open_db(db_path)
+                try:
+                    report = load_scan_report(conn)
+                finally:
+                    conn.close()
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror("Scan report", str(exc))
+                return
+        if report is None:
+            messagebox.showinfo("Scan report", "No completed scan found in this database.")
+            return
+        self._last_scan_report = report
+        self._show_scan_report(report)
+
+    def _show_scan_report(self, report: ScanReport) -> None:
+        ScanReportDialog(self, report=report)
+
+    def _open_duplicates(self) -> None:
+        db_path = self._db_path()
+        if db_path is None or not db_path.is_file():
+            messagebox.showinfo(
+                "Duplicates",
+                "No database yet — run a scan or open an existing DB first.",
+            )
+            return
+        try:
+            conn = open_db(db_path)
+            try:
+                groups = find_duplicate_groups(conn)
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Duplicates", str(exc))
+            return
+        if not groups:
+            messagebox.showinfo(
+                "Duplicates",
+                "No exact or near-duplicates found in this index.",
+            )
+            return
+        dlg = DuplicatesDialog(self, groups=groups)
+        self.wait_window(dlg)
+        if dlg.selected_members:
+            self.tree.delete(*self.tree.get_children())
+            self._fill_tree(dlg.selected_members)
+            self.status_var.set(
+                f"Showing {len(dlg.selected_members)} instances from duplicate group"
+            )
 
     # --- filters / search -------------------------------------------------------
 
@@ -1141,6 +1228,148 @@ class IndexerApp(tk.Tk):
                 conn.close()
         except Exception:  # noqa: BLE001
             return None
+
+
+class ScanReportDialog(tk.Toplevel):
+    """Post-scan quality summary (#14): counts, copies, UNKNOWN, skipped."""
+
+    def __init__(self, master: tk.Tk, *, report: ScanReport) -> None:
+        super().__init__(master)
+        self.title("Scan report")
+        self.minsize(560, 420)
+        self.geometry("720x560")
+        self.transient(master)
+        self.grab_set()
+
+        ttk.Label(
+            self,
+            text="Index quality after the last scan — machines, copies, "
+            "MACHINE UNKNOWN, unmapped folders, skipped dumps.",
+            wraplength=680,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        frame = ttk.Frame(self)
+        frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        text = tk.Text(frame, wrap=tk.WORD, font=("Consolas", 10), height=24)
+        sb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        body = format_scan_report(report)
+        text.insert("1.0", body)
+        text.configure(state=tk.DISABLED)
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side=tk.RIGHT)
+
+
+class DuplicatesDialog(tk.Toplevel):
+    """Exact SHA and near-duplicate (same O# + similar size) finder (#13)."""
+
+    def __init__(self, master: tk.Tk, *, groups: list[DuplicateGroup]) -> None:
+        super().__init__(master)
+        self.title("Duplicate / near-duplicate finder")
+        self.minsize(640, 440)
+        self.geometry("780x520")
+        self.transient(master)
+        self.grab_set()
+        self.selected_members: list = []
+        self._groups = groups
+
+        n_exact = sum(1 for g in groups if g.kind == "exact")
+        n_near = sum(1 for g in groups if g.kind == "near")
+        ttk.Label(
+            self,
+            text=(
+                f"{n_exact} exact SHA group(s), {n_near} near-duplicate group(s). "
+                "Select a group, then Show in results to load members into the main table."
+            ),
+            wraplength=740,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        paned = ttk.Panedwindow(self, orient=tk.VERTICAL)
+        paned.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+
+        top = ttk.Frame(paned)
+        bottom = ttk.Frame(paned)
+        paned.add(top, weight=1)
+        paned.add(bottom, weight=2)
+
+        self.group_list = tk.Listbox(top, exportselection=False, height=8)
+        gsb = ttk.Scrollbar(top, orient=tk.VERTICAL, command=self.group_list.yview)
+        self.group_list.configure(yscrollcommand=gsb.set)
+        self.group_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        gsb.pack(side=tk.RIGHT, fill=tk.Y)
+        for g in groups:
+            prefix = "SHA" if g.kind == "exact" else "Near"
+            self.group_list.insert(tk.END, f"[{prefix}] {g.label}")
+        self.group_list.bind("<<ListboxSelect>>", self._on_group_select)
+
+        cols = ("program", "machine", "date", "size", "sha", "path")
+        self.member_tree = ttk.Treeview(
+            bottom, columns=cols, show="headings", selectmode="browse", height=10
+        )
+        headings = {
+            "program": ("Program #", 90),
+            "machine": ("Machine", 120),
+            "date": ("Date", 100),
+            "size": ("Size", 70),
+            "sha": ("SHA-256", 120),
+            "path": ("Source path", 280),
+        }
+        for key, (label, width) in headings.items():
+            self.member_tree.heading(key, text=label)
+            self.member_tree.column(key, width=width, stretch=(key == "path"), minwidth=40)
+        msb = ttk.Scrollbar(bottom, orient=tk.VERTICAL, command=self.member_tree.yview)
+        self.member_tree.configure(yscrollcommand=msb.set)
+        self.member_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        msb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text="Show in results", command=self._show_in_results).pack(
+            side=tk.RIGHT, padx=8
+        )
+
+        if groups:
+            self.group_list.selection_set(0)
+            self._on_group_select()
+
+    def _on_group_select(self, *_args) -> None:
+        self.member_tree.delete(*self.member_tree.get_children())
+        sel = self.group_list.curselection()
+        if not sel:
+            return
+        group = self._groups[sel[0]]
+        for i, m in enumerate(group.members):
+            sha = str(m["content_sha256"] or "")
+            sha_short = (sha[:12] + "…") if len(sha) > 12 else sha
+            size = m["source_size"]
+            size_s = str(size) if size is not None else ""
+            machine = m["machine_label"] or m["machine_id"] or ""
+            self.member_tree.insert(
+                "",
+                tk.END,
+                iid=str(i),
+                values=(
+                    m["program_number"] or "",
+                    machine,
+                    format_display_date(m["backup_date"]),
+                    size_s,
+                    sha_short,
+                    m["source_path"] or "",
+                ),
+            )
+
+    def _show_in_results(self) -> None:
+        sel = self.group_list.curselection()
+        if not sel:
+            messagebox.showinfo("Duplicates", "Select a group first.", parent=self)
+            return
+        self.selected_members = list(self._groups[sel[0]].members)
+        self.destroy()
 
 
 class FolderMapDialog(tk.Toplevel):

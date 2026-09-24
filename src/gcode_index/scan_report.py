@@ -1,0 +1,449 @@
+"""Post-scan quality report (#14) and duplicate grouping helpers (#13)."""
+
+from __future__ import annotations
+
+import sqlite3
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from typing import Optional
+
+from gcode_index.models import ScanResult
+from gcode_index.scanner import UNKNOWN_MACHINE_ID, UNKNOWN_MACHINE_LABEL
+
+# Source types that are Haas NGC / loose ``*.nc.copy`` siblings
+_COPY_SUFFIX = "_copy"
+
+# Near-duplicate: sizes within this relative difference count as similar
+DEFAULT_NEAR_SIZE_RATIO = 0.05
+# Also accept absolute slack for tiny files
+DEFAULT_NEAR_SIZE_ABS = 64
+
+
+@dataclass
+class ScanReport:
+    """Summary of one index run for the scan report panel."""
+
+    run_id: Optional[str] = None
+    instance_count: int = 0
+    file_count: int = 0
+    unknown_folder_count: int = 0
+    per_machine: list[tuple[str, int]] = field(default_factory=list)
+    copy_count: int = 0
+    copy_by_type: list[tuple[str, int]] = field(default_factory=list)
+    unknown_program_count: int = 0
+    unknown_sample_paths: list[str] = field(default_factory=list)
+    unknown_folders: list[tuple[str, str]] = field(default_factory=list)
+    # (date_folder, machine_folder)
+    skipped: list[tuple[str, str]] = field(default_factory=list)  # path, note
+    errors: list[tuple[str, str]] = field(default_factory=list)
+    provenance_counts: dict[str, int] = field(default_factory=dict)
+    source_type_counts: list[tuple[str, int]] = field(default_factory=list)
+
+
+@dataclass
+class DuplicateGroup:
+    """One cluster of exact or near-duplicate program instances."""
+
+    kind: str  # "exact" | "near"
+    label: str
+    members: list  # sqlite3.Row or mapping
+
+
+def _machine_display(machine_id: Optional[str], machine_label: Optional[str]) -> str:
+    mid = (machine_id or "").strip() or "?"
+    label = (machine_label or "").strip()
+    if label and label != mid:
+        return f"{label} ({mid})"
+    return mid
+
+
+def _is_copy_type(source_type: Optional[str]) -> bool:
+    st = (source_type or "").strip()
+    return st.endswith(_COPY_SUFFIX)
+
+
+def scan_report_from_result(
+    result: ScanResult,
+    *,
+    run_id: Optional[str] = None,
+    unknown_sample_limit: int = 40,
+) -> ScanReport:
+    """Build a report directly from an in-memory ``ScanResult`` (post-scan)."""
+    machine_counts: Counter[str] = Counter()
+    copy_types: Counter[str] = Counter()
+    type_counts: Counter[str] = Counter()
+    prov: Counter[str] = Counter()
+    unknown_paths: list[str] = []
+    copy_count = 0
+    unknown_prog = 0
+
+    for inst in result.instances:
+        display = _machine_display(inst.machine_id, inst.machine_label)
+        machine_counts[display] += 1
+        type_counts[inst.source_type or "?"] += 1
+        prov[inst.provenance or "backup"] += 1
+        if _is_copy_type(inst.source_type):
+            copy_count += 1
+            copy_types[inst.source_type or "?"] += 1
+        if (inst.machine_id or "").casefold() == UNKNOWN_MACHINE_ID:
+            unknown_prog += 1
+            if len(unknown_paths) < unknown_sample_limit:
+                unknown_paths.append(inst.source_path)
+
+    skipped = [
+        (fs.source_path, fs.note or "")
+        for fs in result.files_seen
+        if fs.status == "skipped"
+    ]
+    errors = [
+        (fs.source_path, fs.note or "")
+        for fs in result.files_seen
+        if fs.status == "error"
+    ]
+    folders = [
+        (u.date_folder_raw, u.machine_folder_raw) for u in result.unknowns
+    ]
+
+    return ScanReport(
+        run_id=run_id,
+        instance_count=len(result.instances),
+        file_count=len(result.files_seen),
+        unknown_folder_count=len(result.unknowns),
+        per_machine=sorted(machine_counts.items(), key=lambda kv: (-kv[1], kv[0].casefold())),
+        copy_count=copy_count,
+        copy_by_type=sorted(copy_types.items(), key=lambda kv: (-kv[1], kv[0])),
+        unknown_program_count=unknown_prog,
+        unknown_sample_paths=unknown_paths,
+        unknown_folders=folders,
+        skipped=skipped,
+        errors=errors,
+        provenance_counts=dict(prov),
+        source_type_counts=sorted(type_counts.items(), key=lambda kv: (-kv[1], kv[0])),
+    )
+
+
+def load_scan_report(
+    conn: sqlite3.Connection,
+    *,
+    run_id: Optional[str] = None,
+    unknown_sample_limit: int = 40,
+) -> Optional[ScanReport]:
+    """Rebuild a report from ``index_runs`` + related tables (latest run by default)."""
+    conn.row_factory = sqlite3.Row
+    if run_id:
+        run = conn.execute(
+            "SELECT * FROM index_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    else:
+        run = conn.execute(
+            "SELECT * FROM index_runs ORDER BY started_at DESC LIMIT 1"
+        ).fetchone()
+    if run is None:
+        return None
+    rid = run["run_id"]
+
+    machine_counts: Counter[str] = Counter()
+    copy_types: Counter[str] = Counter()
+    type_counts: Counter[str] = Counter()
+    prov: Counter[str] = Counter()
+    unknown_paths: list[str] = []
+    copy_count = 0
+    unknown_prog = 0
+    instance_count = 0
+
+    for row in conn.execute(
+        """
+        SELECT machine_id, machine_label, source_type, provenance, source_path
+        FROM program_instances WHERE run_id = ?
+        """,
+        (rid,),
+    ):
+        instance_count += 1
+        display = _machine_display(row["machine_id"], row["machine_label"])
+        machine_counts[display] += 1
+        st = row["source_type"] or "?"
+        type_counts[st] += 1
+        prov[row["provenance"] or "backup"] += 1
+        if _is_copy_type(st):
+            copy_count += 1
+            copy_types[st] += 1
+        if (row["machine_id"] or "").casefold() == UNKNOWN_MACHINE_ID:
+            unknown_prog += 1
+            if len(unknown_paths) < unknown_sample_limit:
+                unknown_paths.append(row["source_path"] or "")
+
+    skipped = [
+        (r["source_path"] or "", r["note"] or "")
+        for r in conn.execute(
+            "SELECT source_path, note FROM files_seen WHERE run_id = ? AND status = 'skipped'",
+            (rid,),
+        )
+    ]
+    errors = [
+        (r["source_path"] or "", r["note"] or "")
+        for r in conn.execute(
+            "SELECT source_path, note FROM files_seen WHERE run_id = ? AND status = 'error'",
+            (rid,),
+        )
+    ]
+    folders = [
+        (r["date_folder_raw"] or "", r["machine_folder_raw"] or "")
+        for r in conn.execute(
+            "SELECT date_folder_raw, machine_folder_raw FROM unknowns WHERE run_id = ?",
+            (rid,),
+        )
+    ]
+
+    return ScanReport(
+        run_id=rid,
+        instance_count=instance_count,
+        file_count=int(run["file_count"] or len(skipped) + len(errors)),
+        unknown_folder_count=int(run["unknown_count"] or len(folders)),
+        per_machine=sorted(machine_counts.items(), key=lambda kv: (-kv[1], kv[0].casefold())),
+        copy_count=copy_count,
+        copy_by_type=sorted(copy_types.items(), key=lambda kv: (-kv[1], kv[0])),
+        unknown_program_count=unknown_prog,
+        unknown_sample_paths=unknown_paths,
+        unknown_folders=folders,
+        skipped=skipped,
+        errors=errors,
+        provenance_counts=dict(prov),
+        source_type_counts=sorted(type_counts.items(), key=lambda kv: (-kv[1], kv[0])),
+    )
+
+
+def format_scan_report(report: ScanReport) -> str:
+    """Plain-text body for the scan report panel / CLI."""
+    lines: list[str] = []
+    rid = (report.run_id or "")[:8]
+    lines.append(f"Scan report{f' (run {rid}…)' if rid else ''}")
+    lines.append("=" * 48)
+    lines.append(
+        f"Programs indexed: {report.instance_count}  ·  "
+        f"Files touched: {report.file_count}  ·  "
+        f"Unknown folders: {report.unknown_folder_count}"
+    )
+    if report.provenance_counts:
+        bits = ", ".join(f"{k}={v}" for k, v in sorted(report.provenance_counts.items()))
+        lines.append(f"Flags: {bits}")
+    lines.append("")
+    lines.append("Per machine")
+    lines.append("-" * 48)
+    if report.per_machine:
+        for name, n in report.per_machine:
+            lines.append(f"  {n:5d}  {name}")
+    else:
+        lines.append("  (none)")
+
+    lines.append("")
+    lines.append("Source types")
+    lines.append("-" * 48)
+    for name, n in report.source_type_counts:
+        lines.append(f"  {n:5d}  {name}")
+
+    lines.append("")
+    lines.append(f"*.nc.copy / *_copy files: {report.copy_count}")
+    for name, n in report.copy_by_type:
+        lines.append(f"  {n:5d}  {name}")
+
+    lines.append("")
+    lines.append(
+        f"{UNKNOWN_MACHINE_LABEL} programs: {report.unknown_program_count}"
+    )
+    for path in report.unknown_sample_paths:
+        lines.append(f"  · {path}")
+    if report.unknown_program_count > len(report.unknown_sample_paths):
+        extra = report.unknown_program_count - len(report.unknown_sample_paths)
+        lines.append(f"  … +{extra} more")
+
+    lines.append("")
+    lines.append(f"Unmapped machine folders: {len(report.unknown_folders)}")
+    for date_f, mach_f in report.unknown_folders:
+        lines.append(f"  · {date_f} / {mach_f}")
+
+    lines.append("")
+    lines.append(f"Skipped dumps / folders: {len(report.skipped)}")
+    for path, note in report.skipped:
+        suffix = f" — {note}" if note else ""
+        lines.append(f"  · {path}{suffix}")
+
+    lines.append("")
+    lines.append(f"Errors: {len(report.errors)}")
+    for path, note in report.errors:
+        suffix = f" — {note}" if note else ""
+        lines.append(f"  · {path}{suffix}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _size_similar(
+    a: Optional[int],
+    b: Optional[int],
+    *,
+    ratio: float = DEFAULT_NEAR_SIZE_RATIO,
+    abs_slack: int = DEFAULT_NEAR_SIZE_ABS,
+) -> bool:
+    if a is None or b is None:
+        return False
+    if a < 0 or b < 0:
+        return False
+    if a == b:
+        return True
+    diff = abs(a - b)
+    if diff <= abs_slack:
+        return True
+    denom = max(a, b, 1)
+    return (diff / denom) <= ratio
+
+
+def find_exact_duplicate_groups(
+    conn: sqlite3.Connection,
+    *,
+    limit_groups: int = 200,
+) -> list[DuplicateGroup]:
+    """Groups sharing the same non-empty ``content_sha256`` (2+ members)."""
+    conn.row_factory = sqlite3.Row
+    sha_rows = conn.execute(
+        """
+        SELECT content_sha256, COUNT(*) AS n
+        FROM program_instances
+        WHERE content_sha256 IS NOT NULL AND content_sha256 != ''
+        GROUP BY content_sha256
+        HAVING n >= 2
+        ORDER BY n DESC
+        LIMIT ?
+        """,
+        (limit_groups,),
+    ).fetchall()
+
+    groups: list[DuplicateGroup] = []
+    for hit in sha_rows:
+        sha = hit["content_sha256"]
+        members = list(
+            conn.execute(
+                """
+                SELECT instance_id, program_number, part_number, machine_id, machine_label,
+                       machine_folder_raw, date_folder_raw, backup_date, source_path,
+                       line_start, line_end, byte_start, byte_end, source_type,
+                       folder_path, control_family, source_size, content_sha256,
+                       provenance, scan_root, programmer
+                FROM program_instances
+                WHERE content_sha256 = ?
+                ORDER BY backup_date DESC, machine_id, program_number
+                """,
+                (sha,),
+            )
+        )
+        short = sha[:12] + "…" if len(sha) > 12 else sha
+        progs = sorted({str(m["program_number"] or "") for m in members})
+        prog_note = progs[0] if len(progs) == 1 else f"{len(progs)} program #s"
+        label = f"Exact SHA {short} · {len(members)} copies · {prog_note}"
+        groups.append(DuplicateGroup(kind="exact", label=label, members=members))
+    return groups
+
+
+def find_near_duplicate_groups(
+    conn: sqlite3.Connection,
+    *,
+    size_ratio: float = DEFAULT_NEAR_SIZE_RATIO,
+    size_abs: int = DEFAULT_NEAR_SIZE_ABS,
+    limit_groups: int = 200,
+) -> list[DuplicateGroup]:
+    """Same program #, different content hash, similar ``source_size``.
+
+    Catches copies/drift across machines or dates that are not byte-identical.
+    """
+    conn.row_factory = sqlite3.Row
+    # Pull candidates grouped by casefold program number
+    by_prog: dict[str, list] = defaultdict(list)
+    for row in conn.execute(
+        """
+        SELECT instance_id, program_number, part_number, machine_id, machine_label,
+               machine_folder_raw, date_folder_raw, backup_date, source_path,
+               line_start, line_end, byte_start, byte_end, source_type,
+               folder_path, control_family, source_size, content_sha256,
+               provenance, scan_root, programmer
+        FROM program_instances
+        WHERE program_number IS NOT NULL AND program_number != ''
+        ORDER BY program_number, backup_date DESC
+        """
+    ):
+        key = str(row["program_number"]).casefold()
+        by_prog[key].append(row)
+
+    groups: list[DuplicateGroup] = []
+    for prog_key, rows in by_prog.items():
+        if len(rows) < 2:
+            continue
+        # Cluster by similar size; require at least two distinct SHA (or missing)
+        used: set[int] = set()
+        for i, a in enumerate(rows):
+            if i in used:
+                continue
+            cluster = [a]
+            used.add(i)
+            sha_a = (a["content_sha256"] or "").strip()
+            size_a = a["source_size"]
+            for j in range(i + 1, len(rows)):
+                if j in used:
+                    continue
+                b = rows[j]
+                if not _size_similar(
+                    size_a, b["source_size"], ratio=size_ratio, abs_slack=size_abs
+                ):
+                    continue
+                sha_b = (b["content_sha256"] or "").strip()
+                # Skip if both have same non-empty SHA (those belong in exact)
+                if sha_a and sha_b and sha_a == sha_b:
+                    continue
+                cluster.append(b)
+                used.add(j)
+            if len(cluster) < 2:
+                continue
+            shas = {(m["content_sha256"] or "").strip() for m in cluster}
+            # Need genuine near-dup signal: not all identical SHA
+            non_empty = {s for s in shas if s}
+            if len(non_empty) <= 1 and "" not in shas:
+                continue
+            machines = sorted(
+                {
+                    _machine_display(m["machine_id"], m["machine_label"])
+                    for m in cluster
+                }
+            )
+            display_prog = str(cluster[0]["program_number"] or prog_key)
+            mach_note = ", ".join(machines[:4])
+            if len(machines) > 4:
+                mach_note += f", +{len(machines) - 4}"
+            label = (
+                f"Near {display_prog} · {len(cluster)} instances · "
+                f"similar size · {mach_note}"
+            )
+            groups.append(DuplicateGroup(kind="near", label=label, members=cluster))
+            if len(groups) >= limit_groups:
+                return groups
+    return groups
+
+
+def find_duplicate_groups(
+    conn: sqlite3.Connection,
+    *,
+    include_near: bool = True,
+    size_ratio: float = DEFAULT_NEAR_SIZE_RATIO,
+    size_abs: int = DEFAULT_NEAR_SIZE_ABS,
+    limit_groups: int = 200,
+) -> list[DuplicateGroup]:
+    """Exact SHA groups first, then near-duplicates."""
+    out = find_exact_duplicate_groups(conn, limit_groups=limit_groups)
+    if include_near:
+        remaining = max(0, limit_groups - len(out))
+        if remaining:
+            out.extend(
+                find_near_duplicate_groups(
+                    conn,
+                    size_ratio=size_ratio,
+                    size_abs=size_abs,
+                    limit_groups=remaining,
+                )
+            )
+    return out
