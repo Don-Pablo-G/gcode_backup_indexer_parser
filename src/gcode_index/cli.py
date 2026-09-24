@@ -91,6 +91,11 @@ def scan_cmd(
         readable=True,
         help="Additional folder to scan (yellow flag). Repeatable.",
     ),
+    incremental: bool = typer.Option(
+        False,
+        "--incremental",
+        help="Reuse unchanged source files from an existing --db (skip re-parse).",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Scan a backup tree and write program_instances into SQLite (+ optional Excel)."""
@@ -104,6 +109,16 @@ def scan_cmd(
     alias_map = AliasMap.load_merged(aliases_path, local_path)
     fmap = FolderMachineMap.load(folder_map) if folder_map else None
     extras = list(extra_root or [])
+    cache = None
+    if incremental and db.is_file():
+        from gcode_index.scan_cache import load_scan_cache
+
+        prior = open_db(db)
+        try:
+            cache = load_scan_cache(prior)
+        finally:
+            prior.close()
+        typer.echo(f"Incremental: loaded cache for {len(cache.by_key)} source file(s)")
     if extras:
         typer.echo(f"Scanning {backup_root} + {len(extras)} extra root(s) …")
         result = scan_with_extra_roots(
@@ -111,6 +126,7 @@ def scan_cmd(
             alias_map,
             extra_roots=extras,
             folder_map=fmap if fmap and fmap.assignments else None,
+            cache=cache,
         )
     else:
         typer.echo(f"Scanning {backup_root} …")
@@ -118,8 +134,11 @@ def scan_cmd(
             backup_root,
             alias_map,
             folder_map=fmap if fmap and fmap.assignments else None,
+            cache=cache,
         )
     db.parent.mkdir(parents=True, exist_ok=True)
+    if db.is_file():
+        db.unlink()
     conn = open_db(db)
     run_id = write_scan_result(
         conn,
@@ -128,9 +147,11 @@ def scan_cmd(
         result=result,
     )
     conn.close()
+    n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
     typer.echo(
         f"Wrote {len(result.instances)} instances, "
-        f"{len(result.files_seen)} files_seen, "
+        f"{len(result.files_seen)} files_seen"
+        f"{f' ({n_cached} cached)' if n_cached else ''}, "
         f"{len(result.unknowns)} unknowns → {db} (run_id={run_id})"
     )
     if excel is not None:

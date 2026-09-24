@@ -1,0 +1,70 @@
+"""Tests for incremental scan (#9) and UI i18n defaults."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from gcode_index.aliases import AliasMap
+from gcode_index.db import open_db, write_scan_result
+from gcode_index.i18n import DEFAULT_LANG, load_ui_language, save_ui_language, t
+from gcode_index.scan_cache import load_scan_cache
+from gcode_index.scanner import scan_backup_tree
+
+ALIASES = Path(__file__).resolve().parents[1] / "aliases.yaml"
+FIX = Path(__file__).parent / "fixtures" / "synthetic"
+
+
+def test_i18n_polish_default():
+    assert DEFAULT_LANG == "pl"
+    assert "Indeksator" in t("pl", "app_title")
+    assert "G-code" in t("en", "app_title")
+    assert "(LP1)" in t("pl", "hint")
+    assert "(MS1)" in t("pl", "hint")
+    assert "(LP1)" in t("en", "hint")
+
+
+def test_ui_language_persist(tmp_path: Path):
+    path = tmp_path / "ui_settings.yaml"
+    save_ui_language(path, "en")
+    assert load_ui_language(path) == "en"
+    save_ui_language(path, "pl")
+    assert load_ui_language(path) == "pl"
+
+
+def test_incremental_reuses_unchanged_pgm(tmp_path: Path):
+    bak = tmp_path / "bak"
+    dest = bak / "15.09.2026" / "VF2S"
+    dest.mkdir(parents=True)
+    pgm = dest / "DUMP.PGM"
+    pgm.write_bytes((FIX / "tiny.pgm").read_bytes())
+
+    am = AliasMap.load(ALIASES)
+    first = scan_backup_tree(bak, am)
+    assert first.instances
+    assert all(fs.status == "indexed" for fs in first.files_seen if fs.source_type == "haas_pgm_glued")
+
+    db = tmp_path / "idx.sqlite"
+    conn = open_db(db)
+    write_scan_result(conn, backup_root=str(bak.resolve()), aliases_path=str(ALIASES), result=first)
+    conn.commit()
+    cache = load_scan_cache(conn)
+    conn.close()
+    assert cache.by_key
+
+    second = scan_backup_tree(bak, am, cache=cache)
+    cached = [fs for fs in second.files_seen if fs.status == "cached"]
+    assert cached, "unchanged PGM should be reused from cache"
+    assert len(second.instances) == len(first.instances)
+    # Same program numbers
+    assert {i.program_number for i in second.instances} == {
+        i.program_number for i in first.instances
+    }
+
+    # Change file → must re-index
+    pgm.write_bytes(
+        b"%\r\nO09999 (NEW)\r\n(LP1)\r\nG0\r\n%\r\n"
+    )
+    third = scan_backup_tree(bak, am, cache=cache)
+    assert any(fs.status == "indexed" for fs in third.files_seen if "DUMP.PGM" in (fs.source_path or ""))
+    assert any(i.program_number == "09999" for i in third.instances)
+    assert any(i.programmer == "LP1" for i in third.instances)

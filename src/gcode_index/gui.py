@@ -67,6 +67,14 @@ from gcode_index.path_util import (
     open_path_in_file_manager,
     resolve_source_abspath,
 )
+from gcode_index.i18n import (
+    DEFAULT_LANG,
+    load_ui_language,
+    normalize_lang,
+    save_ui_language,
+    t,
+    ui_settings_path_for_target,
+)
 from gcode_index.presets import (
     PRESETS_FILENAME,
     FilterPreset,
@@ -76,6 +84,7 @@ from gcode_index.presets import (
     presets_path_for_target,
     upsert_preset,
 )
+from gcode_index.scan_cache import load_scan_cache
 from gcode_index.scan_report import (
     DuplicateGroup,
     ScanReport,
@@ -92,6 +101,7 @@ SEARCH_DEBOUNCE_MS = 250
 DEFAULT_DB_NAME = "gcode_index.sqlite"
 BROWSE_LIMIT = 500
 ALL = "(all)"
+ALL_TOKENS = frozenset({"(all)", "(wszystkie)"})
 UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
 # Re-export helpers for callers that imported them from gui
@@ -124,11 +134,11 @@ class IndexerApp(tk.Tk):
         self.provenance_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
+        self.incremental_var = tk.BooleanVar(value=True)
+        self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self.preset_var = tk.StringVar(value="")
-        self.preview_header_var = tk.StringVar(value="Preview — select a result row")
-        self.status_var = tk.StringVar(
-            value="Pick a backup folder and a target folder for the database."
-        )
+        self.preview_header_var = tk.StringVar(value="")
+        self.status_var = tk.StringVar(value="")
         self.progress_var = tk.DoubleVar(value=0.0)
         self.progress_label_var = tk.StringVar(value="")
 
@@ -138,6 +148,8 @@ class IndexerApp(tk.Tk):
         self._filter_trace_lock = False
         self._machine_names: list[str] = []
         self._last_scan_report: Optional[ScanReport] = None
+        self._root_frame: Optional[ttk.Frame] = None
+        self._lang = DEFAULT_LANG
 
         self._build()
         # Seed machine list from aliases before any scan
@@ -154,32 +166,137 @@ class IndexerApp(tk.Tk):
         ):
             var.trace_add("write", self._on_filter_changed)
 
+    def _(self, key: str, **kwargs) -> str:
+        return t(self._lang, key, **kwargs)
+
+    def _all_token(self) -> str:
+        return self._("all_paren")
+
+    def _is_all_token(self, value: Optional[str]) -> bool:
+        raw = (value or "").strip()
+        return (not raw) or raw in ALL_TOKENS or raw == self._all_token()
+
+    def _set_language(self, lang: str, *, persist: bool = True) -> None:
+        code = normalize_lang(lang)
+        if code == self._lang and self._root_frame is not None:
+            return
+        # Preserve filter values across rebuild
+        preserved = {
+            "backup": self.backup_var.get(),
+            "target": self.target_var.get(),
+            "search": self.search_var.get(),
+            "date_from": self.date_from_var.get(),
+            "date_to": self.date_to_var.get(),
+            "source_type": self.source_type_var.get(),
+            "control": self.control_var.get(),
+            "provenance": self.provenance_var.get(),
+            "programmer": self.programmer_var.get(),
+            "newest": bool(self.newest_only_var.get()),
+            "incremental": bool(self.incremental_var.get()),
+            "excel": bool(self.excel_var.get()) if hasattr(self, "excel_var") else True,
+            "machines": self._selected_machines() if hasattr(self, "machine_list") else [],
+            "extras": self._extra_roots_from_list() if hasattr(self, "extra_list") else [],
+        }
+        self._lang = code
+        self.lang_var.set(code)
+        if persist:
+            target = preserved["target"].strip()
+            if target:
+                try:
+                    save_ui_language(ui_settings_path_for_target(target), code)
+                except OSError:
+                    log.exception("save ui language failed")
+        self._rebuild(preserved)
+
+    def _rebuild(self, preserved: Optional[dict] = None) -> None:
+        if self._root_frame is not None:
+            self._root_frame.destroy()
+            self._root_frame = None
+        self._build()
+        if preserved:
+            self.backup_var.set(preserved.get("backup") or "")
+            self.target_var.set(preserved.get("target") or "")
+            self.search_var.set(preserved.get("search") or "")
+            self.date_from_var.set(preserved.get("date_from") or "")
+            self.date_to_var.set(preserved.get("date_to") or "")
+            st = preserved.get("source_type") or self._all_token()
+            if st in ALL_TOKENS:
+                st = self._all_token()
+            self.source_type_var.set(st)
+            ctl = preserved.get("control") or self._all_token()
+            if ctl in ALL_TOKENS:
+                ctl = self._all_token()
+            self.control_var.set(ctl)
+            prog = preserved.get("programmer") or self._all_token()
+            if prog in ALL_TOKENS:
+                prog = self._all_token()
+            self.programmer_var.set(prog)
+            prov = str(preserved.get("provenance") or "")
+            low = prov.casefold()
+            if any(x in low for x in ("yellow", "żółt", "zoltt", "extra", "dodatk")):
+                self.provenance_var.set(self._("flag_yellow"))
+            elif any(x in low for x in ("green", "zielon", "backup", "kopi")):
+                self.provenance_var.set(self._("flag_green"))
+            else:
+                self.provenance_var.set(self._all_token())
+            self.newest_only_var.set(bool(preserved.get("newest")))
+            self.incremental_var.set(bool(preserved.get("incremental", True)))
+            self.excel_var.set(bool(preserved.get("excel", True)))
+            self.extra_list.delete(0, tk.END)
+            for root in preserved.get("extras") or []:
+                self.extra_list.insert(tk.END, root)
+        self._refresh_filter_choices()
+        # Re-bind traces only once per build — already in __init__; rebuild shouldn't duplicate
+        # Filter choices restore machine selection
+        if preserved and preserved.get("machines"):
+            wanted = set(preserved["machines"])
+            for i, name in enumerate(self._machine_names):
+                if name in wanted:
+                    self.machine_list.selection_set(i)
+        self._run_query_now()
+
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 4}
+        self.title(self._("app_title"))
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
+        self._root_frame = root
 
-        paths = ttk.LabelFrame(root, text="Folders", padding=8)
+        # Ensure filter "all" token matches current language
+        if self._is_all_token(self.source_type_var.get()):
+            self.source_type_var.set(self._all_token())
+        if self._is_all_token(self.control_var.get()):
+            self.control_var.set(self._all_token())
+        if self._is_all_token(self.programmer_var.get()):
+            self.programmer_var.set(self._all_token())
+        if self._is_all_token(self.provenance_var.get()) or not self.provenance_var.get():
+            self.provenance_var.set(self._all_token())
+        if not self.status_var.get():
+            self.status_var.set(self._("status_pick"))
+        if not self.preview_header_var.get():
+            self.preview_header_var.set(self._("preview_idle"))
+
+        paths = ttk.LabelFrame(root, text=self._("folders"), padding=8)
         paths.pack(fill=tk.X, **pad)
 
-        ttk.Label(paths, text="Backup folder").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(paths, text=self._("backup_folder")).grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(paths, textvariable=self.backup_var).grid(
             row=0, column=1, sticky=tk.EW, padx=4
         )
-        ttk.Button(paths, text="Browse…", command=self._pick_backup).grid(row=0, column=2)
+        ttk.Button(paths, text=self._("browse"), command=self._pick_backup).grid(row=0, column=2)
 
-        ttk.Label(paths, text="Target folder (DB / extracts)").grid(
+        ttk.Label(paths, text=self._("target_folder")).grid(
             row=1, column=0, sticky=tk.W
         )
         ttk.Entry(paths, textvariable=self.target_var).grid(
             row=1, column=1, sticky=tk.EW, padx=4
         )
-        ttk.Button(paths, text="Browse…", command=self._pick_target).grid(row=1, column=2)
+        ttk.Button(paths, text=self._("browse"), command=self._pick_target).grid(row=1, column=2)
         paths.columnconfigure(1, weight=1)
 
         extra = ttk.LabelFrame(
             root,
-            text="Extra folders (yellow flag — not from machine backup)",
+            text=self._("extra_folders"),
             padding=8,
         )
         extra.pack(fill=tk.X, **pad)
@@ -192,44 +309,58 @@ class IndexerApp(tk.Tk):
         extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
         extra_btns = ttk.Frame(extra)
         extra_btns.pack(fill=tk.X, pady=(6, 0))
-        ttk.Button(extra_btns, text="Add folder…", command=self._add_extra_root).pack(
+        ttk.Button(extra_btns, text=self._("add_folder"), command=self._add_extra_root).pack(
             side=tk.LEFT
         )
-        ttk.Button(extra_btns, text="Remove selected", command=self._remove_extra_roots).pack(
+        ttk.Button(extra_btns, text=self._("remove_selected"), command=self._remove_extra_roots).pack(
             side=tk.LEFT, padx=6
         )
         ttk.Label(
             extra_btns,
-            text="Main backup = green (ran on machine). Extra = yellow (not in backup).",
+            text=self._("extra_hint"),
             foreground="#444",
         ).pack(side=tk.LEFT, padx=8)
 
         actions = ttk.Frame(root)
         actions.pack(fill=tk.X, **pad)
-        self.scan_btn = ttk.Button(actions, text="Run index / scan", command=self._start_scan)
+        self.scan_btn = ttk.Button(actions, text=self._("run_scan"), command=self._start_scan)
         self.scan_btn.pack(side=tk.LEFT)
-        ttk.Button(actions, text="Map folders…", command=self._open_folder_map).pack(
+        ttk.Button(actions, text=self._("map_folders"), command=self._open_folder_map).pack(
             side=tk.LEFT, padx=8
         )
-        ttk.Button(actions, text="Aliases…", command=self._open_alias_editor).pack(
+        ttk.Button(actions, text=self._("aliases"), command=self._open_alias_editor).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(actions, text="Open existing DB…", command=self._pick_existing_db).pack(
+        ttk.Button(actions, text=self._("open_db"), command=self._pick_existing_db).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(actions, text="Scan report…", command=self._open_scan_report).pack(
+        ttk.Button(actions, text=self._("scan_report"), command=self._open_scan_report).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(actions, text="Duplicates…", command=self._open_duplicates).pack(
+        ttk.Button(actions, text=self._("duplicates"), command=self._open_duplicates).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(actions, text="Clear filters", command=self._clear_filters).pack(
+        ttk.Button(actions, text=self._("clear_filters"), command=self._clear_filters).pack(
             side=tk.LEFT, padx=4
         )
-        self.excel_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(actions, text="Also write Excel", variable=self.excel_var).pack(
+        if not hasattr(self, "excel_var"):
+            self.excel_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(actions, text=self._("also_excel"), variable=self.excel_var).pack(
             side=tk.LEFT
         )
+        ttk.Checkbutton(
+            actions, text=self._("incremental"), variable=self.incremental_var
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Label(actions, text=self._("language")).pack(side=tk.LEFT, padx=(12, 2))
+        lang_combo = ttk.Combobox(
+            actions,
+            textvariable=self.lang_var,
+            values=["pl", "en"],
+            state="readonly",
+            width=6,
+        )
+        lang_combo.pack(side=tk.LEFT)
+        lang_combo.bind("<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get()))
 
         prog_frame = ttk.Frame(root)
         prog_frame.pack(fill=tk.X, **pad)
@@ -246,24 +377,24 @@ class IndexerApp(tk.Tk):
 
         filt = ttk.LabelFrame(
             root,
-            text="Find programs — text · machines (multi-select) · date · source",
+            text=self._("find_programs"),
             padding=8,
         )
         filt.pack(fill=tk.X, **pad)
 
-        ttk.Label(filt, text="Text").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(filt, text=self._("text")).grid(row=0, column=0, sticky=tk.W)
         self.search_entry = ttk.Entry(filt, textvariable=self.search_var)
         self.search_entry.grid(row=0, column=1, columnspan=4, sticky=tk.EW, padx=4)
         ttk.Checkbutton(
             filt,
-            text="Newest only",
+            text=self._("newest_only"),
             variable=self.newest_only_var,
         ).grid(row=0, column=5, sticky=tk.E, padx=4)
-        ttk.Button(filt, text="Extract selected…", command=self._extract_selected).grid(
+        ttk.Button(filt, text=self._("extract_selected"), command=self._extract_selected).grid(
             row=0, column=6, padx=4
         )
 
-        ttk.Label(filt, text="Machines").grid(row=1, column=0, sticky=tk.NW, pady=(6, 0))
+        ttk.Label(filt, text=self._("machines")).grid(row=1, column=0, sticky=tk.NW, pady=(6, 0))
         mach_frame = ttk.Frame(filt)
         mach_frame.grid(row=1, column=1, sticky=tk.NSEW, padx=4, pady=(6, 0))
         self.machine_list = tk.Listbox(
@@ -281,57 +412,57 @@ class IndexerApp(tk.Tk):
 
         mach_btns = ttk.Frame(filt)
         mach_btns.grid(row=1, column=2, sticky=tk.NW, pady=(6, 0))
-        ttk.Button(mach_btns, text="All", width=8, command=self._select_all_machines).pack(
+        ttk.Button(mach_btns, text=self._("all"), width=10, command=self._select_all_machines).pack(
             anchor=tk.W, pady=1
         )
-        ttk.Button(mach_btns, text="None", width=8, command=self._clear_machine_selection).pack(
+        ttk.Button(mach_btns, text=self._("none"), width=10, command=self._clear_machine_selection).pack(
             anchor=tk.W, pady=1
         )
-        ttk.Label(mach_btns, text="Ctrl/Shift+click\nfor multi-select", foreground="#555").pack(
+        ttk.Label(mach_btns, text=self._("multi_hint"), foreground="#555").pack(
             anchor=tk.W, pady=(4, 0)
         )
 
-        ttk.Label(filt, text="Date from").grid(row=1, column=3, sticky=tk.NW, pady=(6, 0))
+        ttk.Label(filt, text=self._("date_from")).grid(row=1, column=3, sticky=tk.NW, pady=(6, 0))
         date_box = ttk.Frame(filt)
         date_box.grid(row=1, column=4, columnspan=3, sticky=tk.NW, padx=4, pady=(6, 0))
         ttk.Entry(date_box, textvariable=self.date_from_var, width=11).grid(
             row=0, column=0, sticky=tk.W
         )
-        ttk.Label(date_box, text=" to ").grid(row=0, column=1, sticky=tk.W)
+        ttk.Label(date_box, text=self._("date_to_sep")).grid(row=0, column=1, sticky=tk.W)
         ttk.Entry(date_box, textvariable=self.date_to_var, width=11).grid(
             row=0, column=2, sticky=tk.W
         )
-        ttk.Label(date_box, text="DD.MM.YYYY", foreground="#555").grid(
+        ttk.Label(date_box, text=self._("date_format"), foreground="#555").grid(
             row=1, column=0, columnspan=3, sticky=tk.W, pady=(2, 0)
         )
 
-        ttk.Label(filt, text="Source type").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
+        ttk.Label(filt, text=self._("source_type")).grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
         self.type_combo = ttk.Combobox(
-            filt, textvariable=self.source_type_var, values=[ALL], state="readonly", width=22
+            filt, textvariable=self.source_type_var, values=[self._all_token()], state="readonly", width=22
         )
         self.type_combo.grid(row=2, column=1, sticky=tk.EW, padx=4, pady=(6, 0))
 
-        ttk.Label(filt, text="Control").grid(row=2, column=3, sticky=tk.W, pady=(6, 0))
+        ttk.Label(filt, text=self._("control")).grid(row=2, column=3, sticky=tk.W, pady=(6, 0))
         self.control_combo = ttk.Combobox(
-            filt, textvariable=self.control_var, values=[ALL], state="readonly", width=14
+            filt, textvariable=self.control_var, values=[self._all_token()], state="readonly", width=14
         )
         self.control_combo.grid(row=2, column=4, sticky=tk.W, padx=4, pady=(6, 0))
 
-        ttk.Label(filt, text="Flag").grid(row=2, column=5, sticky=tk.W, pady=(6, 0))
+        ttk.Label(filt, text=self._("flag")).grid(row=2, column=5, sticky=tk.W, pady=(6, 0))
         self.provenance_combo = ttk.Combobox(
             filt,
             textvariable=self.provenance_var,
-            values=[ALL, "green — backup (ran)", "yellow — extra (not run)"],
+            values=[self._all_token(), self._("flag_green"), self._("flag_yellow")],
             state="readonly",
-            width=26,
+            width=28,
         )
         self.provenance_combo.grid(row=2, column=6, sticky=tk.W, padx=4, pady=(6, 0))
 
-        ttk.Label(filt, text="Programmer").grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
+        ttk.Label(filt, text=self._("programmer")).grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
         self.programmer_combo = ttk.Combobox(
             filt,
             textvariable=self.programmer_var,
-            values=[ALL],
+            values=[self._all_token()],
             state="readonly",
             width=14,
         )
@@ -339,17 +470,17 @@ class IndexerApp(tk.Tk):
 
         row_actions = ttk.Frame(filt)
         row_actions.grid(row=3, column=6, sticky=tk.E, pady=(6, 0))
-        ttk.Button(row_actions, text="Compare…", command=self._compare_selected).pack(
+        ttk.Button(row_actions, text=self._("compare"), command=self._compare_selected).pack(
             side=tk.LEFT, padx=2
         )
-        ttk.Button(row_actions, text="Open folder", command=self._open_selected_folder).pack(
+        ttk.Button(row_actions, text=self._("open_folder"), command=self._open_selected_folder).pack(
             side=tk.LEFT, padx=2
         )
-        ttk.Button(row_actions, text="Copy path", command=self._copy_selected_path).pack(
+        ttk.Button(row_actions, text=self._("copy_path"), command=self._copy_selected_path).pack(
             side=tk.LEFT, padx=2
         )
 
-        ttk.Label(filt, text="Preset").grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
+        ttk.Label(filt, text=self._("preset")).grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
         preset_row = ttk.Frame(filt)
         preset_row.grid(row=4, column=1, columnspan=6, sticky=tk.EW, padx=4, pady=(6, 0))
         self.preset_combo = ttk.Combobox(
@@ -360,32 +491,24 @@ class IndexerApp(tk.Tk):
             width=28,
         )
         self.preset_combo.pack(side=tk.LEFT)
-        ttk.Button(preset_row, text="Load", command=self._load_selected_preset).pack(
+        ttk.Button(preset_row, text=self._("load"), command=self._load_selected_preset).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(preset_row, text="Save current…", command=self._save_current_preset).pack(
+        ttk.Button(preset_row, text=self._("save_current"), command=self._save_current_preset).pack(
             side=tk.LEFT, padx=2
         )
-        ttk.Button(preset_row, text="Delete", command=self._delete_selected_preset).pack(
+        ttk.Button(preset_row, text=self._("delete"), command=self._delete_selected_preset).pack(
             side=tk.LEFT, padx=2
         )
         ttk.Label(
             preset_row,
-            text=f"Stored as {PRESETS_FILENAME} next to the DB",
+            text=self._("preset_hint", filename=PRESETS_FILENAME),
             foreground="#555",
         ).pack(side=tk.LEFT, padx=8)
 
         hint = ttk.Label(
             filt,
-            text="Green flag = from main backup (ran on machine). "
-            "Yellow = from an extra folder (not in backup). "
-            "Programmer = next-line (PG1)/(LP2) when present. "
-            "Newest only keeps the latest date per program+machine. "
-            "Ctrl/Shift+click rows to multi-select for batch extract. "
-            "Preview shows the selected program body. "
-            "Compare… needs exactly two selected rows. "
-            "Program search: O03232 / 03232 / 3232 match the same O-number. "
-            "Presets save/restore the find-bar filters.",
+            text=self._("hint"),
             foreground="#444",
         )
         hint.grid(row=5, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
@@ -413,16 +536,16 @@ class IndexerApp(tk.Tk):
             tree_frame, columns=cols, show="headings", selectmode="extended"
         )
         headings = {
-            "flag": ("Flag", 56),
-            "program": ("Program #", 90),
-            "part": ("Part number", 130),
-            "programmer": ("Prog.", 56),
-            "machine": ("Machine", 110),
-            "date": ("Date", 100),
-            "type": ("Source type", 100),
-            "control": ("Control", 70),
-            "path": ("Source path", 240),
-            "location": ("In-file location", 120),
+            "flag": (self._("col_flag"), 56),
+            "program": (self._("col_program"), 90),
+            "part": (self._("col_part"), 130),
+            "programmer": (self._("col_programmer"), 56),
+            "machine": (self._("col_machine"), 110),
+            "date": (self._("col_date"), 100),
+            "type": (self._("col_type"), 100),
+            "control": (self._("col_control"), 70),
+            "path": (self._("col_path"), 240),
+            "location": (self._("col_location"), 120),
         }
         for key, (label, width) in headings.items():
             self.tree.heading(key, text=label)
@@ -445,7 +568,7 @@ class IndexerApp(tk.Tk):
             self.tree.bind("<Button-2>", self._on_tree_context)
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
 
-        preview_frame = ttk.LabelFrame(results_pane, text="Preview", padding=4)
+        preview_frame = ttk.LabelFrame(results_pane, text=self._("preview"), padding=4)
         results_pane.add(preview_frame, weight=2)
         ttk.Label(preview_frame, textvariable=self.preview_header_var).pack(
             fill=tk.X, padx=2, pady=(0, 2)
@@ -475,10 +598,10 @@ class IndexerApp(tk.Tk):
         prev_inner.columnconfigure(0, weight=1)
 
         self._ctx_menu = tk.Menu(self, tearoff=0)
-        self._ctx_menu.add_command(label="Extract selected…", command=self._extract_selected)
-        self._ctx_menu.add_command(label="Compare…", command=self._compare_selected)
-        self._ctx_menu.add_command(label="Open folder", command=self._open_selected_folder)
-        self._ctx_menu.add_command(label="Copy path", command=self._copy_selected_path)
+        self._ctx_menu.add_command(label=self._("ctx_extract"), command=self._extract_selected)
+        self._ctx_menu.add_command(label=self._("ctx_compare"), command=self._compare_selected)
+        self._ctx_menu.add_command(label=self._("ctx_open"), command=self._open_selected_folder)
+        self._ctx_menu.add_command(label=self._("ctx_copy"), command=self._copy_selected_path)
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
         status.pack(fill=tk.X, **pad)
@@ -496,6 +619,9 @@ class IndexerApp(tk.Tk):
             self.target_var.set(path)
             self._load_extra_roots_into_list()
             self._refresh_preset_combo()
+            lang = load_ui_language(ui_settings_path_for_target(path))
+            if lang != self._lang:
+                self._set_language(lang, persist=False)
 
     def _pick_existing_db(self) -> None:
         path = filedialog.askopenfilename(
@@ -720,6 +846,7 @@ class IndexerApp(tk.Tk):
         self.progress_label_var.set("Starting…")
         self.status_var.set("Scanning…")
         write_excel = bool(self.excel_var.get())
+        incremental = bool(self.incremental_var.get())
         self._persist_extra_roots()
         extras = normalize_extra_roots(
             self._extra_roots_from_list(),
@@ -727,7 +854,7 @@ class IndexerApp(tk.Tk):
         )
         threading.Thread(
             target=self._scan_worker,
-            args=(Path(backup), Path(target), write_excel, extras),
+            args=(Path(backup), Path(target), write_excel, extras, incremental),
             daemon=True,
         ).start()
 
@@ -771,6 +898,7 @@ class IndexerApp(tk.Tk):
         target: Path,
         write_excel: bool,
         extras: list[Path],
+        incremental: bool,
     ) -> None:
         try:
             aliases_path = default_aliases_path()
@@ -778,6 +906,19 @@ class IndexerApp(tk.Tk):
             alias_map = AliasMap.load_merged(aliases_path, local_path)
             folder_map = FolderMachineMap.load(map_path_for_target(target))
             fmap = folder_map if folder_map.assignments else None
+            db_path = target / DEFAULT_DB_NAME
+            cache = None
+            n_cached = 0
+            if incremental and db_path.is_file():
+                try:
+                    prior = open_db(db_path)
+                    try:
+                        cache = load_scan_cache(prior)
+                    finally:
+                        prior.close()
+                except Exception:  # noqa: BLE001
+                    log.exception("load scan cache failed; falling back to full scan")
+                    cache = None
             if extras:
                 result = scan_with_extra_roots(
                     backup,
@@ -785,6 +926,7 @@ class IndexerApp(tk.Tk):
                     extra_roots=extras,
                     progress=self._on_scan_progress,
                     folder_map=fmap,
+                    cache=cache,
                 )
             else:
                 result = scan_backup_tree(
@@ -793,8 +935,9 @@ class IndexerApp(tk.Tk):
                     progress=self._on_scan_progress,
                     folder_map=fmap,
                     provenance=PROVENANCE_BACKUP,
+                    cache=cache,
                 )
-            db_path = target / DEFAULT_DB_NAME
+            n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
             if db_path.is_file():
                 db_path.unlink()
             conn = open_db(db_path)
@@ -826,10 +969,13 @@ class IndexerApp(tk.Tk):
                 else ""
             )
             flag_note = f"; flags green={n_green} yellow={n_yellow}"
+            cache_note = f"; reused {n_cached} unchanged files" if n_cached else ""
+            mode_note = "; incremental" if cache is not None else "; full scan"
             msg = (
                 f"Indexed {len(result.instances)} programs "
                 f"[{type_note}] "
-                f"({len(result.unknowns)} unknown folders{unk_note}{local_note}{flag_note}) "
+                f"({len(result.unknowns)} unknown folders{unk_note}{local_note}"
+                f"{flag_note}{cache_note}{mode_note}) "
                 f"→ {db_path.name} "
                 f"(run {run_id[:8]}…){excel_note}"
             )
@@ -985,9 +1131,14 @@ class IndexerApp(tk.Tk):
         for i, name in enumerate(self._machine_names):
             if name in prev:
                 self.machine_list.selection_set(i)
-        self.type_combo["values"] = [ALL, *vals["source_types"]]
-        self.control_combo["values"] = [ALL, *vals["control_families"]]
-        self.programmer_combo["values"] = [ALL, *vals.get("programmers", [])]
+        self.type_combo["values"] = [self._all_token(), *vals["source_types"]]
+        self.control_combo["values"] = [self._all_token(), *vals["control_families"]]
+        self.programmer_combo["values"] = [self._all_token(), *vals.get("programmers", [])]
+        self.provenance_combo["values"] = [
+            self._all_token(),
+            self._("flag_green"),
+            self._("flag_yellow"),
+        ]
         self._refresh_preset_combo()
 
     def _presets_path(self) -> Optional[Path]:
@@ -1135,10 +1286,10 @@ class IndexerApp(tk.Tk):
             self.machine_list.selection_clear(0, tk.END)
             self.date_from_var.set("")
             self.date_to_var.set("")
-            self.source_type_var.set(ALL)
-            self.control_var.set(ALL)
-            self.provenance_var.set(ALL)
-            self.programmer_var.set(ALL)
+            self.source_type_var.set(self._all_token())
+            self.control_var.set(self._all_token())
+            self.provenance_var.set(self._all_token())
+            self.programmer_var.set(self._all_token())
             self.newest_only_var.set(False)
         finally:
             self._filter_trace_lock = False
@@ -1173,7 +1324,7 @@ class IndexerApp(tk.Tk):
         control = self.control_var.get().strip()
         provenance = self._provenance_filter_value()
         programmer = self.programmer_var.get().strip()
-        if not programmer or programmer == ALL:
+        if self._is_all_token(programmer):
             programmer_filter = None
         else:
             programmer_filter = programmer
@@ -1187,8 +1338,8 @@ class IndexerApp(tk.Tk):
                     machines=machines or None,
                     date_from=date_from,
                     date_to=date_to,
-                    source_type=source_type,
-                    control_family=control,
+                    source_type=None if self._is_all_token(source_type) else source_type,
+                    control_family=None if self._is_all_token(control) else control,
                     provenance=provenance,
                     programmer=programmer_filter,
                     newest_only=bool(self.newest_only_var.get()),
@@ -1214,9 +1365,9 @@ class IndexerApp(tk.Tk):
             bits.append(f"machines={len(machines)}")
         if date_from or date_to:
             bits.append(f"dates={date_from or '…'}→{date_to or '…'}")
-        if source_type and source_type != ALL:
+        if source_type and not self._is_all_token(source_type):
             bits.append(f"type={source_type}")
-        if control and control != ALL:
+        if control and not self._is_all_token(control):
             bits.append(f"control={control}")
         if provenance:
             bits.append(f"flag={provenance}")
@@ -1232,12 +1383,12 @@ class IndexerApp(tk.Tk):
 
     def _provenance_filter_value(self) -> Optional[str]:
         raw = self.provenance_var.get().strip()
-        if not raw or raw == ALL:
+        if self._is_all_token(raw):
             return None
         low = raw.casefold()
-        if "yellow" in low or "extra" in low:
+        if any(x in low for x in ("yellow", "żółt", "extra", "dodatk")):
             return PROVENANCE_EXTRA
-        if "green" in low or "backup" in low:
+        if any(x in low for x in ("green", "zielon", "backup", "kopi")):
             return PROVENANCE_BACKUP
         if raw in {PROVENANCE_BACKUP, PROVENANCE_EXTRA}:
             return raw
@@ -1293,7 +1444,7 @@ class IndexerApp(tk.Tk):
         )
 
     def _clear_preview(self) -> None:
-        self._set_preview_body("Preview — select a result row", "")
+        self._set_preview_body(self._("preview_idle"), "")
 
     def _on_tree_select(self, *_args) -> None:
         self._refresh_preview()

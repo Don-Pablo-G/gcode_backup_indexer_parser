@@ -27,6 +27,7 @@ from gcode_index.models import (
     ScanResult,
     UnknownFolder,
 )
+from gcode_index.scan_cache import ScanCache
 log = logging.getLogger("gcode_index.scanner")
 
 _HAAS_BACKUP_DIR = re.compile(r"^HaasBackup\(.*\)$", re.IGNORECASE)
@@ -134,6 +135,7 @@ def scan_backup_tree(
     progress: Optional[ProgressCallback] = None,
     folder_map: Optional[FolderMachineMap] = None,
     provenance: str = PROVENANCE_BACKUP,
+    cache: Optional[ScanCache] = None,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -154,6 +156,7 @@ def scan_backup_tree(
     total = _count_indexable_files(root)
     prog = _ScanProgress(progress, total)
     prog.emit(phase="scanning", message=f"Scanning 0 / {total} files…")
+    scan_root_s = str(root)
 
     # date → machine: glued dumps (.pgm / ALL-FLDR / ALL-PROG) + unknown-folder log
     for date_dir in sorted(p for p in root.iterdir() if p.is_dir()):
@@ -167,10 +170,20 @@ def scan_backup_tree(
                 result=result,
                 prog=prog,
                 folder_map=folder_map,
+                cache=cache,
+                scan_root=scan_root_s,
             )
 
     # Individual .nc / .nc.copy: whole tree from backup root (any depth)
-    _index_all_nc_files(root, aliases, result, prog=prog, folder_map=folder_map)
+    _index_all_nc_files(
+        root,
+        aliases,
+        result,
+        prog=prog,
+        folder_map=folder_map,
+        cache=cache,
+        scan_root=scan_root_s,
+    )
 
     _stamp_provenance(result, provenance=provenance, scan_root=root)
 
@@ -188,10 +201,12 @@ def scan_with_extra_roots(
     extra_roots: Optional[list[Path | str]] = None,
     progress: Optional[ProgressCallback] = None,
     folder_map: Optional[FolderMachineMap] = None,
+    cache: Optional[ScanCache] = None,
 ) -> ScanResult:
     """Scan the main backup (green) plus optional extra folders (yellow).
 
     Extra roots use the same layout rules (date/machine dumps + tree-wide ``.nc``).
+    ``cache`` enables incremental reuse of unchanged sources (#9).
     """
     roots: list[tuple[Path, str]] = [(Path(backup_root), PROVENANCE_BACKUP)]
     seen: set[str] = {str(Path(backup_root).resolve())}
@@ -229,6 +244,7 @@ def scan_with_extra_roots(
             progress=progress,
             folder_map=folder_map,
             provenance=prov,
+            cache=cache,
         )
         merged.instances.extend(part.instances)
         merged.files_seen.extend(part.files_seen)
@@ -237,12 +253,14 @@ def scan_with_extra_roots(
     if progress:
         n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
         n_ext = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_EXTRA)
+        n_cached = sum(1 for fs in merged.files_seen if fs.status == "cached")
         progress(
             {
                 "phase": "done",
                 "message": (
                     f"Scan complete — {len(merged.instances)} programs "
-                    f"({n_bak} backup / green, {n_ext} extra / yellow)"
+                    f"({n_bak} backup / green, {n_ext} extra / yellow"
+                    f"{f', {n_cached} files reused' if n_cached else ''})"
                 ),
                 "current": len(merged.instances),
                 "total": max(len(merged.instances), 1),
@@ -274,6 +292,8 @@ def _scan_machine_folder_dumps(
     result: ScanResult,
     prog: Optional[_ScanProgress] = None,
     folder_map: Optional[FolderMachineMap] = None,
+    cache: Optional[ScanCache] = None,
+    scan_root: str = "",
 ) -> None:
     """Index glued dumps (.pgm / ALL-FLDR / ALL-PROG).
 
@@ -312,17 +332,26 @@ def _scan_machine_folder_dumps(
         if not path.is_file():
             continue
         if _is_pgm(path):
-            _index_pgm(path, root, date_folder_raw, info, result)
+            _index_pgm(
+                path, root, date_folder_raw, info, result,
+                cache=cache, scan_root=scan_root,
+            )
             indexed_any = True
             if prog:
                 prog.tick(f"Indexing {rel_path(path, root)}")
         elif _basename_is(path, "ALL-FLDR.TXT"):
-            _index_all_fldr(path, root, date_folder_raw, info, result)
+            _index_all_fldr(
+                path, root, date_folder_raw, info, result,
+                cache=cache, scan_root=scan_root,
+            )
             indexed_any = True
             if prog:
                 prog.tick(f"Indexing {rel_path(path, root)}")
         elif _basename_is(path, "ALL-PROG.TXT"):
-            _index_all_prog(path, root, date_folder_raw, info, result)
+            _index_all_prog(
+                path, root, date_folder_raw, info, result,
+                cache=cache, scan_root=scan_root,
+            )
             indexed_any = True
             if prog:
                 prog.tick(f"Indexing {rel_path(path, root)}")
@@ -477,6 +506,8 @@ def _index_all_nc_files(
     *,
     prog: Optional[_ScanProgress] = None,
     folder_map: Optional[FolderMachineMap] = None,
+    cache: Optional[ScanCache] = None,
+    scan_root: str = "",
 ) -> None:
     """Walk entire backup tree for *.nc / *.nc.copy; fuzzy-match machine or leave unknown."""
     seen: set[Path] = set()
@@ -487,7 +518,10 @@ def _index_all_nc_files(
         if rp in seen:
             continue
         seen.add(rp)
-        _index_one_nc(path, root, aliases, result, folder_map=folder_map)
+        _index_one_nc(
+            path, root, aliases, result,
+            folder_map=folder_map, cache=cache, scan_root=scan_root,
+        )
         if prog:
             prog.tick(f"Indexing {rel_path(path, root)}")
 
@@ -499,7 +533,18 @@ def _index_one_nc(
     result: ScanResult,
     *,
     folder_map: Optional[FolderMachineMap] = None,
+    cache: Optional[ScanCache] = None,
+    scan_root: str = "",
 ) -> None:
+    sp = rel_path(path, root)
+    if cache is not None:
+        reused = cache.try_reuse(path, scan_root=scan_root, source_path=sp)
+        if reused is not None:
+            instances, seen = reused
+            result.instances.extend(instances)
+            result.files_seen.append(seen)
+            return
+
     parts = _path_parts_under_root(path, root)
     info, date_folder_raw = _infer_machine_and_date(
         path, root, aliases, folder_map=folder_map
@@ -511,7 +556,6 @@ def _index_one_nc(
         if source_type in {"haas_ngc_nc", "haas_ngc_nc_copy"}
         else None
     )
-    sp = rel_path(path, root)
 
     if not info.mapped:
         log.info(
@@ -563,8 +607,18 @@ def _index_pgm(
     date_folder_raw: str,
     info: MachineInfo,
     result: ScanResult,
+    *,
+    cache: Optional[ScanCache] = None,
+    scan_root: str = "",
 ) -> None:
     sp = rel_path(path, root)
+    if cache is not None:
+        reused = cache.try_reuse(path, scan_root=scan_root, source_path=sp)
+        if reused is not None:
+            instances, seen = reused
+            result.instances.extend(instances)
+            result.files_seen.append(seen)
+            return
     try:
         instances = locate_haas_pgm(
             path,
@@ -606,8 +660,18 @@ def _index_all_fldr(
     date_folder_raw: str,
     info: MachineInfo,
     result: ScanResult,
+    *,
+    cache: Optional[ScanCache] = None,
+    scan_root: str = "",
 ) -> None:
     sp = rel_path(path, root)
+    if cache is not None:
+        reused = cache.try_reuse(path, scan_root=scan_root, source_path=sp)
+        if reused is not None:
+            instances, seen = reused
+            result.instances.extend(instances)
+            result.files_seen.append(seen)
+            return
     try:
         instances = locate_fanuc_all_fldr(
             path,
@@ -649,8 +713,18 @@ def _index_all_prog(
     date_folder_raw: str,
     info: MachineInfo,
     result: ScanResult,
+    *,
+    cache: Optional[ScanCache] = None,
+    scan_root: str = "",
 ) -> None:
     sp = rel_path(path, root)
+    if cache is not None:
+        reused = cache.try_reuse(path, scan_root=scan_root, source_path=sp)
+        if reused is not None:
+            instances, seen = reused
+            result.instances.extend(instances)
+            result.files_seen.append(seen)
+            return
     try:
         instances = locate_fanuc_all_prog(
             path,

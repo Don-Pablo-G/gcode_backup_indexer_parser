@@ -22,7 +22,7 @@ def first_paren_comment(line: str) -> Optional[str]:
 
 
 def parse_programmer_flag(line: str) -> Optional[str]:
-    """Return ``PG1``-style flag if ``line`` is exactly ``(LLdigit)``, else None.
+    """Return ``LP1``-style flag if ``line`` is exactly ``(LLdigit)``, else None.
 
     Matching is case-insensitive; stored form is uppercase. Non-matching comments
     (part numbers, free text, wrong shape) are ignored — never invented.

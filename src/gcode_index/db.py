@@ -490,7 +490,7 @@ def query_instances(
     (``DD.MM.YYYY`` or ``YYYY-MM-DD``).
     ``source_type`` / ``control_family`` — exact match when set.
     ``provenance`` — ``backup`` (green / ran on machine) or ``extra`` (yellow).
-    ``programmer`` — exact uppercase flag e.g. ``PG1`` (case-insensitive input).
+    ``programmer`` — exact uppercase flag e.g. ``LP1`` (case-insensitive input).
     ``newest_only`` — keep newest row per program+machine after filtering.
     """
     conn.row_factory = sqlite3.Row
@@ -564,23 +564,32 @@ def query_instances(
         clauses.append("backup_date <= ?")
         params.append(d_to)
 
-    if source_type is not None and str(source_type).strip() and str(source_type).strip() != "(all)":
+    if source_type is not None and str(source_type).strip() and str(source_type).strip() not in {
+        "(all)",
+        "(wszystkie)",
+    }:
         clauses.append("source_type = ?")
         params.append(str(source_type).strip())
 
     if (
         control_family is not None
         and str(control_family).strip()
-        and str(control_family).strip() != "(all)"
+        and str(control_family).strip() not in {"(all)", "(wszystkie)"}
     ):
         clauses.append("IFNULL(control_family,'') = ?")
         params.append(str(control_family).strip())
 
-    if provenance is not None and str(provenance).strip() and str(provenance).strip() != "(all)":
+    if provenance is not None and str(provenance).strip() and str(provenance).strip() not in {
+        "(all)",
+        "(wszystkie)",
+    }:
         clauses.append("IFNULL(provenance,'backup') = ?")
         params.append(str(provenance).strip())
 
-    if programmer is not None and str(programmer).strip() and str(programmer).strip() != "(all)":
+    if programmer is not None and str(programmer).strip() and str(programmer).strip() not in {
+        "(all)",
+        "(wszystkie)",
+    }:
         clauses.append("UPPER(IFNULL(programmer,'')) = ?")
         params.append(str(programmer).strip().upper())
 
