@@ -103,11 +103,17 @@ def test_search_letters_and_filters(tmp_path: Path):
         by_machine = query_instances(conn, machine="puma", limit=50)
         assert {r["instance_id"] for r in by_machine} == {"c", "e"}
 
-        # Date range (inclusive day bounds)
+        # Date range (inclusive day bounds) — ISO and DD.MM.YYYY
         by_date = query_instances(
             conn, date_from="2026-02-01", date_to="2026-03-31", limit=50
         )
         assert {r["instance_id"] for r in by_date} == {"b", "c"}
+        by_date_eu = query_instances(
+            conn, date_from="01.02.2026", date_to="31.03.2026", limit=50
+        )
+        assert {r["instance_id"] for r in by_date_eu} == {"b", "c"}
+        with pytest.raises(ValueError, match="invalid date"):
+            query_instances(conn, date_from="32.01.2026", limit=10)
 
         # Combined text + machine
         combo = query_instances(conn, text="1234", machine="haas-sl-20", limit=50)

@@ -46,7 +46,7 @@ python -m gcode_index.gui
 4. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
    - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  
      The list is seeded from `aliases.yaml` (so **HAAS UMC750**, ST-20Y, … always appear) and merged with machines seen in the last scan.  
-   - **Date from / to** (`YYYY-MM-DD`)  
+   - **Date from / to** (`DD.MM.YYYY`, e.g. `15.09.2026`)  
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
    - **Control** (`haas`, `fanuc`, `sinumerik`)  
    Text matches program #, part #, path, machine names, and FANUC folder paths. Empty text + filters still works.  
@@ -144,7 +144,7 @@ gcode-index extract gcode_index.sqlite <instance_id> --backup-root "D:\CNC\Backu
 ```
 
 - Free-text query (letters / digits / symbols) on program #, part #, path, machine.
-- Optional `--machine`, `--from` / `--to` (`YYYY-MM-DD`), `--type`.
+- Optional `--machine`, `--from` / `--to` (`DD.MM.YYYY` or `YYYY-MM-DD`), `--type`.
 - Prefix hits rank above mid-string hits.
 - Extract slices glued dumps by stored line/byte span, or copies whole-file `.nc` types, for an **external** parser.
 

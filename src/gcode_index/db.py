@@ -295,16 +295,47 @@ _INSTANCE_SELECT = """
 
 
 def _normalize_date_bound(value: Optional[str], *, end: bool = False) -> Optional[str]:
-    """Accept ``YYYY-MM-DD`` or ISO datetime; return comparable ISO-ish string."""
+    """Accept ``DD.MM.YYYY``, ``YYYY-MM-DD``, or ISO datetime → comparable ISO string."""
     if value is None:
         return None
     s = str(value).strip()
     if not s:
         return None
-    # Date-only → expand to day bounds so ISO datetimes compare correctly
-    if len(s) == 10 and s[4] == "-" and s[7] == "-":
-        return f"{s}T23:59:59.999999+00:00" if end else f"{s}T00:00:00+00:00"
+
+    day: Optional[str] = None
+    # Preferred GUI form: DD.MM.YYYY (also DD-MM-YYYY / DD/MM/YYYY)
+    if len(s) == 10 and s[2] in ".-/" and s[5] in ".-/":
+        dd, mm, yyyy = s[0:2], s[3:5], s[6:10]
+        if yyyy.isdigit() and mm.isdigit() and dd.isdigit():
+            day = f"{yyyy}-{mm}-{dd}"
+    # ISO date-only: YYYY-MM-DD
+    elif len(s) == 10 and s[4] == "-" and s[7] == "-":
+        day = s
+
+    if day is not None:
+        # Validate calendar date
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(f"invalid date: {value!r}") from exc
+        return f"{day}T23:59:59.999999+00:00" if end else f"{day}T00:00:00+00:00"
+
+    # Already an ISO datetime (or other comparable string) — pass through
     return s
+
+
+def format_display_date(iso_value: Optional[str]) -> str:
+    """Format stored backup_date for GUI tables as ``DD.MM.YYYY`` when possible."""
+    if not iso_value:
+        return ""
+    s = str(iso_value).strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        try:
+            d = datetime.strptime(s[:10], "%Y-%m-%d")
+            return d.strftime("%d.%m.%Y")
+        except ValueError:
+            pass
+    return s[:19].replace("T", " ")
 
 
 def query_instances(
@@ -325,7 +356,8 @@ def query_instances(
     machine id/label/folder, FANUC folder_path, date folder.
     ``machine`` — single machine id/label (CLI); ignored if ``machines`` is set.
     ``machines`` — one or more machine ids/labels (multi-select GUI).
-    ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date`` (YYYY-MM-DD OK).
+    ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date``
+    (``DD.MM.YYYY`` or ``YYYY-MM-DD``).
     ``source_type`` / ``control_family`` — exact match when set.
     """
     conn.row_factory = sqlite3.Row

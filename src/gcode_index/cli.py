@@ -107,10 +107,10 @@ def search_cmd(
         None, "--machine", "-m", help="Filter by machine id or label."
     ),
     date_from: Optional[str] = typer.Option(
-        None, "--from", help="Inclusive start date (YYYY-MM-DD)."
+        None, "--from", help="Inclusive start date (DD.MM.YYYY or YYYY-MM-DD)."
     ),
     date_to: Optional[str] = typer.Option(
-        None, "--to", help="Inclusive end date (YYYY-MM-DD)."
+        None, "--to", help="Inclusive end date (DD.MM.YYYY or YYYY-MM-DD)."
     ),
     source_type: Optional[str] = typer.Option(
         None, "--type", help="Filter source_type (e.g. loose_nc, haas_pgm_glued)."

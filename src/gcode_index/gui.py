@@ -19,6 +19,7 @@ from typing import Optional
 
 from gcode_index.aliases import AliasMap, default_aliases_path
 from gcode_index.db import (
+    format_display_date,
     format_location,
     list_filter_values,
     open_db,
@@ -191,11 +192,17 @@ class IndexerApp(tk.Tk):
 
         ttk.Label(filt, text="Date from").grid(row=1, column=3, sticky=tk.NW, pady=(6, 0))
         date_box = ttk.Frame(filt)
-        date_box.grid(row=1, column=4, columnspan=2, sticky=tk.NW, padx=4, pady=(6, 0))
-        ttk.Entry(date_box, textvariable=self.date_from_var, width=12).pack(side=tk.LEFT)
-        ttk.Label(date_box, text=" to ").pack(side=tk.LEFT)
-        ttk.Entry(date_box, textvariable=self.date_to_var, width=12).pack(side=tk.LEFT)
-        ttk.Label(date_box, text="  YYYY-MM-DD").pack(side=tk.LEFT)
+        date_box.grid(row=1, column=4, columnspan=3, sticky=tk.NW, padx=4, pady=(6, 0))
+        ttk.Entry(date_box, textvariable=self.date_from_var, width=11).grid(
+            row=0, column=0, sticky=tk.W
+        )
+        ttk.Label(date_box, text=" to ").grid(row=0, column=1, sticky=tk.W)
+        ttk.Entry(date_box, textvariable=self.date_to_var, width=11).grid(
+            row=0, column=2, sticky=tk.W
+        )
+        ttk.Label(date_box, text="DD.MM.YYYY", foreground="#555").grid(
+            row=1, column=0, columnspan=3, sticky=tk.W, pady=(2, 0)
+        )
 
         ttk.Label(filt, text="Source type").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
         self.type_combo = ttk.Combobox(
@@ -557,7 +564,7 @@ class IndexerApp(tk.Tk):
     def _fill_tree(self, rows: list) -> None:
         self._result_rows = rows
         for i, r in enumerate(rows):
-            date = str(r["backup_date"] or "")[:19].replace("T", " ")
+            date = format_display_date(r["backup_date"])
             machine = r["machine_label"] or r["machine_id"] or ""
             keys = r.keys() if hasattr(r, "keys") else ()
             control = r["control_family"] if "control_family" in keys else ""
