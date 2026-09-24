@@ -23,6 +23,11 @@ from gcode_index.aliases import (
     default_aliases_path,
     local_aliases_path_for_target,
 )
+from gcode_index.compare import (
+    instance_label,
+    preview_text,
+    unified_diff_programs,
+)
 from gcode_index.db import (
     format_display_date,
     format_location,
@@ -97,8 +102,8 @@ class IndexerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("G-code Backup Indexer")
-        self.minsize(1040, 620)
-        self.geometry("1320x720")
+        self.minsize(1040, 700)
+        self.geometry("1320x820")
 
         self.backup_var = tk.StringVar()
         self.target_var = tk.StringVar()
@@ -110,6 +115,7 @@ class IndexerApp(tk.Tk):
         self.provenance_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
+        self.preview_header_var = tk.StringVar(value="Preview — select a result row")
         self.status_var = tk.StringVar(
             value="Pick a backup folder and a target folder for the database."
         )
@@ -323,6 +329,9 @@ class IndexerApp(tk.Tk):
 
         row_actions = ttk.Frame(filt)
         row_actions.grid(row=3, column=6, sticky=tk.E, pady=(6, 0))
+        ttk.Button(row_actions, text="Compare…", command=self._compare_selected).pack(
+            side=tk.LEFT, padx=2
+        )
         ttk.Button(row_actions, text="Open folder", command=self._open_selected_folder).pack(
             side=tk.LEFT, padx=2
         )
@@ -337,7 +346,8 @@ class IndexerApp(tk.Tk):
             "Programmer = next-line (PG1)/(LP2) when present. "
             "Newest only keeps the latest date per program+machine. "
             "Ctrl/Shift+click rows to multi-select for batch extract. "
-            "Scan report = post-scan quality; Duplicates = same SHA or same O# + similar size.",
+            "Preview shows the selected program body. "
+            "Compare… needs exactly two selected rows.",
             foreground="#444",
         )
         hint.grid(row=4, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
@@ -356,8 +366,11 @@ class IndexerApp(tk.Tk):
             "path",
             "location",
         )
-        tree_frame = ttk.Frame(root)
-        tree_frame.pack(fill=tk.BOTH, expand=True, **pad)
+        results_pane = ttk.Panedwindow(root, orient=tk.VERTICAL)
+        results_pane.pack(fill=tk.BOTH, expand=True, **pad)
+
+        tree_frame = ttk.Frame(results_pane)
+        results_pane.add(tree_frame, weight=3)
         self.tree = ttk.Treeview(
             tree_frame, columns=cols, show="headings", selectmode="extended"
         )
@@ -389,12 +402,43 @@ class IndexerApp(tk.Tk):
         tree_frame.columnconfigure(0, weight=1)
         self.tree.bind("<Double-1>", lambda _e: self._extract_selected())
         self.tree.bind("<Button-3>", self._on_tree_context)
+        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
         if sys.platform == "darwin":
             self.tree.bind("<Button-2>", self._on_tree_context)
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
 
+        preview_frame = ttk.LabelFrame(results_pane, text="Preview", padding=4)
+        results_pane.add(preview_frame, weight=2)
+        ttk.Label(preview_frame, textvariable=self.preview_header_var).pack(
+            fill=tk.X, padx=2, pady=(0, 2)
+        )
+        prev_inner = ttk.Frame(preview_frame)
+        prev_inner.pack(fill=tk.BOTH, expand=True)
+        self.preview_text = tk.Text(
+            prev_inner,
+            wrap=tk.NONE,
+            height=10,
+            font=("Consolas", 10),
+            state=tk.DISABLED,
+        )
+        prev_vsb = ttk.Scrollbar(
+            prev_inner, orient=tk.VERTICAL, command=self.preview_text.yview
+        )
+        prev_hsb = ttk.Scrollbar(
+            prev_inner, orient=tk.HORIZONTAL, command=self.preview_text.xview
+        )
+        self.preview_text.configure(
+            yscrollcommand=prev_vsb.set, xscrollcommand=prev_hsb.set
+        )
+        self.preview_text.grid(row=0, column=0, sticky="nsew")
+        prev_vsb.grid(row=0, column=1, sticky="ns")
+        prev_hsb.grid(row=1, column=0, sticky="ew")
+        prev_inner.rowconfigure(0, weight=1)
+        prev_inner.columnconfigure(0, weight=1)
+
         self._ctx_menu = tk.Menu(self, tearoff=0)
         self._ctx_menu.add_command(label="Extract selected…", command=self._extract_selected)
+        self._ctx_menu.add_command(label="Compare…", command=self._compare_selected)
         self._ctx_menu.add_command(label="Open folder", command=self._open_selected_folder)
         self._ctx_menu.add_command(label="Copy path", command=self._copy_selected_path)
 
@@ -936,6 +980,7 @@ class IndexerApp(tk.Tk):
         self._search_after_id = None
         self.tree.delete(*self.tree.get_children())
         self._result_rows = []
+        self._clear_preview()
 
         db_path = self._db_path()
         if db_path is None or not db_path.is_file():
@@ -1057,6 +1102,63 @@ class IndexerApp(tk.Tk):
                 ),
                 tags=(tag,),
             )
+        self._refresh_preview()
+
+    def _set_preview_body(self, header: str, body: str, *, is_error: bool = False) -> None:
+        self.preview_header_var.set(header)
+        self.preview_text.configure(state=tk.NORMAL)
+        self.preview_text.delete("1.0", tk.END)
+        self.preview_text.insert("1.0", body)
+        self.preview_text.configure(
+            state=tk.DISABLED,
+            foreground="#a40000" if is_error else "#222222",
+        )
+
+    def _clear_preview(self) -> None:
+        self._set_preview_body("Preview — select a result row", "")
+
+    def _on_tree_select(self, *_args) -> None:
+        self._refresh_preview()
+
+    def _refresh_preview(self) -> None:
+        rows = self._selected_rows()
+        if not rows:
+            self._clear_preview()
+            return
+        row = rows[0]
+        label = instance_label(row)
+        if len(rows) > 1:
+            header = f"Preview — {label}  (first of {len(rows)} selected; Compare… for two)"
+        else:
+            header = f"Preview — {label}"
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        body, err = preview_text(row, backup_root=backup or None)
+        if err:
+            self._set_preview_body(header, f"Cannot preview:\n{err}", is_error=True)
+            return
+        self._set_preview_body(header, body)
+
+    def _compare_selected(self) -> None:
+        rows = self._selected_rows()
+        if len(rows) != 2:
+            messagebox.showinfo(
+                "Compare",
+                "Select exactly two result rows (Ctrl/Shift+click), then Compare…",
+            )
+            return
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        diff_text, err = unified_diff_programs(
+            rows[0], rows[1], backup_root=backup or None
+        )
+        if err:
+            messagebox.showerror("Compare", err)
+            return
+        CompareDiffDialog(
+            self,
+            label_a=instance_label(rows[0]),
+            label_b=instance_label(rows[1]),
+            diff_text=diff_text,
+        )
 
     # --- row actions ------------------------------------------------------------
 
@@ -1228,6 +1330,69 @@ class IndexerApp(tk.Tk):
                 conn.close()
         except Exception:  # noqa: BLE001
             return None
+
+
+class CompareDiffDialog(tk.Toplevel):
+    """Unified diff of two selected program instances (#12)."""
+
+    def __init__(
+        self,
+        master: tk.Tk,
+        *,
+        label_a: str,
+        label_b: str,
+        diff_text: str,
+    ) -> None:
+        super().__init__(master)
+        self.title("Compare programs")
+        self.minsize(640, 420)
+        self.geometry("860x560")
+        self.transient(master)
+        self.grab_set()
+
+        ttk.Label(
+            self,
+            text=f"A: {label_a}\nB: {label_b}",
+            wraplength=820,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        frame = ttk.Frame(self)
+        frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        text = tk.Text(frame, wrap=tk.NONE, font=("Consolas", 10), height=24)
+        vsb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
+        hsb = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=text.xview)
+        text.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        text.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        text.tag_configure("add", foreground="#1a7f37")
+        text.tag_configure("del", foreground="#a40000")
+        text.tag_configure("meta", foreground="#555555")
+        text.tag_configure("hunk", foreground="#0057b8")
+
+        for line in diff_text.splitlines(keepends=True):
+            if line.startswith("+++") or line.startswith("---"):
+                tag = "meta"
+            elif line.startswith("@@"):
+                tag = "hunk"
+            elif line.startswith("+"):
+                tag = "add"
+            elif line.startswith("-"):
+                tag = "del"
+            else:
+                tag = None
+            if tag:
+                text.insert(tk.END, line, tag)
+            else:
+                text.insert(tk.END, line)
+        text.configure(state=tk.DISABLED)
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side=tk.RIGHT)
 
 
 class ScanReportDialog(tk.Toplevel):

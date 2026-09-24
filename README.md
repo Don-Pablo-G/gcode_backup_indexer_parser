@@ -67,6 +67,8 @@ python -m gcode_index.gui
    **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).  
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
    Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).  
+   The **Preview** pane under the results table shows the selected program body before you extract (large programs are truncated in the pane only).  
+   Select **exactly two** rows → **Compare…** for a unified diff (also on right-click).  
 8. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.  
 9. **Duplicates…** finds **exact** copies (same content SHA-256) and **near**-duplicates (same program # + similar size, different hash) across machines/dates; **Show in results** loads a group into the main table.
 
