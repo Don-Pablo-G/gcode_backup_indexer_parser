@@ -45,7 +45,7 @@ python -m gcode_index.gui
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
 4. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
    - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  
-     The list is seeded from `aliases.yaml` (so **HAAS UMC750**, ST-20Y, … always appear) and merged with machines seen in the last scan.  
+     The list is seeded from `aliases.yaml` (so **HAAS UMC750**, ST-20Y, … always appear) plus **MACHINE UNKNOWN**, and merged with machines seen in the last scan.  
      VF-2 has three entries (legacy / **nowa** / **stara**); selecting **HAAS VF-2** also matches the nowa/stara ids.  
    - **Date from / to** (`DD.MM.YYYY`, e.g. `15.09.2026`)  
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  

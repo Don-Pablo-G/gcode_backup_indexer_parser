@@ -262,3 +262,5 @@ def test_gui_module_importable():
     assert hasattr(gui, "IndexerApp")
     assert hasattr(gui, "main")
     assert gui.SEARCH_DEBOUNCE_MS >= 150
+    assert "UNKNOWN" in gui.UNKNOWN_MACHINE_DISPLAY
+    assert "unknown" in gui.UNKNOWN_MACHINE_DISPLAY

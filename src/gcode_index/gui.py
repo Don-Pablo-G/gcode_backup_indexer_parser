@@ -45,6 +45,7 @@ SEARCH_DEBOUNCE_MS = 250
 DEFAULT_DB_NAME = "gcode_index.sqlite"
 BROWSE_LIMIT = 500
 ALL = "(all)"
+UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
 # Re-export helpers for callers that imported them from gui
 __all__ = [
@@ -228,6 +229,7 @@ class IndexerApp(tk.Tk):
         hint = ttk.Label(
             filt,
             text="Text is case-insensitive. Empty machine selection = all machines. "
+            "MACHINE UNKNOWN = files with no matching machine folder. "
             "Right-click a row for Open folder / Copy path. "
             "Extract refuses if the source file changed since the scan (SHA-256).",
             foreground="#444",
@@ -386,16 +388,22 @@ class IndexerApp(tk.Tk):
             )
             type_counts = Counter(i.source_type for i in result.instances)
             type_note = ", ".join(f"{k}={v}" for k, v in sorted(type_counts.items()))
+            unknown_prog = sum(1 for i in result.instances if i.machine_id == "unknown")
             conn.close()
             excel_note = ""
             if write_excel:
                 xlsx = target / "gcode_index.xlsx"
                 export_excel(xlsx, result.instances)
                 excel_note = f"; Excel → {xlsx.name}"
+            unk_note = (
+                f"; {unknown_prog} MACHINE UNKNOWN programs"
+                if unknown_prog
+                else "; 0 MACHINE UNKNOWN programs"
+            )
             msg = (
                 f"Indexed {len(result.instances)} programs "
                 f"[{type_note}] "
-                f"({len(result.unknowns)} unknown folders) → {db_path.name} "
+                f"({len(result.unknowns)} unknown folders{unk_note}) → {db_path.name} "
                 f"(run {run_id[:8]}…){excel_note}"
             )
             self.after(0, lambda: self._scan_done(True, msg))
@@ -451,6 +459,9 @@ class IndexerApp(tk.Tk):
             seed = AliasMap.load(default_aliases_path()).known_machine_displays()
         except Exception:  # noqa: BLE001
             seed = []
+        # Always offer unassigned bucket even when the last scan found none
+        if UNKNOWN_MACHINE_DISPLAY not in seed:
+            seed = [UNKNOWN_MACHINE_DISPLAY, *seed]
 
         vals: dict[str, list[str]] = {
             "machines": list(seed),
