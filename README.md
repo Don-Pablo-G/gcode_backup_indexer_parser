@@ -95,7 +95,7 @@ Native Windows binaries are produced on **Windows** (local or GitHub Actions). L
 ## Scan a backup tree (CLI)
 
 ```bat
-gcode-index scan "D:\CNC\Backups" --db "D:\CNC\Index\gcode_index.sqlite" --excel "D:\CNC\Index\gcode_index.xlsx"
+gcode-index scan "D:\CNC\Backups" --db "D:\CNC\Index\gcode_index.sqlite" --excel "D:\CNC\Index\gcode_index.xlsx" --folder-map "D:\CNC\Index\machine_folders.yaml"
 ```
 
 ```bash
