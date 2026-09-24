@@ -61,8 +61,10 @@ python -m gcode_index.gui
    - **Control** (`haas`, `fanuc`, `sinumerik`)  
    - **Flag** — all / green (backup) / yellow (extra)  
    - **Programmer** — next-line `(PG1)` / `(LP2)` when present (case-insensitive; other comments ignored)  
+   - **Newest only** — one row per program + machine (latest backup date)  
    Text matches program #, part #, path, machine names, FANUC folder paths, and programmer. Empty text + filters still works.  
 7. Select a row → **Extract selected…** (or double-click) to write the program body for your other parser.  
+   **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).  
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
    Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).
 

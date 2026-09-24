@@ -203,6 +203,43 @@ def default_extract_filename(row: RowLike) -> str:
     return f"{safe}.nc"
 
 
+def batch_extract_filename(row: RowLike, *, used: Optional[set[str]] = None) -> str:
+    """Filename for batch extract: program + machine + date, unique within ``used``."""
+    prog = str(row["program_number"] or "program").strip() or "program"
+    mid = str(row["machine_id"] or "machine").strip() or "machine"
+    date_raw = str(row["backup_date"] or "")[:10].replace("-", "")
+    if len(date_raw) != 8 or not date_raw.isdigit():
+        date_raw = "nodate"
+    # DDMMYYYY display preference for humans
+    try:
+        from datetime import datetime as _dt
+
+        d = _dt.strptime(str(row["backup_date"])[:10], "%Y-%m-%d")
+        date_raw = d.strftime("%d.%m.%Y")
+    except Exception:  # noqa: BLE001
+        pass
+
+    def _safe(s: str) -> str:
+        return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in s)
+
+    source_type = str(row["source_type"] or "")
+    ext = ".nc.copy" if source_type.endswith("_copy") else ".nc"
+    base = f"{_safe(prog)}_{_safe(mid)}_{_safe(date_raw)}{ext}"
+    if used is None:
+        return base
+    if base not in used:
+        used.add(base)
+        return base
+    n = 2
+    while True:
+        stem = base[: -len(ext)]
+        candidate = f"{stem}_{n}{ext}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        n += 1
+
+
 def extract_to_path(
     row: RowLike,
     out_path: str | Path,

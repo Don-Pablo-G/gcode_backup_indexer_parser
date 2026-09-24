@@ -34,6 +34,7 @@ from gcode_index.db import (
 from gcode_index.excel_export import export_excel
 from gcode_index.extract import (
     ExtractError,
+    batch_extract_filename,
     default_extract_filename,
     extract_to_path,
 )
@@ -100,6 +101,7 @@ class IndexerApp(tk.Tk):
         self.control_var = tk.StringVar(value=ALL)
         self.provenance_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
+        self.newest_only_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(
             value="Pick a backup folder and a target folder for the database."
         )
@@ -123,6 +125,7 @@ class IndexerApp(tk.Tk):
             self.control_var,
             self.provenance_var,
             self.programmer_var,
+            self.newest_only_var,
         ):
             var.trace_add("write", self._on_filter_changed)
 
@@ -219,7 +222,12 @@ class IndexerApp(tk.Tk):
 
         ttk.Label(filt, text="Text").grid(row=0, column=0, sticky=tk.W)
         self.search_entry = ttk.Entry(filt, textvariable=self.search_var)
-        self.search_entry.grid(row=0, column=1, columnspan=5, sticky=tk.EW, padx=4)
+        self.search_entry.grid(row=0, column=1, columnspan=4, sticky=tk.EW, padx=4)
+        ttk.Checkbutton(
+            filt,
+            text="Newest only",
+            variable=self.newest_only_var,
+        ).grid(row=0, column=5, sticky=tk.E, padx=4)
         ttk.Button(filt, text="Extract selected…", command=self._extract_selected).grid(
             row=0, column=6, padx=4
         )
@@ -312,7 +320,8 @@ class IndexerApp(tk.Tk):
             text="Green flag = from main backup (ran on machine). "
             "Yellow = from an extra folder (not in backup). "
             "Programmer = next-line (PG1)/(LP2) when present. "
-            "Empty machine selection = all machines.",
+            "Newest only keeps the latest date per program+machine. "
+            "Ctrl/Shift+click rows to multi-select for batch extract.",
             foreground="#444",
         )
         hint.grid(row=4, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
@@ -334,7 +343,7 @@ class IndexerApp(tk.Tk):
         tree_frame = ttk.Frame(root)
         tree_frame.pack(fill=tk.BOTH, expand=True, **pad)
         self.tree = ttk.Treeview(
-            tree_frame, columns=cols, show="headings", selectmode="browse"
+            tree_frame, columns=cols, show="headings", selectmode="extended"
         )
         headings = {
             "flag": ("Flag", 56),
@@ -821,6 +830,7 @@ class IndexerApp(tk.Tk):
             self.control_var.set(ALL)
             self.provenance_var.set(ALL)
             self.programmer_var.set(ALL)
+            self.newest_only_var.set(False)
         finally:
             self._filter_trace_lock = False
         self._run_query_now(status_prefix=status_prefix)
@@ -871,6 +881,7 @@ class IndexerApp(tk.Tk):
                     control_family=control,
                     provenance=provenance,
                     programmer=programmer_filter,
+                    newest_only=bool(self.newest_only_var.get()),
                     limit=BROWSE_LIMIT,
                 )
                 total = conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0]
@@ -901,6 +912,8 @@ class IndexerApp(tk.Tk):
             bits.append(f"flag={provenance}")
         if programmer_filter:
             bits.append(f"programmer={programmer_filter}")
+        if self.newest_only_var.get():
+            bits.append("newest-only")
         summary = " · ".join(bits)
         if status_prefix:
             self.status_var.set(f"{status_prefix} — {summary}")
@@ -960,22 +973,27 @@ class IndexerApp(tk.Tk):
 
     # --- row actions ------------------------------------------------------------
 
+    def _selected_rows(self) -> list:
+        rows: list = []
+        for iid in self.tree.selection():
+            try:
+                idx = int(iid)
+            except ValueError:
+                continue
+            if 0 <= idx < len(self._result_rows):
+                rows.append(self._result_rows[idx])
+        return rows
+
     def _selected_row(self):
-        sel = self.tree.selection()
-        if not sel:
-            return None
-        try:
-            idx = int(sel[0])
-        except ValueError:
-            return None
-        if idx < 0 or idx >= len(self._result_rows):
-            return None
-        return self._result_rows[idx]
+        rows = self._selected_rows()
+        return rows[0] if rows else None
 
     def _on_tree_context(self, event) -> None:
         row_id = self.tree.identify_row(event.y)
         if row_id:
-            self.tree.selection_set(row_id)
+            # Keep multi-selection when right-clicking an already-selected row
+            if row_id not in self.tree.selection():
+                self.tree.selection_set(row_id)
             self.tree.focus(row_id)
         try:
             self._ctx_menu.tk_popup(event.x_root, event.y_root)
@@ -1030,50 +1048,82 @@ class IndexerApp(tk.Tk):
         self.status_var.set(f"Copied path: {text}")
 
     def _extract_selected(self) -> None:
-        row = self._selected_row()
-        if row is None:
-            messagebox.showinfo("Extract", "Select a search result first.")
+        rows = self._selected_rows()
+        if not rows:
+            messagebox.showinfo("Extract", "Select one or more search results first.")
             return
         backup = self.backup_var.get().strip()
         target = self.target_var.get().strip()
         if not backup:
             backup = self._backup_root_from_db() or ""
-        keys = row.keys() if hasattr(row, "keys") else ()
-        scan_root = str(row["scan_root"]) if "scan_root" in keys and row["scan_root"] else ""
-        # Extra-folder rows resolve via scan_root; backup folder still preferred for backup rows
-        if not backup and not scan_root:
-            messagebox.showerror(
-                "Backup folder",
-                "Set the backup folder (needed to resolve relative source paths).",
-            )
-            return
-        if backup and not Path(backup).is_dir() and not scan_root:
-            messagebox.showerror(
-                "Backup folder",
-                "Set the backup folder (needed to resolve relative source paths).",
-            )
-            return
         if not target:
             messagebox.showerror("Target folder", "Set the target folder for extracts.")
             return
 
-        suggested = default_extract_filename(row)
-        out = filedialog.asksaveasfilename(
-            title="Save extracted program",
+        # Resolve roots: any selected row may use scan_root
+        needs_backup = False
+        for row in rows:
+            keys = row.keys() if hasattr(row, "keys") else ()
+            scan_root = str(row["scan_root"]) if "scan_root" in keys and row["scan_root"] else ""
+            if not scan_root:
+                needs_backup = True
+                break
+        if needs_backup and (not backup or not Path(backup).is_dir()):
+            messagebox.showerror(
+                "Backup folder",
+                "Set the backup folder (needed to resolve relative source paths).",
+            )
+            return
+
+        if len(rows) == 1:
+            row = rows[0]
+            suggested = default_extract_filename(row)
+            out = filedialog.asksaveasfilename(
+                title="Save extracted program",
+                initialdir=target,
+                initialfile=suggested,
+                defaultextension=".nc",
+                filetypes=[("NC / text", "*.nc *.txt"), ("All", "*.*")],
+            )
+            if not out:
+                return
+            try:
+                path = extract_to_path(row, out, backup_root=backup or None)
+            except ExtractError as exc:
+                messagebox.showerror("Extract failed", str(exc))
+                return
+            self.status_var.set(f"Extracted → {path}")
+            messagebox.showinfo("Extracted", f"Wrote:\n{path}")
+            return
+
+        # Batch: pick output folder, write unique filenames
+        out_dir = filedialog.askdirectory(
+            title=f"Extract {len(rows)} programs into folder",
             initialdir=target,
-            initialfile=suggested,
-            defaultextension=".nc",
-            filetypes=[("NC / text", "*.nc *.txt"), ("All", "*.*")],
         )
-        if not out:
+        if not out_dir:
             return
-        try:
-            path = extract_to_path(row, out, backup_root=backup)
-        except ExtractError as exc:
-            messagebox.showerror("Extract failed", str(exc))
-            return
-        self.status_var.set(f"Extracted → {path}")
-        messagebox.showinfo("Extracted", f"Wrote:\n{path}")
+        used: set[str] = set()
+        ok = 0
+        errors: list[str] = []
+        for row in rows:
+            name = batch_extract_filename(row, used=used)
+            dest = Path(out_dir) / name
+            try:
+                extract_to_path(row, dest, backup_root=backup or None)
+                ok += 1
+            except ExtractError as exc:
+                prog = row["program_number"] if "program_number" in row.keys() else "?"
+                errors.append(f"{prog}: {exc}")
+        msg = f"Extracted {ok} / {len(rows)} → {out_dir}"
+        if errors:
+            msg += f"\n\n{len(errors)} failed:\n" + "\n".join(errors[:8])
+            if len(errors) > 8:
+                msg += f"\n… +{len(errors) - 8} more"
+            messagebox.showwarning("Batch extract", msg)
+        else:
+            messagebox.showinfo("Batch extract", msg)
+        self.status_var.set(f"Extracted {ok} / {len(rows)} programs")
 
     def _backup_root_from_db(self) -> Optional[str]:
         db_path = self._db_path()

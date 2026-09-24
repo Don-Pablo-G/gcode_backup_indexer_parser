@@ -361,6 +361,31 @@ def format_display_date(iso_value: Optional[str]) -> str:
     return s[:19].replace("T", " ")
 
 
+def collapse_newest_per_program_machine(rows: list) -> list:
+    """Keep one row per (program_number, machine_id) — the newest ``backup_date``.
+
+    Ties keep the first-seen row among equals. Output is sorted newest-first,
+    then machine, then program.
+    """
+    best: dict[tuple[str, str], object] = {}
+    for r in rows:
+        prog = str(r["program_number"] or "").casefold()
+        mid = str(r["machine_id"] or "").casefold()
+        key = (prog, mid)
+        prev = best.get(key)
+        if prev is None:
+            best[key] = r
+            continue
+        prev_date = str(prev["backup_date"] or "")
+        cur_date = str(r["backup_date"] or "")
+        if cur_date > prev_date:
+            best[key] = r
+    out = list(best.values())
+    out.sort(key=lambda r: (str(r["machine_id"] or ""), str(r["program_number"] or "")))
+    out.sort(key=lambda r: str(r["backup_date"] or ""), reverse=True)
+    return out
+
+
 def query_instances(
     conn: sqlite3.Connection,
     *,
@@ -373,6 +398,7 @@ def query_instances(
     control_family: Optional[str] = None,
     provenance: Optional[str] = None,
     programmer: Optional[str] = None,
+    newest_only: bool = False,
     limit: int = 500,
 ) -> list[sqlite3.Row]:
     """Flexible filter/search for GUI and CLI.
@@ -386,6 +412,7 @@ def query_instances(
     ``source_type`` / ``control_family`` — exact match when set.
     ``provenance`` — ``backup`` (green / ran on machine) or ``extra`` (yellow).
     ``programmer`` — exact uppercase flag e.g. ``PG1`` (case-insensitive input).
+    ``newest_only`` — keep newest row per program+machine after filtering.
     """
     conn.row_factory = sqlite3.Row
     clauses: list[str] = []
@@ -471,7 +498,13 @@ def query_instances(
     sql = _INSTANCE_SELECT
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
-    fetch_limit = max(limit * 5, 200) if q else limit
+    # Pull extra rows when collapsing so newest-per-key survives the LIMIT
+    if newest_only:
+        fetch_limit = max(limit * 20, 1000)
+    elif q:
+        fetch_limit = max(limit * 5, 200)
+    else:
+        fetch_limit = limit
     sql += " LIMIT ?"
     params.append(fetch_limit)
 
@@ -492,6 +525,8 @@ def query_instances(
     else:
         rows.sort(key=lambda r: (r["machine_id"] or "", r["program_number"] or ""))
         rows.sort(key=lambda r: r["backup_date"] or "", reverse=True)
+    if newest_only:
+        rows = collapse_newest_per_program_machine(rows)
     return rows[:limit]
 
 
