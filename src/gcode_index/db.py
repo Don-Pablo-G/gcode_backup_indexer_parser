@@ -446,11 +446,29 @@ def list_instances(
     return query_instances(conn, limit=limit)
 
 
-def list_filter_values(conn: sqlite3.Connection) -> dict[str, list[str]]:
-    """Distinct values for GUI filter dropdowns."""
+def list_filter_values(
+    conn: sqlite3.Connection,
+    *,
+    seed_machines: Optional[Iterable[str]] = None,
+) -> dict[str, list[str]]:
+    """Distinct values for GUI filter dropdowns.
+
+    ``seed_machines`` — optional catalog labels (e.g. from aliases.yaml) so known
+    shop machines like HAAS UMC750 appear even when the last scan found none.
+    """
     conn.row_factory = sqlite3.Row
     machines: list[str] = []
     seen: set[str] = set()
+
+    def _add(display: str) -> None:
+        d = (display or "").strip()
+        if d and d not in seen:
+            seen.add(d)
+            machines.append(d)
+
+    for display in seed_machines or []:
+        _add(str(display))
+
     for r in conn.execute(
         """
         SELECT DISTINCT machine_id, machine_label
@@ -461,9 +479,9 @@ def list_filter_values(conn: sqlite3.Connection) -> dict[str, list[str]]:
         mid = r["machine_id"] or ""
         label = (r["machine_label"] or "").strip()
         display = f"{label} ({mid})" if label and label != mid else mid
-        if display and display not in seen:
-            seen.add(display)
-            machines.append(display)
+        _add(display)
+
+    machines.sort(key=lambda s: s.casefold())
 
     types = [
         r[0]

@@ -127,6 +127,36 @@ def test_scan_progress_callback(tmp_path: Path):
     assert any(e.get("eta_s") is not None or e["current"] >= e["total"] for e in scanned)
 
 
+def test_umc750_memory_tree_indexes(tmp_path: Path):
+    """Haas NGC UMC750 Memory/*.nc must land on haas-umc750 (not MACHINE UNKNOWN)."""
+    sample = (
+        Path("/cursor/stores/bc-8553f678-6c90-4da8-8c05-737a2b3271c2")
+        / "internal"
+        / "samples"
+        / "haas-ngc"
+        / "P-00253232_VA.nc"
+    )
+    if not sample.is_file():
+        # Fallback tiny synthetic O-header
+        body = b"%\r\nO03232 (P-00253232 VA OP1/OP2)\r\nM30\r\n%\r\n"
+    else:
+        body = sample.read_bytes()
+
+    root = tmp_path / "backup"
+    for folder in ("UMC750", "UMC", "UMC750SS"):
+        dest = root / "15.09.2026" / folder / "HaasBackup(09-15-2026)" / "Memory" / "sub"
+        dest.mkdir(parents=True)
+        (dest / f"{folder}.nc").write_bytes(body)
+
+    am = AliasMap.load(ALIASES)
+    result = scan_backup_tree(root, am)
+    umc = [i for i in result.instances if i.machine_id == "haas-umc750"]
+    assert len(umc) == 3
+    assert all(i.source_type == "haas_ngc_nc" for i in umc)
+    assert all(i.program_number == "03232" for i in umc)
+    assert all(i.machine_label == "HAAS UMC750" for i in umc)
+
+
 def test_search_allows_short_and_letter_queries(tmp_path: Path):
     conn = open_db(tmp_path / "empty.sqlite")
     try:

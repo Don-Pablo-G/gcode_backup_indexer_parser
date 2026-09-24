@@ -143,7 +143,22 @@ machines:
     label: HAAS UMC750
     control_family: haas
     layout: haas_ngc
+  umc:
+    machine_id: haas-umc750
+    label: HAAS UMC750
+    control_family: haas
+    layout: haas_ngc
+  haasumc:
+    machine_id: haas-umc750
+    label: HAAS UMC750
+    control_family: haas
+    layout: haas_ngc
   haasumc750:
+    machine_id: haas-umc750
+    label: HAAS UMC750
+    control_family: haas
+    layout: haas_ngc
+  umc750ss:
     machine_id: haas-umc750
     label: HAAS UMC750
     control_family: haas

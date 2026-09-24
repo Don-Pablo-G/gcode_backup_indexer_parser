@@ -44,7 +44,8 @@ python -m gcode_index.gui
 3. Click **Run index / scan** (optional Excel export checkbox).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
 4. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
-   - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines)  
+   - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  
+     The list is seeded from `aliases.yaml` (so **HAAS UMC750**, ST-20Y, … always appear) and merged with machines seen in the last scan.  
    - **Date from / to** (`YYYY-MM-DD`)  
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
    - **Control** (`haas`, `fanuc`, `sinumerik`)  

@@ -85,6 +85,8 @@ class IndexerApp(tk.Tk):
         self._machine_names: list[str] = []
 
         self._build()
+        # Seed machine list from aliases before any scan
+        self._refresh_filter_choices()
         self.search_var.trace_add("write", self._on_filter_changed)
         for var in (
             self.date_from_var,
@@ -437,16 +439,27 @@ class IndexerApp(tk.Tk):
 
     def _refresh_filter_choices(self) -> None:
         db_path = self._db_path()
-        if db_path is None or not db_path.is_file():
-            return
+        seed: list[str] = []
         try:
-            conn = open_db(db_path)
-            try:
-                vals = list_filter_values(conn)
-            finally:
-                conn.close()
+            seed = AliasMap.load(default_aliases_path()).known_machine_displays()
         except Exception:  # noqa: BLE001
-            return
+            seed = []
+
+        vals: dict[str, list[str]] = {
+            "machines": list(seed),
+            "source_types": [],
+            "control_families": [],
+        }
+        if db_path is not None and db_path.is_file():
+            try:
+                conn = open_db(db_path)
+                try:
+                    vals = list_filter_values(conn, seed_machines=seed)
+                finally:
+                    conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
         prev = set(self._selected_machines())
         self._machine_names = list(vals["machines"])
         self.machine_list.delete(0, tk.END)
