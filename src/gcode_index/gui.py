@@ -37,6 +37,13 @@ from gcode_index.extract import (
     default_extract_filename,
     extract_to_path,
 )
+from gcode_index.extra_roots import (
+    EXTRA_ROOTS_FILENAME,
+    extra_roots_path_for_target,
+    load_extra_roots,
+    normalize_extra_roots,
+    save_extra_roots,
+)
 from gcode_index.folder_map import (
     UNKNOWN_ID,
     UNKNOWN_LABEL,
@@ -49,12 +56,13 @@ from gcode_index.folder_map import (
     partition_folders,
     suggest_assignments,
 )
+from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
 from gcode_index.path_util import (
     format_eta,
     open_path_in_file_manager,
     resolve_source_abspath,
 )
-from gcode_index.scanner import scan_backup_tree
+from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +99,7 @@ class IndexerApp(tk.Tk):
         self.date_to_var = tk.StringVar()
         self.source_type_var = tk.StringVar(value=ALL)
         self.control_var = tk.StringVar(value=ALL)
+        self.provenance_var = tk.StringVar(value=ALL)
         self.status_var = tk.StringVar(
             value="Pick a backup folder and a target folder for the database."
         )
@@ -112,6 +121,7 @@ class IndexerApp(tk.Tk):
             self.date_to_var,
             self.source_type_var,
             self.control_var,
+            self.provenance_var,
         ):
             var.trace_add("write", self._on_filter_changed)
 
@@ -137,6 +147,33 @@ class IndexerApp(tk.Tk):
         )
         ttk.Button(paths, text="Browse…", command=self._pick_target).grid(row=1, column=2)
         paths.columnconfigure(1, weight=1)
+
+        extra = ttk.LabelFrame(
+            root,
+            text="Extra folders (yellow flag — not from machine backup)",
+            padding=8,
+        )
+        extra.pack(fill=tk.X, **pad)
+        extra_row = ttk.Frame(extra)
+        extra_row.pack(fill=tk.X)
+        self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
+        extra_sb = ttk.Scrollbar(extra_row, orient=tk.VERTICAL, command=self.extra_list.yview)
+        self.extra_list.configure(yscrollcommand=extra_sb.set)
+        self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        extra_btns = ttk.Frame(extra)
+        extra_btns.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(extra_btns, text="Add folder…", command=self._add_extra_root).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(extra_btns, text="Remove selected", command=self._remove_extra_roots).pack(
+            side=tk.LEFT, padx=6
+        )
+        ttk.Label(
+            extra_btns,
+            text="Main backup = green (ran on machine). Extra = yellow (not in backup).",
+            foreground="#444",
+        ).pack(side=tk.LEFT, padx=8)
 
         actions = ttk.Frame(root)
         actions.pack(fill=tk.X, **pad)
@@ -240,8 +277,18 @@ class IndexerApp(tk.Tk):
         )
         self.control_combo.grid(row=2, column=4, sticky=tk.W, padx=4, pady=(6, 0))
 
+        ttk.Label(filt, text="Flag").grid(row=2, column=5, sticky=tk.W, pady=(6, 0))
+        self.provenance_combo = ttk.Combobox(
+            filt,
+            textvariable=self.provenance_var,
+            values=[ALL, "green — backup (ran)", "yellow — extra (not run)"],
+            state="readonly",
+            width=26,
+        )
+        self.provenance_combo.grid(row=2, column=6, sticky=tk.W, padx=4, pady=(6, 0))
+
         row_actions = ttk.Frame(filt)
-        row_actions.grid(row=2, column=6, sticky=tk.E, pady=(6, 0))
+        row_actions.grid(row=3, column=6, sticky=tk.E, pady=(6, 0))
         ttk.Button(row_actions, text="Open folder", command=self._open_selected_folder).pack(
             side=tk.LEFT, padx=2
         )
@@ -251,36 +298,49 @@ class IndexerApp(tk.Tk):
 
         hint = ttk.Label(
             filt,
-            text="Text is case-insensitive. Empty machine selection = all machines. "
-            "MACHINE UNKNOWN = files with no matching machine folder. "
-            "Right-click a row for Open folder / Copy path. "
-            "Extract refuses if the source file changed since the scan (SHA-256).",
+            text="Green flag = from main backup (ran on machine). "
+            "Yellow = from an extra folder (not in backup). "
+            "Empty machine selection = all machines. "
+            "Right-click a row for Open folder / Copy path.",
             foreground="#444",
         )
-        hint.grid(row=3, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
+        hint.grid(row=4, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
 
         filt.columnconfigure(1, weight=1)
 
-        cols = ("program", "part", "machine", "date", "type", "control", "path", "location")
+        cols = (
+            "flag",
+            "program",
+            "part",
+            "machine",
+            "date",
+            "type",
+            "control",
+            "path",
+            "location",
+        )
         tree_frame = ttk.Frame(root)
         tree_frame.pack(fill=tk.BOTH, expand=True, **pad)
         self.tree = ttk.Treeview(
             tree_frame, columns=cols, show="headings", selectmode="browse"
         )
         headings = {
+            "flag": ("Flag", 56),
             "program": ("Program #", 90),
             "part": ("Part number", 150),
             "machine": ("Machine", 120),
-            "date": ("Date", 130),
+            "date": ("Date", 110),
             "type": ("Source type", 110),
             "control": ("Control", 80),
-            "path": ("Source path", 280),
-            "location": ("In-file location", 140),
+            "path": ("Source path", 260),
+            "location": ("In-file location", 130),
         }
         for key, (label, width) in headings.items():
             self.tree.heading(key, text=label)
             stretch = key in ("path", "part")
-            self.tree.column(key, width=width, stretch=stretch, minwidth=50)
+            self.tree.column(key, width=width, stretch=stretch, minwidth=40)
+        self.tree.tag_configure("flag_backup", foreground="#1a7f37")
+        self.tree.tag_configure("flag_extra", foreground="#b58900")
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -314,6 +374,7 @@ class IndexerApp(tk.Tk):
         path = filedialog.askdirectory(title="Select target folder for database / extracts")
         if path:
             self.target_var.set(path)
+            self._load_extra_roots_into_list()
 
     def _pick_existing_db(self) -> None:
         path = filedialog.askopenfilename(
@@ -324,9 +385,63 @@ class IndexerApp(tk.Tk):
             return
         db = Path(path)
         self.target_var.set(str(db.parent))
+        self._load_extra_roots_into_list()
         self.status_var.set(f"Using existing DB: {db}")
         self._refresh_filter_choices()
         self._clear_filters()
+
+    def _extra_roots_from_list(self) -> list[str]:
+        return [self.extra_list.get(i) for i in range(self.extra_list.size())]
+
+    def _load_extra_roots_into_list(self) -> None:
+        self.extra_list.delete(0, tk.END)
+        target = self.target_var.get().strip()
+        if not target:
+            return
+        path = extra_roots_path_for_target(target)
+        for root in load_extra_roots(path):
+            self.extra_list.insert(tk.END, root)
+
+    def _persist_extra_roots(self) -> None:
+        target = self.target_var.get().strip()
+        if not target:
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        save_extra_roots(extra_roots_path_for_target(target), self._extra_roots_from_list())
+
+    def _add_extra_root(self) -> None:
+        path = filedialog.askdirectory(title="Select extra folder to scan (and subfolders)")
+        if not path:
+            return
+        existing = {p.casefold() for p in self._extra_roots_from_list()}
+        backup = self.backup_var.get().strip()
+        try:
+            resolved = str(Path(path).resolve())
+        except OSError:
+            resolved = path
+        if backup:
+            try:
+                if str(Path(backup).resolve()) == resolved:
+                    messagebox.showinfo(
+                        "Extra folder",
+                        "That folder is already the main backup root.",
+                    )
+                    return
+            except OSError:
+                pass
+        if resolved.casefold() in existing or path.casefold() in existing:
+            messagebox.showinfo("Extra folder", "That folder is already in the list.")
+            return
+        self.extra_list.insert(tk.END, resolved)
+        self._persist_extra_roots()
+
+    def _remove_extra_roots(self) -> None:
+        sel = list(self.extra_list.curselection())
+        if not sel:
+            return
+        for i in reversed(sel):
+            self.extra_list.delete(i)
+        self._persist_extra_roots()
 
     def _db_path(self) -> Optional[Path]:
         target = self.target_var.get().strip()
@@ -484,9 +599,14 @@ class IndexerApp(tk.Tk):
         self.progress_label_var.set("Starting…")
         self.status_var.set("Scanning…")
         write_excel = bool(self.excel_var.get())
+        self._persist_extra_roots()
+        extras = normalize_extra_roots(
+            self._extra_roots_from_list(),
+            backup_root=backup,
+        )
         threading.Thread(
             target=self._scan_worker,
-            args=(Path(backup), Path(target), write_excel),
+            args=(Path(backup), Path(target), write_excel, extras),
             daemon=True,
         ).start()
 
@@ -524,18 +644,35 @@ class IndexerApp(tk.Tk):
         self.progress_label_var.set(label)
         self.status_var.set(message or label)
 
-    def _scan_worker(self, backup: Path, target: Path, write_excel: bool) -> None:
+    def _scan_worker(
+        self,
+        backup: Path,
+        target: Path,
+        write_excel: bool,
+        extras: list[Path],
+    ) -> None:
         try:
             aliases_path = default_aliases_path()
             local_path = local_aliases_path_for_target(target)
             alias_map = AliasMap.load_merged(aliases_path, local_path)
             folder_map = FolderMachineMap.load(map_path_for_target(target))
-            result = scan_backup_tree(
-                backup,
-                alias_map,
-                progress=self._on_scan_progress,
-                folder_map=folder_map if folder_map.assignments else None,
-            )
+            fmap = folder_map if folder_map.assignments else None
+            if extras:
+                result = scan_with_extra_roots(
+                    backup,
+                    alias_map,
+                    extra_roots=extras,
+                    progress=self._on_scan_progress,
+                    folder_map=fmap,
+                )
+            else:
+                result = scan_backup_tree(
+                    backup,
+                    alias_map,
+                    progress=self._on_scan_progress,
+                    folder_map=fmap,
+                    provenance=PROVENANCE_BACKUP,
+                )
             db_path = target / DEFAULT_DB_NAME
             if db_path.is_file():
                 db_path.unlink()
@@ -549,6 +686,8 @@ class IndexerApp(tk.Tk):
             type_counts = Counter(i.source_type for i in result.instances)
             type_note = ", ".join(f"{k}={v}" for k, v in sorted(type_counts.items()))
             unknown_prog = sum(1 for i in result.instances if i.machine_id == "unknown")
+            n_green = sum(1 for i in result.instances if i.provenance == PROVENANCE_BACKUP)
+            n_yellow = sum(1 for i in result.instances if i.provenance == PROVENANCE_EXTRA)
             conn.close()
             excel_note = ""
             if write_excel:
@@ -565,10 +704,12 @@ class IndexerApp(tk.Tk):
                 if alias_map.local_alias_count
                 else ""
             )
+            flag_note = f"; flags green={n_green} yellow={n_yellow}"
             msg = (
                 f"Indexed {len(result.instances)} programs "
                 f"[{type_note}] "
-                f"({len(result.unknowns)} unknown folders{unk_note}{local_note}) → {db_path.name} "
+                f"({len(result.unknowns)} unknown folders{unk_note}{local_note}{flag_note}) "
+                f"→ {db_path.name} "
                 f"(run {run_id[:8]}…){excel_note}"
             )
             self.after(0, lambda: self._scan_done(True, msg))
@@ -663,6 +804,7 @@ class IndexerApp(tk.Tk):
             self.date_to_var.set("")
             self.source_type_var.set(ALL)
             self.control_var.set(ALL)
+            self.provenance_var.set(ALL)
         finally:
             self._filter_trace_lock = False
         self._run_query_now(status_prefix=status_prefix)
@@ -693,6 +835,7 @@ class IndexerApp(tk.Tk):
         date_to = self.date_to_var.get().strip() or None
         source_type = self.source_type_var.get().strip()
         control = self.control_var.get().strip()
+        provenance = self._provenance_filter_value()
 
         try:
             conn = open_db(db_path)
@@ -705,6 +848,7 @@ class IndexerApp(tk.Tk):
                     date_to=date_to,
                     source_type=source_type,
                     control_family=control,
+                    provenance=provenance,
                     limit=BROWSE_LIMIT,
                 )
                 total = conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0]
@@ -731,11 +875,26 @@ class IndexerApp(tk.Tk):
             bits.append(f"type={source_type}")
         if control and control != ALL:
             bits.append(f"control={control}")
+        if provenance:
+            bits.append(f"flag={provenance}")
         summary = " · ".join(bits)
         if status_prefix:
             self.status_var.set(f"{status_prefix} — {summary}")
         else:
             self.status_var.set(summary)
+
+    def _provenance_filter_value(self) -> Optional[str]:
+        raw = self.provenance_var.get().strip()
+        if not raw or raw == ALL:
+            return None
+        low = raw.casefold()
+        if "yellow" in low or "extra" in low:
+            return PROVENANCE_EXTRA
+        if "green" in low or "backup" in low:
+            return PROVENANCE_BACKUP
+        if raw in {PROVENANCE_BACKUP, PROVENANCE_EXTRA}:
+            return raw
+        return None
 
     def _fill_tree(self, rows: list) -> None:
         self._result_rows = rows
@@ -744,11 +903,21 @@ class IndexerApp(tk.Tk):
             machine = r["machine_label"] or r["machine_id"] or ""
             keys = r.keys() if hasattr(r, "keys") else ()
             control = r["control_family"] if "control_family" in keys else ""
+            prov = ""
+            if "provenance" in keys:
+                prov = str(r["provenance"] or PROVENANCE_BACKUP)
+            if prov == PROVENANCE_EXTRA:
+                flag = "🟡"
+                tag = "flag_extra"
+            else:
+                flag = "🟢"
+                tag = "flag_backup"
             self.tree.insert(
                 "",
                 tk.END,
                 iid=str(i),
                 values=(
+                    flag,
                     r["program_number"] or "",
                     r["part_number"] or "",
                     machine,
@@ -758,6 +927,7 @@ class IndexerApp(tk.Tk):
                     r["source_path"] or "",
                     format_location(r),
                 ),
+                tags=(tag,),
             )
 
     # --- row actions ------------------------------------------------------------
@@ -794,7 +964,11 @@ class IndexerApp(tk.Tk):
         if not sp:
             messagebox.showerror("Path", "This row has no source path.")
             return None
-        return resolve_source_abspath(sp, backup or None)
+        keys = row.keys() if hasattr(row, "keys") else ()
+        scan_root = None
+        if "scan_root" in keys and row["scan_root"]:
+            scan_root = str(row["scan_root"])
+        return resolve_source_abspath(sp, backup or None, scan_root)
 
     def _open_selected_folder(self) -> None:
         path = self._row_source_path()
@@ -836,7 +1010,16 @@ class IndexerApp(tk.Tk):
         target = self.target_var.get().strip()
         if not backup:
             backup = self._backup_root_from_db() or ""
-        if not backup or not Path(backup).is_dir():
+        keys = row.keys() if hasattr(row, "keys") else ()
+        scan_root = str(row["scan_root"]) if "scan_root" in keys and row["scan_root"] else ""
+        # Extra-folder rows resolve via scan_root; backup folder still preferred for backup rows
+        if not backup and not scan_root:
+            messagebox.showerror(
+                "Backup folder",
+                "Set the backup folder (needed to resolve relative source paths).",
+            )
+            return
+        if backup and not Path(backup).is_dir() and not scan_root:
             messagebox.showerror(
                 "Backup folder",
                 "Set the backup folder (needed to resolve relative source paths).",

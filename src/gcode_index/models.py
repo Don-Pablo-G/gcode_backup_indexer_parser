@@ -14,6 +14,11 @@ SOURCE_TYPES = (
     "loose_nc",
 )
 
+# Provenance / run flag: backup tree = ran on machine (green); extra folder = not from backup (yellow)
+PROVENANCE_BACKUP = "backup"
+PROVENANCE_EXTRA = "extra"
+PROVENANCE_VALUES = (PROVENANCE_BACKUP, PROVENANCE_EXTRA)
+
 
 @dataclass
 class MachineInfo:
@@ -51,6 +56,9 @@ class ProgramInstance:
     parse_status: str = "ok"
     error_message: Optional[str] = None
     header_kind: Optional[str] = None
+    # backup = green (ran on machine); extra = yellow (additional folder, not in backup)
+    provenance: str = PROVENANCE_BACKUP
+    scan_root: Optional[str] = None
 
 
 @dataclass

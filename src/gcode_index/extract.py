@@ -34,16 +34,20 @@ class ExtractError(Exception):
 def resolve_source_path(
     source_path: str | Path,
     backup_root: str | Path | None = None,
+    *,
+    scan_root: str | Path | None = None,
 ) -> Path:
-    """Resolve a DB ``source_path`` (relative or absolute) against ``backup_root``."""
+    """Resolve a DB ``source_path`` (relative or absolute) against scan/backup root."""
     src = Path(source_path)
     if src.is_absolute():
         return src
-    if backup_root is None:
+    base = scan_root or backup_root
+    if base is None:
         raise ExtractError(
-            f"source_path is relative ({source_path!r}) but backup_root was not provided"
+            f"source_path is relative ({source_path!r}) but scan_root/backup_root "
+            "was not provided"
         )
-    return Path(backup_root) / src
+    return Path(base) / src
 
 
 def _row_get(row: RowLike, key: str):
@@ -143,7 +147,12 @@ def extract_text(
     By default verifies ``content_sha256`` / ``source_size`` when present in ``row``.
     """
     source_type = str(row["source_type"] or "")
-    src = resolve_source_path(str(row["source_path"]), backup_root)
+    scan_root = _row_get(row, "scan_root")
+    src = resolve_source_path(
+        str(row["source_path"]),
+        backup_root,
+        scan_root=str(scan_root) if scan_root else None,
+    )
     if not skip_integrity:
         verify_source_integrity(row, src)
     elif not src.is_file():

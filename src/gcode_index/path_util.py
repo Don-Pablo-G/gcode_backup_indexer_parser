@@ -9,13 +9,21 @@ from pathlib import Path
 from typing import Optional
 
 
-def resolve_source_abspath(source_path: str, backup_root: Optional[str]) -> Path:
-    """Turn a relative or absolute indexed ``source_path`` into an absolute Path."""
+def resolve_source_abspath(
+    source_path: str,
+    backup_root: Optional[str] = None,
+    scan_root: Optional[str] = None,
+) -> Path:
+    """Turn a relative or absolute indexed ``source_path`` into an absolute Path.
+
+    Prefer ``scan_root`` (per-instance root for multi-folder scans), then ``backup_root``.
+    """
     p = Path(source_path)
     if p.is_absolute():
         return p
-    if backup_root:
-        return Path(backup_root) / p
+    base = scan_root or backup_root
+    if base:
+        return Path(base) / p
     return p.resolve()
 
 

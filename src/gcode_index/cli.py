@@ -12,7 +12,7 @@ from gcode_index.db import open_db, write_scan_result
 from gcode_index.excel_export import export_excel
 from gcode_index.extract import ExtractError, extract_instance_to_path, extract_text, fetch_instance
 from gcode_index.folder_map import FolderMachineMap
-from gcode_index.scanner import scan_backup_tree
+from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
 
 app = typer.Typer(
     name="gcode-index",
@@ -82,6 +82,15 @@ def scan_cmd(
         dir_okay=False,
         help="Optional machine_folders.yaml (folder→machine; wins over aliases).",
     ),
+    extra_root: Optional[list[Path]] = typer.Option(
+        None,
+        "--extra-root",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        help="Additional folder to scan (yellow flag). Repeatable.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Scan a backup tree and write program_instances into SQLite (+ optional Excel)."""
@@ -94,12 +103,22 @@ def scan_cmd(
             local_path = candidate
     alias_map = AliasMap.load_merged(aliases_path, local_path)
     fmap = FolderMachineMap.load(folder_map) if folder_map else None
-    typer.echo(f"Scanning {backup_root} …")
-    result = scan_backup_tree(
-        backup_root,
-        alias_map,
-        folder_map=fmap if fmap and fmap.assignments else None,
-    )
+    extras = list(extra_root or [])
+    if extras:
+        typer.echo(f"Scanning {backup_root} + {len(extras)} extra root(s) …")
+        result = scan_with_extra_roots(
+            backup_root,
+            alias_map,
+            extra_roots=extras,
+            folder_map=fmap if fmap and fmap.assignments else None,
+        )
+    else:
+        typer.echo(f"Scanning {backup_root} …")
+        result = scan_backup_tree(
+            backup_root,
+            alias_map,
+            folder_map=fmap if fmap and fmap.assignments else None,
+        )
     db.parent.mkdir(parents=True, exist_ok=True)
     conn = open_db(db)
     run_id = write_scan_result(

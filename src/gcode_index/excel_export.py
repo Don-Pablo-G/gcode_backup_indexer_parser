@@ -14,6 +14,8 @@ COLUMNS = [
     ("machine_label", "Machine label"),
     ("backup_date", "Date"),
     ("date_source", "Date source"),
+    ("provenance", "Flag (backup/extra)"),
+    ("scan_root", "Scan root"),
     ("source_type", "Source type"),
     ("source_path", "Source path"),
     ("line_start", "Line start"),

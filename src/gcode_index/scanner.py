@@ -19,8 +19,14 @@ from gcode_index.locators.fanuc_all_fldr import locate_fanuc_all_fldr
 from gcode_index.locators.fanuc_all_prog import locate_fanuc_all_prog
 from gcode_index.locators.haas_pgm import locate_haas_pgm
 from gcode_index.locators.whole_file_nc import locate_whole_file_nc
-from gcode_index.models import FileSeen, MachineInfo, ScanResult, UnknownFolder
-
+from gcode_index.models import (
+    PROVENANCE_BACKUP,
+    PROVENANCE_EXTRA,
+    FileSeen,
+    MachineInfo,
+    ScanResult,
+    UnknownFolder,
+)
 log = logging.getLogger("gcode_index.scanner")
 
 _HAAS_BACKUP_DIR = re.compile(r"^HaasBackup\(.*\)$", re.IGNORECASE)
@@ -127,6 +133,7 @@ def scan_backup_tree(
     *,
     progress: Optional[ProgressCallback] = None,
     folder_map: Optional[FolderMachineMap] = None,
+    provenance: str = PROVENANCE_BACKUP,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -165,11 +172,97 @@ def scan_backup_tree(
     # Individual .nc / .nc.copy: whole tree from backup root (any depth)
     _index_all_nc_files(root, aliases, result, prog=prog, folder_map=folder_map)
 
+    _stamp_provenance(result, provenance=provenance, scan_root=root)
+
     prog.emit(
         phase="done",
         message=f"Scan complete — {prog.current} / {prog.total} files",
     )
     return result
+
+
+def scan_with_extra_roots(
+    backup_root: Path | str,
+    aliases: AliasMap,
+    *,
+    extra_roots: Optional[list[Path | str]] = None,
+    progress: Optional[ProgressCallback] = None,
+    folder_map: Optional[FolderMachineMap] = None,
+) -> ScanResult:
+    """Scan the main backup (green) plus optional extra folders (yellow).
+
+    Extra roots use the same layout rules (date/machine dumps + tree-wide ``.nc``).
+    """
+    roots: list[tuple[Path, str]] = [(Path(backup_root), PROVENANCE_BACKUP)]
+    seen: set[str] = {str(Path(backup_root).resolve())}
+    for raw in extra_roots or []:
+        p = Path(raw)
+        try:
+            key = str(p.resolve())
+        except OSError:
+            key = str(p)
+        if key in seen:
+            continue
+        if not p.is_dir():
+            log.warning("extra scan root skipped (not a directory): %s", p)
+            continue
+        seen.add(key)
+        roots.append((p, PROVENANCE_EXTRA))
+
+    merged = ScanResult()
+    for i, (root_path, prov) in enumerate(roots):
+        label = "backup" if prov == PROVENANCE_BACKUP else f"extra {i}"
+        if progress:
+            progress(
+                {
+                    "phase": "scanning",
+                    "message": f"Scanning {label}: {root_path}…",
+                    "current": 0,
+                    "total": 0,
+                    "elapsed_s": 0.0,
+                    "eta_s": None,
+                }
+            )
+        part = scan_backup_tree(
+            root_path,
+            aliases,
+            progress=progress,
+            folder_map=folder_map,
+            provenance=prov,
+        )
+        merged.instances.extend(part.instances)
+        merged.files_seen.extend(part.files_seen)
+        merged.unknowns.extend(part.unknowns)
+
+    if progress:
+        n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
+        n_ext = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_EXTRA)
+        progress(
+            {
+                "phase": "done",
+                "message": (
+                    f"Scan complete — {len(merged.instances)} programs "
+                    f"({n_bak} backup / green, {n_ext} extra / yellow)"
+                ),
+                "current": len(merged.instances),
+                "total": max(len(merged.instances), 1),
+                "elapsed_s": 0.0,
+                "eta_s": None,
+            }
+        )
+    return merged
+
+
+def _stamp_provenance(
+    result: ScanResult,
+    *,
+    provenance: str,
+    scan_root: Path,
+) -> None:
+    root_s = str(scan_root.resolve())
+    for inst in result.instances:
+        inst.provenance = provenance
+        inst.scan_root = root_s
 
 
 def _scan_machine_folder_dumps(

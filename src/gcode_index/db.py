@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS program_instances (
   parse_status TEXT,
   error_message TEXT,
   header_kind TEXT,
+  provenance TEXT NOT NULL DEFAULT 'backup',
+  scan_root TEXT,
   run_id TEXT,
   FOREIGN KEY (run_id) REFERENCES index_runs(run_id)
 );
@@ -58,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_pi_program ON program_instances(program_number);
 CREATE INDEX IF NOT EXISTS idx_pi_part ON program_instances(part_number);
 CREATE INDEX IF NOT EXISTS idx_pi_machine_date ON program_instances(machine_id, backup_date);
 CREATE INDEX IF NOT EXISTS idx_pi_source_type ON program_instances(source_type);
+CREATE INDEX IF NOT EXISTS idx_pi_provenance ON program_instances(provenance);
 
 CREATE TABLE IF NOT EXISTS files_seen (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +107,16 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
     if "content_sha256" not in cols:
         conn.execute("ALTER TABLE program_instances ADD COLUMN content_sha256 TEXT")
-        conn.commit()
+    if "provenance" not in cols:
+        conn.execute(
+            "ALTER TABLE program_instances ADD COLUMN provenance TEXT NOT NULL DEFAULT 'backup'"
+        )
+    if "scan_root" not in cols:
+        conn.execute("ALTER TABLE program_instances ADD COLUMN scan_root TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pi_provenance ON program_instances(provenance)"
+    )
+    conn.commit()
 
 
 def write_scan_result(
@@ -157,6 +169,8 @@ def write_scan_result(
                 inst.parse_status,
                 inst.error_message,
                 inst.header_kind,
+                inst.provenance or "backup",
+                inst.scan_root,
                 run_id,
             )
         )
@@ -169,9 +183,9 @@ def write_scan_result(
           source_path, line_start, line_end, byte_start, byte_end, source_type,
           folder_path, control_family, source_mtime, source_size, content_sha256,
           indexed_at, parser_id, parser_version, parse_status, error_message,
-          header_kind, run_id
+          header_kind, provenance, scan_root, run_id
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
         """,
         rows,
@@ -289,7 +303,8 @@ _INSTANCE_SELECT = """
         SELECT instance_id, program_number, part_number, machine_id, machine_label,
                machine_folder_raw, date_folder_raw, backup_date, source_path,
                line_start, line_end, byte_start, byte_end, source_type,
-               folder_path, control_family, source_size, content_sha256
+               folder_path, control_family, source_size, content_sha256,
+               provenance, scan_root
         FROM program_instances
 """
 
@@ -348,6 +363,7 @@ def query_instances(
     date_to: Optional[str] = None,
     source_type: Optional[str] = None,
     control_family: Optional[str] = None,
+    provenance: Optional[str] = None,
     limit: int = 500,
 ) -> list[sqlite3.Row]:
     """Flexible filter/search for GUI and CLI.
@@ -359,6 +375,7 @@ def query_instances(
     ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date``
     (``DD.MM.YYYY`` or ``YYYY-MM-DD``).
     ``source_type`` / ``control_family`` — exact match when set.
+    ``provenance`` — ``backup`` (green / ran on machine) or ``extra`` (yellow).
     """
     conn.row_factory = sqlite3.Row
     clauses: list[str] = []
@@ -431,6 +448,10 @@ def query_instances(
     ):
         clauses.append("IFNULL(control_family,'') = ?")
         params.append(str(control_family).strip())
+
+    if provenance is not None and str(provenance).strip() and str(provenance).strip() != "(all)":
+        clauses.append("IFNULL(provenance,'backup') = ?")
+        params.append(str(provenance).strip())
 
     sql = _INSTANCE_SELECT
     if clauses:
