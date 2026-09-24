@@ -224,6 +224,26 @@ def test_unmapped_folder_still_indexes_pgm(tmp_path: Path):
     assert all(i.machine_id == "unknown" for i in mystery)
 
 
+def test_scan_does_not_modify_source_files(tmp_path: Path):
+    """Scan/parse must be read-only against the backup tree."""
+    root = _build_mini_tree(tmp_path)
+    before: dict[Path, tuple[int, int, bytes]] = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            st = path.stat()
+            before[path] = (st.st_mtime_ns, st.st_size, path.read_bytes())
+
+    am = AliasMap.load(ALIASES)
+    result = scan_backup_tree(root, am)
+    assert result.instances
+
+    for path, (mtime_ns, size, data) in before.items():
+        st = path.stat()
+        assert st.st_size == size
+        assert path.read_bytes() == data
+        assert st.st_mtime_ns == mtime_ns
+
+
 def test_search_allows_short_and_letter_queries(tmp_path: Path):
     conn = open_db(tmp_path / "empty.sqlite")
     try:

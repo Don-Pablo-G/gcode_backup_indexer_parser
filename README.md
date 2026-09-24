@@ -169,6 +169,7 @@ Unit tests use tiny synthetic fixtures under `tests/fixtures/synthetic/`. Option
 
 - Full G-code parse / validation / simulation
 - Committing multi-MB backup dumps into this repository
+- Modifying backup source files — **scan / parse / extract never write into the backup tree** (extract writes only to a path you choose)
 
 ## License
 

@@ -1,4 +1,8 @@
-"""Layout-aware backup tree scanner."""
+"""Layout-aware backup tree scanner.
+
+Read-only against the backup tree: locators open sources as ``rb`` only.
+Index/Excel outputs go to the user-chosen target folder, never into the backup.
+"""
 
 from __future__ import annotations
 
