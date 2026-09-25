@@ -44,7 +44,7 @@ python3 -m pip install -e ".[dev]"
 | Tryb | Kto | Co widać |
 |------|-----|----------|
 | **Prosty** (domyślny) | Operator | Tylko odczyt — otwórz bazę, szukaj, podgląd, **Wydobądź** |
-| **Pełny** | Indeksator | Skan, zieleń/żółć, harmonogram, mapa/aliasy, filtry zaawansowane, … |
+| **Pełny** | Indeksator | Skan, zieleń/żółć, harmonogram, **obserwacja folderów**, mapa/aliasy, filtry zaawansowane, … |
 
 Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza).
 

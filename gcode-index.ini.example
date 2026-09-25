@@ -34,6 +34,7 @@ schedule_last_run =
 
 [scan]
 incremental = yes
+watch_folders = no
 also_excel = no
 newest_only = no
 

@@ -117,6 +117,12 @@ from gcode_index.scan_report import (
     scan_report_from_result,
 )
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
+from gcode_index.folder_watch import FolderWatcher
+from gcode_index.indexer_lock import (
+    release_lock,
+    try_acquire_lock,
+    we_hold_lock,
+)
 from gcode_index.help_docs import docs_roots, read_manual, resolve_manual
 from gcode_index import __version__ as APP_VERSION
 from gcode_index.ui_theme import (
@@ -170,11 +176,13 @@ class IndexerApp(tk.Tk):
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
         self.incremental_var = tk.BooleanVar(value=True)
+        self.watch_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self.ui_mode_var = tk.StringVar(value="")
         self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
         self.schedule_status_var = tk.StringVar(value="")
+        self.watch_status_var = tk.StringVar(value="")
         self.preset_var = tk.StringVar(value="")
         self.preview_header_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="")
@@ -185,6 +193,9 @@ class IndexerApp(tk.Tk):
         self._schedule_after_id: Optional[str] = None
         self._result_rows: list = []
         self._scan_busy = False
+        self._watch_rescan_pending = False
+        self._folder_watcher: Optional[FolderWatcher] = None
+        self._watch_enabled = False
         self._filter_trace_lock = False
         self._machine_names: list[str] = []
         self._last_scan_report: Optional[ScanReport] = None
@@ -209,6 +220,7 @@ class IndexerApp(tk.Tk):
         self._refresh_filter_choices()
         self._maybe_auto_collapse_folders()
         self._arm_schedule_timer()
+        self._sync_folder_watch(initial=True)
         if self._folders_ready():
             self.status_var.set(
                 self._(
@@ -249,8 +261,10 @@ class IndexerApp(tk.Tk):
         self.target_var.set(cfg.target or "")
         self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
+        self.watch_var.set(bool(cfg.watch_folders))
         self.excel_var.set(bool(cfg.also_excel))
         self.newest_only_var.set(bool(cfg.newest_only))
+        self._watch_enabled = bool(cfg.watch_folders) and not self._is_simple()
         self._hidden_root_specs = list(cfg.root_specs())
         self._ini_notes = cfg.notes or ""
         if cfg.geometry:
@@ -291,6 +305,7 @@ class IndexerApp(tk.Tk):
             schedule=self._schedule,
             schedule_last_run=self._schedule_last_run or "",
             incremental=bool(self.incremental_var.get()),
+            watch_folders=bool(self.watch_var.get()),
             also_excel=bool(self.excel_var.get()),
             newest_only=bool(self.newest_only_var.get()),
             geometry=geom,
@@ -312,6 +327,7 @@ class IndexerApp(tk.Tk):
         self._folder_save_after_id = self.after(800, self._save_instance_ini)
 
     def _on_close(self) -> None:
+        self._stop_folder_watch(release=True)
         self._save_instance_ini()
         self.destroy()
 
@@ -418,6 +434,7 @@ class IndexerApp(tk.Tk):
             "programmer": self.programmer_var.get(),
             "newest": bool(self.newest_only_var.get()),
             "incremental": bool(self.incremental_var.get()),
+            "watch": bool(self.watch_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
             "roots": list(self._scan_root_specs()),
@@ -464,6 +481,7 @@ class IndexerApp(tk.Tk):
         self._rebuild(preserved)
         # Prosty is retrieve-only — never run scheduled scans while in that mode.
         self._arm_schedule_timer()
+        self._sync_folder_watch()
 
     def _on_ui_mode_selected(self, *_args) -> None:
         self._set_ui_mode(self._mode_from_label(self.ui_mode_var.get()))
@@ -502,6 +520,7 @@ class IndexerApp(tk.Tk):
                 self.provenance_var.set(self._all_token())
             self.newest_only_var.set(bool(preserved.get("newest")))
             self.incremental_var.set(bool(preserved.get("incremental", True)))
+            self.watch_var.set(bool(preserved.get("watch", False)))
             self.excel_var.set(bool(preserved.get("excel", True)))
             roots = list(preserved.get("roots") or [])
             self._hidden_root_specs = [
@@ -526,6 +545,7 @@ class IndexerApp(tk.Tk):
                 self._more_filters_open = bool(preserved["more_filters"])
                 self._apply_more_filters_visibility()
         self._run_query_now()
+        self._sync_folder_watch()
 
     def _short_path(self, path: str, *, maxlen: int = 42) -> str:
         raw = (path or "").strip()
@@ -972,6 +992,16 @@ class IndexerApp(tk.Tk):
             ttk.Checkbutton(
                 actions, text=self._("incremental"), variable=self.incremental_var
             ).pack(side=tk.LEFT, padx=8)
+            ttk.Checkbutton(
+                actions,
+                text=self._("watch_folders"),
+                variable=self.watch_var,
+                command=self._on_watch_toggled,
+            ).pack(side=tk.LEFT, padx=4)
+            ttk.Label(
+                actions, textvariable=self.watch_status_var, style="Muted.TLabel"
+            ).pack(side=tk.LEFT, padx=(4, 0))
+            self._update_watch_status()
 
         # Progress — hidden until a scan runs
         self.prog_frame = ttk.Frame(root)
@@ -1314,6 +1344,7 @@ class IndexerApp(tk.Tk):
             self._update_folders_summary()
             self._maybe_auto_collapse_folders()
             self._save_instance_ini()
+            self._sync_folder_watch()
 
     def _pick_target(self) -> None:
         path = filedialog.askdirectory(title=self._("target_folder"))
@@ -1340,6 +1371,7 @@ class IndexerApp(tk.Tk):
             else:
                 self._persist_ui_settings(path)
                 self._maybe_auto_collapse_folders()
+                self._sync_folder_watch()
 
     def _pick_extract(self) -> None:
         path = filedialog.askdirectory(title=self._("extract_folder"))
@@ -1446,6 +1478,7 @@ class IndexerApp(tk.Tk):
         specs.append(ScanRootSpec(path=resolved, provenance=provenance))
         self._fill_extra_list(specs)
         self._persist_extra_roots()
+        self._sync_folder_watch()
 
     def _add_extra_root(self) -> None:
         self._add_scan_root(PROVENANCE_EXTRA)
@@ -1459,6 +1492,7 @@ class IndexerApp(tk.Tk):
         for i in reversed(sel):
             self.extra_list.delete(i)
         self._persist_extra_roots()
+        self._sync_folder_watch()
 
     def _schedule_label(self, code: str) -> str:
         key = {
@@ -1541,6 +1575,110 @@ class IndexerApp(tk.Tk):
         self._schedule_last_run = format_iso_datetime(datetime.now(timezone.utc))
         self._persist_ui_settings()
         self._update_schedule_status()
+
+    def _watch_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        backup = self.backup_var.get().strip()
+        if backup:
+            roots.append(Path(backup))
+        for spec in self._scan_root_specs():
+            if spec.path:
+                roots.append(Path(spec.path))
+        return roots
+
+    def _update_watch_status(self, locked_by: Optional[str] = None) -> None:
+        if not hasattr(self, "watch_status_var"):
+            return
+        if locked_by:
+            self.watch_status_var.set(self._("watch_locked", holder=locked_by))
+        elif self._folder_watcher is not None and self._folder_watcher.running:
+            self.watch_status_var.set(self._("watch_on"))
+        else:
+            self.watch_status_var.set(self._("watch_idle"))
+
+    def _on_watch_toggled(self) -> None:
+        self._watch_enabled = bool(self.watch_var.get()) and not self._is_simple()
+        self._save_instance_ini()
+        self._sync_folder_watch()
+
+    def _stop_folder_watch(self, *, release: bool = False) -> None:
+        if self._folder_watcher is not None:
+            try:
+                self._folder_watcher.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("stop folder watcher failed")
+            self._folder_watcher = None
+        if release:
+            target = self.target_var.get().strip()
+            if target and we_hold_lock(target):
+                release_lock(target)
+        self._update_watch_status()
+
+    def _sync_folder_watch(self, *, initial: bool = False) -> None:
+        """Start/stop watcher for Full mode based on checkbox + folders + lock."""
+        if self._is_simple():
+            self._watch_enabled = False
+            self._stop_folder_watch(release=True)
+            return
+        self._watch_enabled = bool(self.watch_var.get())
+        if not self._watch_enabled:
+            self._stop_folder_watch(release=True)
+            return
+        backup = self.backup_var.get().strip()
+        target = self.target_var.get().strip()
+        if not backup or not target or not Path(backup).is_dir():
+            if not initial and self.watch_var.get():
+                self.watch_var.set(False)
+                self._watch_enabled = False
+                messagebox.showinfo(self._("watch_folders"), self._("watch_need_folders"))
+            self._stop_folder_watch(release=True)
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        ok, holder = try_acquire_lock(target, purpose="watch")
+        if not ok:
+            self.watch_var.set(False)
+            self._watch_enabled = False
+            self._stop_folder_watch(release=False)
+            who = holder.summary() if holder is not None else "?"
+            self._update_watch_status(locked_by=who)
+            if not initial:
+                messagebox.showwarning(
+                    self._("watch_folders"),
+                    self._("watch_locked", holder=who),
+                )
+            return
+        roots = self._watch_roots()
+        if self._folder_watcher is None:
+            self._folder_watcher = FolderWatcher(
+                on_change=self._on_watch_change_thread,
+                poll_s=5.0,
+                debounce_s=3.0,
+            )
+        self._folder_watcher.set_roots(roots)
+        if not self._folder_watcher.running:
+            n = self._folder_watcher.seed()
+            self._folder_watcher.start()
+            log.info("folder watch started (%s files baseline)", n)
+        else:
+            self._folder_watcher.seed()
+        self._update_watch_status()
+        self._save_instance_ini()
+
+    def _on_watch_change_thread(self) -> None:
+        """Called from watcher thread — marshal onto Tk."""
+        try:
+            self.after(0, self._on_watch_change)
+        except tk.TclError:
+            pass
+
+    def _on_watch_change(self) -> None:
+        if self._is_simple() or not self._watch_enabled:
+            return
+        if self._scan_busy:
+            self._watch_rescan_pending = True
+            return
+        self.status_var.set(self._("watch_trigger"))
+        self._start_scan(auto=True)
 
     def _db_path(self) -> Optional[Path]:
         target = self.target_var.get().strip()
@@ -1887,6 +2025,13 @@ class IndexerApp(tk.Tk):
             self.progress_var.set(100.0)
             self.progress_label_var.set("Done")
             self._mark_schedule_ran()
+            # Re-seed watcher baseline after a successful index so we don't
+            # immediately re-trigger on the same tree.
+            if self._folder_watcher is not None and self._folder_watcher.running:
+                try:
+                    self._folder_watcher.seed()
+                except Exception:  # noqa: BLE001
+                    log.exception("re-seed folder watcher failed")
         else:
             self.progress_var.set(0.0)
             self.progress_label_var.set("")
@@ -1896,6 +2041,9 @@ class IndexerApp(tk.Tk):
         if not ok:
             if not auto:
                 messagebox.showerror("Scan failed", message)
+            if self._watch_rescan_pending and self._watch_enabled:
+                self._watch_rescan_pending = False
+                self.after(1500, self._on_watch_change)
             return
         if report is not None:
             self._last_scan_report = report
@@ -1903,6 +2051,9 @@ class IndexerApp(tk.Tk):
         self._clear_filters(status_prefix=message)
         if report is not None and not self._is_simple() and not auto:
             self._show_scan_report(report)
+        if self._watch_rescan_pending and self._watch_enabled:
+            self._watch_rescan_pending = False
+            self.after(800, self._on_watch_change)
 
     def _open_scan_report(self) -> None:
         report = self._last_scan_report

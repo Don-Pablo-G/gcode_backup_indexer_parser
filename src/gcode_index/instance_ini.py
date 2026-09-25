@@ -35,6 +35,7 @@ class InstanceConfig:
     schedule: str = SCHEDULE_OFF
     schedule_last_run: str = ""
     incremental: bool = True
+    watch_folders: bool = False
     also_excel: bool = False
     newest_only: bool = False
     geometry: str = "1320x820"
@@ -183,6 +184,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.newest_only = _truthy(
             parser.get("scan", "newest_only", fallback="no"), default=False
         )
+        cfg.watch_folders = _truthy(
+            parser.get("scan", "watch_folders", fallback="no"), default=False
+        )
 
     if parser.has_section("window"):
         geom = parser.get("window", "geometry", fallback=cfg.geometry).strip()
@@ -215,6 +219,7 @@ def save_instance_ini(
         schedule=normalize_schedule(str(kwargs.get("schedule", base.schedule) or SCHEDULE_OFF)),
         schedule_last_run=str(kwargs.get("schedule_last_run", base.schedule_last_run) or ""),
         incremental=bool(kwargs.get("incremental", base.incremental)),
+        watch_folders=bool(kwargs.get("watch_folders", base.watch_folders)),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
         geometry=str(kwargs.get("geometry", base.geometry) or "1320x820"),
@@ -269,6 +274,8 @@ schedule_last_run = {data.schedule_last_run}
 [scan]
 ; yes/no — skip unchanged files when re-indexing
 incremental = {yn(data.incremental)}
+; yes/no — Full mode: watch backup/extra folders and incremental-index on drop
+watch_folders = {yn(data.watch_folders)}
 ; yes/no — also write gcode_index.xlsx after a full-mode scan
 also_excel = {yn(data.also_excel)}
 ; yes/no — default "newest only" filter on startup

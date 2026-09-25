@@ -40,6 +40,8 @@ hiddenimports = [
     "gcode_index.gui",
     "gcode_index.cli",
     "gcode_index.help_docs",
+    "gcode_index.folder_watch",
+    "gcode_index.indexer_lock",
     "gcode_index.scanner",
     "gcode_index.extract",
     "gcode_index.db",

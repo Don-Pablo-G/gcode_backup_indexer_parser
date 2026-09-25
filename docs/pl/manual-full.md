@@ -62,6 +62,14 @@ Przy indeksowaniu pojedynczych plików `.nc` / `.nc.copy` skaner przechodzi fold
 
 W trybie Pełnym ustaw **Auto-indeks** na co godzinę / codziennie / co tydzień. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
 
+### Obserwuj foldery
+
+Zaznacz **Obserwuj foldery**, aby co kilka sekund sprawdzać drzewo kopii i katalogi dodatkowe (zielone/żółte). Gdy pojawią się nowe lub zmienione pliki indeksowalne, aplikacja czeka chwilę (debounce), potem uruchamia skan **przyrostowy** (bez pełnej przebudowy).
+
+- Tylko w trybie **Pełnym**.
+- Tworzy `gcode_index.lock` obok bazy — **jeden komputer** obserwuje / indeksuje. Inne instancje Pełne zobaczą „Obserwacja zablokowana”. Tryb Prosty nie bierze blokady.
+- Zalecenie: jeden PC indeksujący z Obserwuj; pozostałe — Prosty na tej samej bazie.
+
 ---
 
 ## Szukanie i wydobycie

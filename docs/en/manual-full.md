@@ -62,6 +62,14 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 
 In Full mode, set **Auto-index** to hourly / daily / weekly. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
 
+### Watch folders
+
+Tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
+
+- Only available in **Full** mode.
+- Takes a `gcode_index.lock` next to the database so **one PC** owns watching/indexing. Other Full instances see “Watch locked” if they try to enable it. Prosty clients never take the lock.
+- Prefer: one indexer PC with Watch on; other PCs use Simple mode against the same DB.
+
 ---
 
 ## Search and extract
