@@ -51,7 +51,7 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 
 ## Run index / scan
 
-1. Set backup + database folders (and extras if needed).
+1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
 2. Click green **Run index / scan** / **Indeksuj / skanuj**.
 3. Options (second toolbar row under **Indeksuj**):
    - **Incremental** — skip unchanged files (size + mtime); reuse previous rows

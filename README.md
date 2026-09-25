@@ -69,12 +69,11 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
 
 ### Simple mode (operators — retrieve only)
 
-1. Click green **Otwórz istniejącą bazę…** / **Open existing DB…** (or set the **database folder** that already holds `gcode_index.sqlite`).  
-2. Optionally set a separate **extract folder** for Wydobądź output (blank = same as database folder).  
-3. Optionally set **backup** if extract needs relative source paths.  
-4. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
-5. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.  
-6. Switch to **Pełny** when you need to index / scan.
+1. Click green **Otwórz istniejącą bazę…** / **Open existing DB…** and pick `gcode_index.sqlite`.  
+2. Optionally set a separate **extract folder** for Wydobądź output (blank = same folder as the open DB). Simple mode has no backup/database path pickers.  
+3. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
+4. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.  
+5. Switch to **Pełny** when you need to index / scan (Full also has **Open existing DB…**).
 
 ### Full mode (power users)
 

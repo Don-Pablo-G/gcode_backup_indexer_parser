@@ -51,7 +51,7 @@ Przy indeksowaniu pojedynczych plików `.nc` / `.nc.copy` skaner przechodzi fold
 
 ## Indeksuj / skanuj
 
-1. Ustaw folder kopii + folder bazy (oraz dodatkowe, jeśli potrzeba).
+1. Ustaw folder kopii + folder bazy (oraz dodatkowe, jeśli potrzeba), albo użyj **Otwórz istniejącą bazę…** na pasku, aby wybrać gotowy `gcode_index.sqlite`.
 2. Kliknij zielony **Indeksuj / skanuj**.
 3. Opcje (drugi wiersz paska pod **Indeksuj**):
    - **Przyrostowo** — pomija niezmienione pliki (rozmiar + mtime); ponownie używa wcześniejszych wierszy

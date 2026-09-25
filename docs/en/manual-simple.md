@@ -18,18 +18,9 @@ You never change the backup files. Extract always writes to a separate folder.
 
 1. Set language if needed (**Język / Language** → `pl` or `en`).
 2. Stay in **Prosty / Simple** (or switch back to it via **Tryb / Mode**).
-3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.  
-   Or set the **database folder** (the folder that contains that file) under Folders.
+3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.
 
-Optional folders:
-
-| Folder | Purpose |
-|--------|---------|
-| **Database folder** | Where `gcode_index.sqlite` lives (required) |
-| **Extract folder** | Where Wydobądź saves programs (blank = same as database folder) |
-| **Backup folder** | Only needed if extract must resolve relative paths from the original tree |
-
-Use **Change…** / **Zmień…** to edit folders; **Done** / **Gotowe** collapses the strip.
+Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydobądź output (blank = same folder as the open database). Simple mode has **no** backup or database folder pickers — use **Open existing DB…** to choose the catalog.
 
 ---
 

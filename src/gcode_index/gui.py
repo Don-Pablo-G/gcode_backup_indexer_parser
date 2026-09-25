@@ -603,7 +603,6 @@ class IndexerApp(tk.Tk):
                 self._folders_summary_var.set(
                     self._(
                         "folders_summary_simple",
-                        backup=self._short_path(bak) if bak else unset,
                         target=self._short_path(tgt),
                         extract=extract_disp,
                     )
@@ -815,54 +814,70 @@ class IndexerApp(tk.Tk):
             style="Primary.TLabelframe",
         )
         paths = self._folders_expanded_frame
-        ttk.Label(
-            paths,
-            text=(
-                self._("backup_folder_optional") if simple else self._("backup_folder")
-            ),
-            style="Key.TLabel",
-        ).grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(paths, textvariable=self.backup_var, style="Key.TEntry").grid(
-            row=0, column=1, sticky=tk.EW, padx=4, ipady=2
-        )
-        ttk.Button(paths, text=self._("browse"), command=self._pick_backup).grid(
-            row=0, column=2
-        )
+        if simple:
+            # Prosty: no backup/DB path pickers — open DB via the primary button.
+            # Optional extract folder only.
+            ttk.Label(
+                paths,
+                text=self._("extract_folder"),
+                style="Key.TLabel",
+            ).grid(row=0, column=0, sticky=tk.W)
+            ttk.Entry(paths, textvariable=self.extract_var, style="Key.TEntry").grid(
+                row=0, column=1, sticky=tk.EW, padx=4, ipady=2
+            )
+            ttk.Button(paths, text=self._("browse"), command=self._pick_extract).grid(
+                row=0, column=2
+            )
+            ttk.Label(
+                paths,
+                text=self._("extract_folder_hint_simple"),
+                style="Muted.TLabel",
+            ).grid(row=1, column=1, sticky=tk.W, padx=4, pady=(0, 2))
+            done_row_idx = 2
+        else:
+            ttk.Label(
+                paths,
+                text=self._("backup_folder"),
+                style="Key.TLabel",
+            ).grid(row=0, column=0, sticky=tk.W)
+            ttk.Entry(paths, textvariable=self.backup_var, style="Key.TEntry").grid(
+                row=0, column=1, sticky=tk.EW, padx=4, ipady=2
+            )
+            ttk.Button(paths, text=self._("browse"), command=self._pick_backup).grid(
+                row=0, column=2
+            )
 
-        ttk.Label(
-            paths,
-            text=(
-                self._("target_folder_simple") if simple else self._("target_folder")
-            ),
-            style="Key.TLabel",
-        ).grid(row=1, column=0, sticky=tk.W)
-        ttk.Entry(paths, textvariable=self.target_var, style="Key.TEntry").grid(
-            row=1, column=1, sticky=tk.EW, padx=4, ipady=2
-        )
-        ttk.Button(paths, text=self._("browse"), command=self._pick_target).grid(
-            row=1, column=2
-        )
+            ttk.Label(
+                paths,
+                text=self._("target_folder"),
+                style="Key.TLabel",
+            ).grid(row=1, column=0, sticky=tk.W)
+            ttk.Entry(paths, textvariable=self.target_var, style="Key.TEntry").grid(
+                row=1, column=1, sticky=tk.EW, padx=4, ipady=2
+            )
+            ttk.Button(paths, text=self._("browse"), command=self._pick_target).grid(
+                row=1, column=2
+            )
 
-        ttk.Label(
-            paths,
-            text=self._("extract_folder"),
-            style="Key.TLabel",
-        ).grid(row=2, column=0, sticky=tk.W)
-        ttk.Entry(paths, textvariable=self.extract_var, style="Key.TEntry").grid(
-            row=2, column=1, sticky=tk.EW, padx=4, ipady=2
-        )
-        ttk.Button(paths, text=self._("browse"), command=self._pick_extract).grid(
-            row=2, column=2
-        )
-        ttk.Label(
-            paths,
-            text=self._("extract_folder_hint"),
-            style="Muted.TLabel",
-        ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(0, 2))
-        paths.columnconfigure(1, weight=1)
+            ttk.Label(
+                paths,
+                text=self._("extract_folder"),
+                style="Key.TLabel",
+            ).grid(row=2, column=0, sticky=tk.W)
+            ttk.Entry(paths, textvariable=self.extract_var, style="Key.TEntry").grid(
+                row=2, column=1, sticky=tk.EW, padx=4, ipady=2
+            )
+            ttk.Button(paths, text=self._("browse"), command=self._pick_extract).grid(
+                row=2, column=2
+            )
+            ttk.Label(
+                paths,
+                text=self._("extract_folder_hint"),
+                style="Muted.TLabel",
+            ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(0, 2))
+            done_row_idx = 5
 
-        # Additional folders (green catch + yellow extras) — Full mode only
-        if not simple:
+            # Additional folders (green catch + yellow extras) — Full mode only
             extra = ttk.LabelFrame(
                 paths,
                 text=self._("extra_folders"),
@@ -899,12 +914,15 @@ class IndexerApp(tk.Tk):
                 side=tk.LEFT, padx=8
             )
             self._fill_extra_list(self._hidden_root_specs)
-        elif hasattr(self, "extra_list"):
+
+        if simple and hasattr(self, "extra_list"):
             delattr(self, "extra_list")
+
+        paths.columnconfigure(1, weight=1)
 
         done_row = ttk.Frame(paths)
         done_row.grid(
-            row=5 if not simple else 4,
+            row=done_row_idx,
             column=0,
             columnspan=3,
             sticky=tk.E,
