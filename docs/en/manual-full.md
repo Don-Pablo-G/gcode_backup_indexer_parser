@@ -41,7 +41,7 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 1. **Map folders…** — discovers `<date>/<machine>` folders, auto-matches known aliases, and lists only unmatched names for manual assign. Map is saved as `machine_folders.yaml` (wins over aliases).
 2. Optional: save assignments as **local aliases** (`aliases.local.yaml`) for later scans.
-3. **Aliases…** — add / change / remove local aliases. Bundled `aliases.yaml` stays read-only.
+3. **Aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
 
 ### Loose `.nc` machine assignment
 

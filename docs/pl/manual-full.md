@@ -41,7 +41,7 @@ Katalogi zapisują się jako `extra_scan_roots.yaml` obok bazy (oraz w `gcode-in
 
 1. **Mapuj foldery…** — wykrywa foldery `<data>/<maszyna>`, automatycznie dopasowuje znane aliasy i pokazuje tylko niedopasowane do ręcznego przypisania. Mapa: `machine_folders.yaml` (ma pierwszeństwo przed aliasami).
 2. Opcjonalnie: zapisz przypisania jako **lokalne aliasy** (`aliases.local.yaml`) na kolejne skany.
-3. **Aliasy…** — dodawanie / zmiana / usuwanie lokalnych aliasów. Dołączony `aliases.yaml` pozostaje tylko do odczytu.
+3. **Aliasy…** — lista maszyn po lewej; wybierz maszynę, aby edytować jej **aliasy folderów**, etykietę, sterowanie i layout. **Dodaj maszynę** / **Usuń maszynę** zarządzają maszynami lokalnymi. Aliasy z katalogu (`[bundled]`) są tylko do odczytu — dodaj lokalną pisownię, aby je nadpisać. Zapis: `aliases.local.yaml`.
 
 ### Przypisanie maszyny dla luźnych `.nc`
 

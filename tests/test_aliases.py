@@ -93,3 +93,74 @@ def test_local_alias_edit_remove_restore_bundled(tmp_path: Path):
     reloaded = AliasMap.load_merged(bundled, path)
     assert reloaded.resolve("VF2S_shop").machine_id == "haas-umc750"
     assert len(reloaded.catalog_machines()) >= 5
+
+
+def test_machines_overview_and_set_aliases_for_machine(tmp_path: Path):
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    am = AliasMap.load_merged(bundled, None)
+
+    overview = am.machines_overview()
+    assert overview
+    vf2 = next(r for r in overview if r["machine_id"] == "haas-vf-2")
+    assert "vf2s" in [a.casefold() for a in vf2["bundled_aliases"]]
+    assert vf2["local_aliases"] == []
+    assert not vf2["local_only"]
+
+    am.set_local_aliases_for_machine(
+        "haas-vf-2",
+        ["ShopVF2", "VF2_shop"],
+        label="HAAS VF-2 shop",
+        layout="haas_pgm",
+    )
+    assert am.resolve("ShopVF2").machine_id == "haas-vf-2"
+    assert am.resolve("VF2_shop").label == "HAAS VF-2 shop"
+    ov2 = next(r for r in am.machines_overview() if r["machine_id"] == "haas-vf-2")
+    assert ov2["local_aliases"] == ["ShopVF2", "VF2_shop"]
+    # Bundled keys still listed (except those overridden by same normalize)
+    assert ov2["bundled_aliases"]
+
+    n = am.remove_local_aliases_for_machine("haas-vf-2")
+    assert n == 2
+    assert am.resolve("ShopVF2").mapped is False
+    # Bundled vf2s restored
+    assert am.resolve("VF2S").machine_id == "haas-vf-2"
+
+
+def test_add_and_remove_local_only_machine(tmp_path: Path):
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    path = tmp_path / "aliases.local.yaml"
+    am = AliasMap.load_merged(bundled, None)
+
+    am.set_local_aliases_for_machine(
+        "shop-lathe-1",
+        ["LatheOdd", "LATHE_1"],
+        label="Shop Lathe 1",
+        control_family="fanuc",
+        layout="fanuc_all_prog",
+    )
+    row = next(r for r in am.machines_overview() if r["machine_id"] == "shop-lathe-1")
+    assert row["local_only"] is True
+    assert row["local_aliases"] == ["LATHE_1", "LatheOdd"]
+    assert row["bundled_aliases"] == []
+
+    am.save_local(path)
+    reloaded = AliasMap.load_merged(bundled, path)
+    assert reloaded.resolve("LatheOdd").machine_id == "shop-lathe-1"
+    assert reloaded.resolve("LATHE_1").label == "Shop Lathe 1"
+
+    reloaded.remove_local_aliases_for_machine("shop-lathe-1")
+    reloaded.save_local(path)
+    gone = AliasMap.load_merged(bundled, path)
+    assert not any(r["machine_id"] == "shop-lathe-1" for r in gone.machines_overview())
+    assert not gone.resolve("LatheOdd").mapped
+
+
+def test_set_local_aliases_replaces_prior(tmp_path: Path):
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    am = AliasMap.load_merged(bundled, None)
+    am.set_local_aliases_for_machine("puma", ["ZZ_OldShopMill"])
+    am.set_local_aliases_for_machine("puma", ["ZZ_NewShopMill", "ZZ_PumaBay"])
+    locals_ = [k for k, e in am.list_local_aliases() if e.get("machine_id") == "puma"]
+    assert sorted(locals_, key=str.casefold) == ["ZZ_NewShopMill", "ZZ_PumaBay"]
+    assert not am.resolve("ZZ_OldShopMill").mapped
+    assert am.resolve("ZZ_NewShopMill").machine_id == "puma"

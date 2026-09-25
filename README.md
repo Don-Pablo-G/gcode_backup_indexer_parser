@@ -89,7 +89,7 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
    - Map is saved as `machine_folders.yaml` next to the DB (wins over aliases).  
    - Optional checkbox: also save assignments as **local aliases** (`aliases.local.yaml` next to the DB) so the same odd folder names auto-match on later scans.  
    - First scan prompts only when unmatched folders remain.  
-   - **Aliases…** opens an editor to **add / change / remove** local aliases (and override bundled ones). Bundled `aliases.yaml` stays read-only.  
+   - **Aliases…** opens a **machine list**: select a machine to edit its folder aliases (and label / control / layout). **Add machine** / **Remove machine** manage shop-local machines. Bundled spellings are read-only; add a local spelling to customize. Bundled `aliases.yaml` stays read-only.  
 6. Click **Run index / scan** (optional Excel export checkbox; optional **Auto-index** schedule).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
 7. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  

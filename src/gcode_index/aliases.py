@@ -342,6 +342,124 @@ class AliasMap:
             }
         return sorted(by_id.values(), key=lambda e: str(e.get("label") or e["machine_id"]).casefold())
 
+    def machines_overview(self) -> list[dict[str, Any]]:
+        """Machines with their folder-alias spellings (bundled + local).
+
+        Each row::
+            machine_id, label, control_family, layout,
+            local_aliases: list[str],   # shop-local folder spellings
+            bundled_aliases: list[str], # bundled keys not overridden locally
+            aliases: list[str],         # local first, then bundled (display order)
+            local_only: bool            # True when no bundled aliases remain
+        """
+        by_id: dict[str, dict[str, Any]] = {}
+
+        def _ensure(mid: str, entry: dict[str, Any]) -> dict[str, Any]:
+            row = by_id.get(mid)
+            if row is None:
+                row = {
+                    "machine_id": mid,
+                    "label": entry.get("label"),
+                    "control_family": entry.get("control_family"),
+                    "layout": entry.get("layout"),
+                    "local_aliases": [],
+                    "bundled_aliases": [],
+                }
+                by_id[mid] = row
+            else:
+                if not row.get("label") and entry.get("label"):
+                    row["label"] = entry.get("label")
+                if not row.get("control_family") and entry.get("control_family"):
+                    row["control_family"] = entry.get("control_family")
+                if not row.get("layout") and entry.get("layout"):
+                    row["layout"] = entry.get("layout")
+            return row
+
+        local_norm: set[str] = set()
+        for raw, entry in self._local_raw.items():
+            mid = str(entry.get("machine_id") or "").strip()
+            if not mid:
+                continue
+            row = _ensure(mid, entry)
+            if raw not in row["local_aliases"]:
+                row["local_aliases"].append(raw)
+            local_norm.add(normalize_folder_name(raw))
+
+        for nk, entry in self._bundled.items():
+            mid = str(entry.get("machine_id") or "").strip()
+            if not mid:
+                continue
+            row = _ensure(mid, entry)
+            if nk in local_norm:
+                continue  # local override hides bundled key in the editable list
+            if nk not in row["bundled_aliases"]:
+                row["bundled_aliases"].append(nk)
+
+        out: list[dict[str, Any]] = []
+        for row in by_id.values():
+            row["local_aliases"] = sorted(row["local_aliases"], key=str.casefold)
+            row["bundled_aliases"] = sorted(row["bundled_aliases"], key=str.casefold)
+            row["aliases"] = list(row["local_aliases"]) + list(row["bundled_aliases"])
+            # No remaining bundled spellings → shop-local machine (or empty draft)
+            row["local_only"] = not bool(row["bundled_aliases"])
+            out.append(row)
+        out.sort(key=lambda e: str(e.get("label") or e["machine_id"]).casefold())
+        return out
+
+    def remove_local_aliases_for_machine(self, machine_id: str) -> int:
+        """Remove every shop-local alias pointing at ``machine_id``. Returns count."""
+        mid = str(machine_id or "").strip()
+        if not mid:
+            return 0
+        to_drop = [
+            raw
+            for raw, entry in list(self._local_raw.items())
+            if str(entry.get("machine_id") or "").strip() == mid
+        ]
+        for raw in to_drop:
+            self.remove_local_alias(raw)
+        return len(to_drop)
+
+    def set_local_aliases_for_machine(
+        self,
+        machine_id: str,
+        aliases: list[str],
+        *,
+        label: Optional[str] = None,
+        control_family: Optional[str] = None,
+        layout: Optional[str] = None,
+    ) -> None:
+        """Replace shop-local folder aliases for one machine with ``aliases``."""
+        mid = str(machine_id or "").strip()
+        if not mid or mid == "unknown" or mid.startswith("unmapped:"):
+            return
+        # Keep prior meta if caller omitted fields
+        prior = self.info_for_machine_id(mid, mid)
+        lab = label if label is not None else (prior.label if prior else None)
+        cf = (
+            control_family
+            if control_family is not None
+            else (prior.control_family if prior else None)
+        )
+        lay = layout if layout is not None else (prior.layout if prior else None)
+        self.remove_local_aliases_for_machine(mid)
+        seen: set[str] = set()
+        for raw in aliases:
+            name = str(raw or "").strip()
+            if not name:
+                continue
+            nk = normalize_folder_name(name)
+            if not nk or nk in seen:
+                continue
+            seen.add(nk)
+            self.add_local_alias(
+                name,
+                mid,
+                label=lab,
+                control_family=cf,
+                layout=lay,
+            )
+
     def save_local(self, path: Path | str) -> Path:
         """Write only shop-local aliases (does not touch bundled aliases.yaml)."""
         p = Path(path)
