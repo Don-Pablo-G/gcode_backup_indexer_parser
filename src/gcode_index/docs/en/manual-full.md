@@ -28,6 +28,8 @@ Full mode can:
 | **Database folder** (`target`) | `gcode_index.sqlite` + sidecar files (`machine_folders.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
 | **Extract folder** | Default output for Wydobądź (blank = same as database folder) |
 
+Browsing for backup / database / extract keeps the folder panel **open** so you can finish all paths. Collapse with **Done** / **Gotowe** when finished (or when a scan starts).
+
 ### Extra roots
 
 - **Green** — treat like on-machine / catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
@@ -41,7 +43,7 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 1. **Map folders…** — discovers `<date>/<machine>` folders, auto-matches known aliases, and lists only unmatched names for manual assign. Map is saved as `machine_folders.yaml` (wins over aliases).
 2. Optional: save assignments as **local aliases** (`aliases.local.yaml`) for later scans.
-3. **Aliases…** — add / change / remove local aliases. Bundled `aliases.yaml` stays read-only.
+3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
 
 ### Loose `.nc` machine assignment
 
@@ -51,20 +53,21 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 
 ## Run index / scan
 
-1. Set backup + database folders (and extras if needed).
+1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
 2. Click green **Run index / scan** / **Indeksuj / skanuj**.
-3. Options:
+3. Options (second toolbar row under **Indeksuj**):
    - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
    - **Also write Excel** — export workbook next to the DB after scan
-4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**).
+   - **Watch folders** — see below
+4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
 
 ### Auto-index
 
-In Full mode, set **Auto-index** to hourly / daily / weekly. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
+In Full mode, set **Auto-index** (right side of the second toolbar row) to hourly / daily / weekly. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
 
 ### Watch folders
 
-Tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
+On the **second** Full-mode toolbar row, tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
 
 - Only available in **Full** mode.
 - Takes a `gcode_index.lock` next to the database so **one PC** owns watching/indexing. Other Full instances see “Watch locked” if they try to enable it. Prosty clients never take the lock.
@@ -76,7 +79,8 @@ Tick **Watch folders** to poll the backup tree and extra (green/yellow) roots ev
 
 Same find bar as Simple mode, plus:
 
-- **More filters** — source type, control, flag (green/yellow), programmer, presets
+- **More filters** — source type, control, flag (green/yellow), programmer, presets, **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation)
+- Click any **results column header** to sort ascending/descending (both modes)
 - **Compare…** — unified diff of exactly two selected rows
 - **Duplicates…** — exact and near-duplicate groups
 - **Open folder** / **Copy path** on the source file

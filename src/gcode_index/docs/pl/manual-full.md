@@ -28,6 +28,8 @@ Tryb Pełny pozwala:
 | **Folder bazy** (`target`) | `gcode_index.sqlite` + pliki pomocnicze (`machine_folders.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
 | **Folder wydobycia** | Domyślny zapis Wydobądź (puste = ten sam co folder bazy) |
 
+Wybór folderu kopii / bazy / wydobycia **nie zwija** sekcji folderów — możesz dokończyć wszystkie ścieżki. Zwiń przez **Gotowe**, gdy skończysz (albo przy starcie skanu).
+
 ### Dodatkowe katalogi
 
 - **Zielony** — jak z maszyny / folder „łapacza” luźnych `.nc` (zanim znikną z backupu). Podfoldery są skanowane rekurencyjnie. Programy dostają **zieloną** flagę pochodzenia.
@@ -41,7 +43,7 @@ Katalogi zapisują się jako `extra_scan_roots.yaml` obok bazy (oraz w `gcode-in
 
 1. **Mapuj foldery…** — wykrywa foldery `<data>/<maszyna>`, automatycznie dopasowuje znane aliasy i pokazuje tylko niedopasowane do ręcznego przypisania. Mapa: `machine_folders.yaml` (ma pierwszeństwo przed aliasami).
 2. Opcjonalnie: zapisz przypisania jako **lokalne aliasy** (`aliases.local.yaml`) na kolejne skany.
-3. **Aliasy…** — dodawanie / zmiana / usuwanie lokalnych aliasów. Dołączony `aliases.yaml` pozostaje tylko do odczytu.
+3. **Maszyny i aliasy…** — lista maszyn po lewej; wybierz maszynę, aby edytować jej **aliasy folderów**, etykietę, sterowanie i layout. **Dodaj maszynę** / **Usuń maszynę** zarządzają maszynami lokalnymi. Aliasy z katalogu (`[bundled]`) są tylko do odczytu — dodaj lokalną pisownię, aby je nadpisać. Zapis: `aliases.local.yaml`.
 
 ### Przypisanie maszyny dla luźnych `.nc`
 
@@ -51,20 +53,21 @@ Przy indeksowaniu pojedynczych plików `.nc` / `.nc.copy` skaner przechodzi fold
 
 ## Indeksuj / skanuj
 
-1. Ustaw folder kopii + folder bazy (oraz dodatkowe, jeśli potrzeba).
+1. Ustaw folder kopii + folder bazy (oraz dodatkowe, jeśli potrzeba), albo użyj **Otwórz istniejącą bazę…** na pasku, aby wybrać gotowy `gcode_index.sqlite`.
 2. Kliknij zielony **Indeksuj / skanuj**.
-3. Opcje:
+3. Opcje (drugi wiersz paska pod **Indeksuj**):
    - **Przyrostowo** — pomija niezmienione pliki (rozmiar + mtime); ponownie używa wcześniejszych wierszy
    - **Zapisz też Excel** — eksport skoroszytu obok bazy po skanie
-4. Pasek postępu pokazuje liczbę plików i ETA. Po zakończeniu otwiera się **raport skanu** (także przez **Raport skanu…**).
+   - **Obserwuj foldery** — patrz niżej
+4. Pasek postępu pokazuje liczbę plików i ETA. Po zakończeniu otwiera się **raport skanu** (także przez **Raport skanu…** w tym samym wierszu).
 
 ### Auto-indeks
 
-W trybie Pełnym ustaw **Auto-indeks** na co godzinę / codziennie / co tydzień. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
+W trybie Pełnym ustaw **Auto-indeks** (po prawej w drugim wierszu paska) na co godzinę / codziennie / co tydzień. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
 
 ### Obserwuj foldery
 
-Zaznacz **Obserwuj foldery**, aby co kilka sekund sprawdzać drzewo kopii i katalogi dodatkowe (zielone/żółte). Gdy pojawią się nowe lub zmienione pliki indeksowalne, aplikacja czeka chwilę (debounce), potem uruchamia skan **przyrostowy** (bez pełnej przebudowy).
+W **drugim** wierszu paska trybu Pełnego zaznacz **Obserwuj foldery**, aby co kilka sekund sprawdzać drzewo kopii i katalogi dodatkowe (zielone/żółte). Gdy pojawią się nowe lub zmienione pliki indeksowalne, aplikacja czeka chwilę (debounce), potem uruchamia skan **przyrostowy** (bez pełnej przebudowy).
 
 - Tylko w trybie **Pełnym**.
 - Tworzy `gcode_index.lock` obok bazy — **jeden komputer** obserwuje / indeksuje. Inne instancje Pełne zobaczą „Obserwacja zablokowana”. Tryb Prosty nie bierze blokady.
@@ -76,7 +79,8 @@ Zaznacz **Obserwuj foldery**, aby co kilka sekund sprawdzać drzewo kopii i kata
 
 Ten sam pasek wyszukiwania co w trybie Prostym, plus:
 
-- **Więcej filtrów** — typ źródła, sterowanie, flaga (zielona/żółta), programista, presety
+- **Więcej filtrów** — typ źródła, sterowanie, flaga (zielona/żółta), programista, presety, **rozmiar od/do** (bajty lub `10k` / `1.5M`), **data pliku od/do** (mtime / utworzenie)
+- Kliknij nagłówek kolumny w wynikach, aby sortować rosnąco/malejąco (oba tryby)
 - **Porównaj…** — różnice dwóch zaznaczonych wierszy
 - **Duplikaty…** — grupy dokładnych i podobnych kopii
 - **Otwórz folder** / **Kopiuj ścieżkę** do pliku źródłowego

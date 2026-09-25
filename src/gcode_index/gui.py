@@ -3280,7 +3280,13 @@ class AliasEditorDialog(tk.Toplevel):
         save_path: Path,
     ) -> None:
         super().__init__(master)
-        self.title("Machines & aliases")
+        title = "Machines & aliases"
+        if hasattr(master, "_"):
+            try:
+                title = master._("aliases_dialog_title")  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001
+                pass
+        self.title(title)
         self.minsize(780, 480)
         self.geometry("900x560")
         self.transient(master)

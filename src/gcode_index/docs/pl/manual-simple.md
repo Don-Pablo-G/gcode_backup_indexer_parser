@@ -18,18 +18,9 @@ Plików kopii zapasowej nigdy nie zmieniasz. Wydobycie zawsze zapisuje do osobne
 
 1. W razie potrzeby ustaw język (**Język** → `pl` lub `en`).
 2. Pozostań w trybie **Prosty** (albo wróć do niego przez **Tryb**).
-3. Kliknij zielony przycisk **Otwórz istniejącą bazę…** i wskaż `gcode_index.sqlite`.  
-   Albo ustaw **folder z bazą** (folder, w którym leży ten plik) w sekcji Foldery.
+3. Kliknij zielony przycisk **Otwórz istniejącą bazę…** i wskaż `gcode_index.sqlite`.
 
-Opcjonalne foldery:
-
-| Folder | Znaczenie |
-|--------|-----------|
-| **Folder z bazą** | Tu jest `gcode_index.sqlite` (wymagany) |
-| **Folder wydobycia** | Tu trafiają zapisane programy (puste = ten sam co folder bazy) |
-| **Folder kopii** | Potrzebny tylko gdy wydobycie musi odtworzyć ścieżki względne z oryginalnego drzewa |
-
-**Zmień…** edytuje foldery; **Gotowe** zwija pasek.
+Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder co otwarta baza). W trybie Prostym **nie ma** pól folderu kopii ani folderu bazy — katalog wybierasz przez **Otwórz istniejącą bazę…**.
 
 ---
 
@@ -39,6 +30,7 @@ Opcjonalne foldery:
 2. Opcjonalnie **Maszyny** — wielokrotny wybór (Ctrl/Shift+klik). Puste / wszystkie = każda maszyna.
 3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR`.
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
+5. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 
 Wyniki są w tabeli. **Podgląd** po prawej pokazuje treść zaznaczonego programu.
 
