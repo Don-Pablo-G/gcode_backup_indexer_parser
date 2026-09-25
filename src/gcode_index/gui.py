@@ -148,7 +148,7 @@ __all__ = [
 
 
 class IndexerApp(tk.Tk):
-    """Main window: backup + target folders, scan, live search, extract."""
+    """Main window: backup + database + extract folders, scan, live search, extract."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -158,6 +158,7 @@ class IndexerApp(tk.Tk):
 
         self.backup_var = tk.StringVar()
         self.target_var = tk.StringVar()
+        self.extract_var = tk.StringVar()
         self.search_var = tk.StringVar()
         self.date_from_var = tk.StringVar()
         self.date_to_var = tk.StringVar()
@@ -228,6 +229,7 @@ class IndexerApp(tk.Tk):
         # Persist folder edits typed by hand (debounced)
         self.backup_var.trace_add("write", self._on_folder_path_changed)
         self.target_var.trace_add("write", self._on_folder_path_changed)
+        self.extract_var.trace_add("write", self._on_folder_path_changed)
         self._folder_save_after_id: Optional[str] = None
 
     def _(self, key: str, **kwargs) -> str:
@@ -243,6 +245,7 @@ class IndexerApp(tk.Tk):
         self.schedule_var.set(self._schedule)
         self.backup_var.set(cfg.backup or "")
         self.target_var.set(cfg.target or "")
+        self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
         self.excel_var.set(bool(cfg.also_excel))
         self.newest_only_var.set(bool(cfg.newest_only))
@@ -278,6 +281,7 @@ class IndexerApp(tk.Tk):
         return InstanceConfig(
             backup=self.backup_var.get().strip(),
             target=self.target_var.get().strip(),
+            extract=self.extract_var.get().strip(),
             green_roots=greens,
             yellow_roots=yellows,
             language=self._lang,
@@ -402,6 +406,7 @@ class IndexerApp(tk.Tk):
         return {
             "backup": self.backup_var.get(),
             "target": self.target_var.get(),
+            "extract": self.extract_var.get(),
             "search": self.search_var.get(),
             "date_from": self.date_from_var.get(),
             "date_to": self.date_to_var.get(),
@@ -469,6 +474,7 @@ class IndexerApp(tk.Tk):
         if preserved:
             self.backup_var.set(preserved.get("backup") or "")
             self.target_var.set(preserved.get("target") or "")
+            self.extract_var.set(preserved.get("extract") or "")
             self.search_var.set(preserved.get("search") or "")
             self.date_from_var.set(preserved.get("date_from") or "")
             self.date_to_var.set(preserved.get("date_to") or "")
@@ -538,7 +544,10 @@ class IndexerApp(tk.Tk):
             return
         bak = self.backup_var.get().strip()
         tgt = self.target_var.get().strip()
+        ext = self.extract_var.get().strip()
         unset = self._("path_unset")
+        # Display resolved extract path (explicit or same as DB)
+        extract_disp = self._short_path(ext or tgt) if (ext or tgt) else unset
         if self._is_simple():
             if not tgt:
                 self._folders_summary_var.set(self._("folders_summary_empty_simple"))
@@ -548,10 +557,11 @@ class IndexerApp(tk.Tk):
                         "folders_summary_simple",
                         backup=self._short_path(bak) if bak else unset,
                         target=self._short_path(tgt),
+                        extract=extract_disp,
                     )
                 )
             return
-        if not bak and not tgt:
+        if not bak and not tgt and not ext:
             self._folders_summary_var.set(self._("folders_summary_empty"))
         else:
             self._folders_summary_var.set(
@@ -559,8 +569,13 @@ class IndexerApp(tk.Tk):
                     "folders_summary",
                     backup=self._short_path(bak) if bak else unset,
                     target=self._short_path(tgt) if tgt else unset,
+                    extract=extract_disp,
                 )
             )
+
+    def _extract_dir(self) -> str:
+        """Resolved extract output folder (explicit extract, else database/target)."""
+        return self.extract_var.get().strip() or self.target_var.get().strip()
 
     def _set_folders_expanded(self, expanded: bool, *, persist: bool = True) -> None:
         self._folders_expanded = bool(expanded)
@@ -778,6 +793,23 @@ class IndexerApp(tk.Tk):
         ttk.Button(paths, text=self._("browse"), command=self._pick_target).grid(
             row=1, column=2
         )
+
+        ttk.Label(
+            paths,
+            text=self._("extract_folder"),
+            style="Key.TLabel",
+        ).grid(row=2, column=0, sticky=tk.W)
+        ttk.Entry(paths, textvariable=self.extract_var, style="Key.TEntry").grid(
+            row=2, column=1, sticky=tk.EW, padx=4, ipady=2
+        )
+        ttk.Button(paths, text=self._("browse"), command=self._pick_extract).grid(
+            row=2, column=2
+        )
+        ttk.Label(
+            paths,
+            text=self._("extract_folder_hint"),
+            style="Muted.TLabel",
+        ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(0, 2))
         paths.columnconfigure(1, weight=1)
 
         # Additional folders (green catch + yellow extras) — Full mode only
@@ -787,7 +819,7 @@ class IndexerApp(tk.Tk):
                 text=self._("extra_folders"),
                 padding=6,
             )
-            extra.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
+            extra.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
             extra_row = ttk.Frame(extra)
             extra_row.pack(fill=tk.X)
             self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
@@ -823,7 +855,7 @@ class IndexerApp(tk.Tk):
 
         done_row = ttk.Frame(paths)
         done_row.grid(
-            row=3 if not simple else 2,
+            row=5 if not simple else 4,
             column=0,
             columnspan=3,
             sticky=tk.E,
@@ -1220,7 +1252,7 @@ class IndexerApp(tk.Tk):
             self._save_instance_ini()
 
     def _pick_target(self) -> None:
-        path = filedialog.askdirectory(title="Select target folder for database / extracts")
+        path = filedialog.askdirectory(title=self._("target_folder"))
         if path:
             self.target_var.set(path)
             self._load_extra_roots_into_list()
@@ -1244,6 +1276,14 @@ class IndexerApp(tk.Tk):
             else:
                 self._persist_ui_settings(path)
                 self._maybe_auto_collapse_folders()
+
+    def _pick_extract(self) -> None:
+        path = filedialog.askdirectory(title=self._("extract_folder"))
+        if path:
+            self.extract_var.set(path)
+            self._update_folders_summary()
+            self._maybe_auto_collapse_folders()
+            self._save_instance_ini()
 
     def _pick_existing_db(self) -> None:
         path = filedialog.askopenfilename(
@@ -2363,11 +2403,16 @@ class IndexerApp(tk.Tk):
             messagebox.showinfo("Extract", "Select one or more search results first.")
             return
         backup = self.backup_var.get().strip()
-        target = self.target_var.get().strip()
+        extract_dir = self._extract_dir()
         if not backup:
             backup = self._backup_root_from_db() or ""
-        if not target:
-            messagebox.showerror("Target folder", "Set the target folder for extracts.")
+        if not extract_dir:
+            messagebox.showerror(
+                self._("extract_folder"),
+                self._("extract_folder")
+                + "\n\n"
+                + self._("extract_folder_hint"),
+            )
             return
 
         # Resolve roots: any selected row may use scan_root
@@ -2385,12 +2430,14 @@ class IndexerApp(tk.Tk):
             )
             return
 
+        Path(extract_dir).mkdir(parents=True, exist_ok=True)
+
         if len(rows) == 1:
             row = rows[0]
             suggested = default_extract_filename(row)
             out = filedialog.asksaveasfilename(
                 title="Save extracted program",
-                initialdir=target,
+                initialdir=extract_dir,
                 initialfile=suggested,
                 defaultextension=".nc",
                 filetypes=[("NC / text", "*.nc *.txt"), ("All", "*.*")],
@@ -2409,7 +2456,7 @@ class IndexerApp(tk.Tk):
         # Batch: pick output folder, write unique filenames
         out_dir = filedialog.askdirectory(
             title=f"Extract {len(rows)} programs into folder",
-            initialdir=target,
+            initialdir=extract_dir,
         )
         if not out_dir:
             return

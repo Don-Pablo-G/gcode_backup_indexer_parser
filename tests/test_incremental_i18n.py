@@ -58,6 +58,10 @@ def test_ui_mode_defaults():
     assert "opcjonalny" in t("pl", "backup_folder_optional")
     assert "Otwórz" in t("pl", "status_pick_simple")
     assert "Open an existing" in t("en", "status_pick_simple")
+    assert "wydobycia" in t("pl", "extract_folder").casefold()
+    assert "Extract folder" in t("en", "extract_folder")
+    assert "{extract}" in t("pl", "folders_summary")
+    assert "SQLite" in t("pl", "target_folder")
 
 
 def test_ui_accent_constants():

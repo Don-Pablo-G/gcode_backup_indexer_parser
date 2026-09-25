@@ -1,7 +1,8 @@
 """Human-readable instance settings (``.ini``) for an installed GUI copy.
 
 Stored next to ``gcode-index-gui.exe`` (frozen) or in the working directory (dev)
-so operators reopen the app with the same backup / target / scan-root folders.
+so operators reopen the app with the same backup / database / extract / scan-root
+folders.
 """
 
 from __future__ import annotations
@@ -25,7 +26,8 @@ class InstanceConfig:
     """Flat settings mirror of what the GUI needs to resume indexing."""
 
     backup: str = ""
-    target: str = ""
+    target: str = ""  # database folder (gcode_index.sqlite + sidecar yaml)
+    extract: str = ""  # Wydobądź / extract output folder (falls back to target if empty)
     green_roots: list[str] = field(default_factory=list)
     yellow_roots: list[str] = field(default_factory=list)
     language: str = "pl"
@@ -54,6 +56,10 @@ class InstanceConfig:
             seen.add(key)
             specs.append(ScanRootSpec(path=path.strip(), provenance=PROVENANCE_EXTRA))
         return specs
+
+    def extract_folder(self) -> str:
+        """Folder for extracted programs; empty extract falls back to target."""
+        return (self.extract or "").strip() or (self.target or "").strip()
 
 
 def default_instance_ini_path() -> Path:
@@ -120,6 +126,10 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
     if parser.has_section("folders"):
         cfg.backup = parser.get("folders", "backup", fallback="").strip()
         cfg.target = parser.get("folders", "target", fallback="").strip()
+        # Prefer explicit extract=; accept legacy extract_folder=
+        cfg.extract = parser.get("folders", "extract", fallback="").strip()
+        if not cfg.extract:
+            cfg.extract = parser.get("folders", "extract_folder", fallback="").strip()
 
     if parser.has_section("green_roots"):
         cfg.green_roots = _split_paths(parser.get("green_roots", "paths", fallback=""))
@@ -197,6 +207,7 @@ def save_instance_ini(
     data = InstanceConfig(
         backup=str(kwargs.get("backup", base.backup) or ""),
         target=str(kwargs.get("target", base.target) or ""),
+        extract=str(kwargs.get("extract", base.extract) or ""),
         green_roots=list(kwargs.get("green_roots", base.green_roots) or []),
         yellow_roots=list(kwargs.get("yellow_roots", base.yellow_roots) or []),
         language=str(kwargs.get("language", base.language) or "pl"),
@@ -229,9 +240,10 @@ def save_instance_ini(
 [folders]
 ; Main CNC backup tree (usually DATE\\MACHINE\\... dumps + .nc files)
 backup = {data.backup}
-; Target folder for the database + extracted programs
-; (gcode_index.sqlite, machine_folders.yaml, aliases.local.yaml live here)
+; Database folder — gcode_index.sqlite, machine_folders.yaml, aliases.local.yaml
 target = {data.target}
+; Extract / Wydobądź output folder (leave blank to use the database folder)
+extract = {data.extract}
 
 [green_roots]
 ; ON-MACHINE catch folders (green flag). One full path per indented line.

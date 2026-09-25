@@ -33,11 +33,12 @@ Entry points:
 
 ## Instance settings (``gcode-index.ini``)
 
-The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening the app restores backup / target / green & yellow scan roots / language / mode / schedule without re-picking folders.
+The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening the app restores backup / database / extract / green & yellow scan roots / language / mode / schedule without re-picking folders.
 
 - Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example)
 - Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
-- The GUI also keeps copies next to the target DB (`extra_scan_roots.yaml`, `ui_settings.yaml`) so the index folder stays portable
+- The GUI also keeps copies next to the **database** folder (`extra_scan_roots.yaml`, `ui_settings.yaml`) so the index stays portable
+- **`target`** = database folder · **`extract`** = Wydobądź output (blank → same as `target`)
 
 ## Windows GUI (Phase 2)
 
@@ -56,28 +57,30 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
 
 ### Simple mode (operators — retrieve only)
 
-1. Click green **Otwórz istniejącą bazę…** / **Open existing DB…** (or set the folder that already holds `gcode_index.sqlite`).  
-2. Optionally set **backup** if extract needs relative source paths.  
-3. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
-4. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.  
-5. Switch to **Pełny** when you need to index / scan.
+1. Click green **Otwórz istniejącą bazę…** / **Open existing DB…** (or set the **database folder** that already holds `gcode_index.sqlite`).  
+2. Optionally set a separate **extract folder** for Wydobądź output (blank = same as database folder).  
+3. Optionally set **backup** if extract needs relative source paths.  
+4. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
+5. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.  
+6. Switch to **Pełny** when you need to index / scan.
 
 ### Full mode (power users)
 
 1. **Browse** → pick the main **backup folder** tree.  
-2. **Browse** → pick a **target folder** (database + extract output live here as `gcode_index.sqlite`).  
-3. Optionally **Add folder…** under **Extra folders** for other trees to index (and their subfolders).  
+2. **Browse** → pick a **database folder** (`gcode_index.sqlite` + sidecar yaml live here).  
+3. Optionally **Browse** a separate **extract folder** for Wydobądź output (leave blank to write next to the DB).  
+4. Optionally **Add folder…** under **Extra folders** for other trees to index (and their subfolders).  
    - Main backup programs get a **green** flag (ran on the machine / from backup).  
    - Extra-folder programs get a **yellow** flag (not from backup / not confirmed run).  
    - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.  
-4. Click **Map folders…** (optional but recommended). The app scans `<date>/<machine>` folders, **auto-matches** names it knows from aliases, and lists **only unmatched** folders for manual assign. Subfolders inherit.  
+5. Click **Map folders…** (optional but recommended). The app scans `<date>/<machine>` folders, **auto-matches** names it knows from aliases, and lists **only unmatched** folders for manual assign. Subfolders inherit.  
    - Map is saved as `machine_folders.yaml` next to the DB (wins over aliases).  
    - Optional checkbox: also save assignments as **local aliases** (`aliases.local.yaml` next to the DB) so the same odd folder names auto-match on later scans.  
    - First scan prompts only when unmatched folders remain.  
    - **Aliases…** opens an editor to **add / change / remove** local aliases (and override bundled ones). Bundled `aliases.yaml` stays read-only.  
-5. Click **Run index / scan** (optional Excel export checkbox; optional **Auto-index** schedule).  
+6. Click **Run index / scan** (optional Excel export checkbox; optional **Auto-index** schedule).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
-6. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
+7. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
    - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  
      The list is seeded from `aliases.yaml` + local aliases (so **HAAS UMC750**, ST-20Y, … always appear) plus **MACHINE UNKNOWN**, and merged with machines seen in the last scan.  
      VF-2 has three entries (legacy / **nowa** / **stara**); selecting **HAAS VF-2** also matches the nowa/stara ids.  
@@ -93,14 +96,14 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
    Text matches program #, part #, path, machine names, FANUC folder paths, and programmer.  
    Program-number search is **O / zero-padding aware**: `O03232`, `03232`, and `3232` find the same program.  
    Empty text + filters still works.  
-7. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser.  
+8. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser (defaults into the **extract folder**).  
    **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).  
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
    Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).  
    The **Preview** pane under the results table shows the selected program body before you extract (large programs are truncated in the pane only).  
    Select **exactly two** rows → **Compare…** for a unified diff (also on right-click).  
-8. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.  
-9. **Duplicates…** finds **exact** copies (same content SHA-256) and **near**-duplicates (same program # + similar size, different hash) across machines/dates; **Show in results** loads a group into the main table.
+9. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.  
+10. **Duplicates…** finds **exact** copies (same content SHA-256) and **near**-duplicates (same program # + similar size, different hash) across machines/dates; **Show in results** loads a group into the main table.
 
 While **Run index / scan** is running, a progress bar shows file count and ETA. You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar.
 

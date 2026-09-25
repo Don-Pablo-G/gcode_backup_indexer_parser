@@ -6,8 +6,10 @@
 [folders]
 ; Main CNC backup tree (usually DATE\MACHINE\... dumps + .nc files)
 backup = D:\CNC\Backups
-; Target folder for the database + extracted programs
+; Database folder — gcode_index.sqlite + sidecar yaml live here
 target = D:\CNC\Index
+; Extract / Wydobądź output (leave blank to use the database folder)
+extract = D:\CNC\Extracted
 
 [green_roots]
 ; ON-MACHINE catch folders (green flag). One full path per indented line.

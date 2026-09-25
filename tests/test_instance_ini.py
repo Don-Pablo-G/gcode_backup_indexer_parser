@@ -18,6 +18,7 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     cfg = InstanceConfig(
         backup=r"D:\CNC\Backups",
         target=r"D:\CNC\Index",
+        extract=r"D:\CNC\Extracted",
         green_roots=[r"D:\CNC\Catch", r"D:\CNC\USB"],
         yellow_roots=[r"D:\CNC\Extra"],
         language="pl",
@@ -35,11 +36,15 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     assert "G-code Backup Indexer" in text
     assert "green_roots" in text
     assert r"D:\CNC\Catch" in text
+    assert "extract = " in text
+    assert r"D:\CNC\Extracted" in text
     assert "schedule = daily" in text
 
     loaded = load_instance_ini(path)
     assert loaded.backup == r"D:\CNC\Backups"
     assert loaded.target == r"D:\CNC\Index"
+    assert loaded.extract == r"D:\CNC\Extracted"
+    assert loaded.extract_folder() == r"D:\CNC\Extracted"
     assert loaded.green_roots == [r"D:\CNC\Catch", r"D:\CNC\USB"]
     assert loaded.yellow_roots == [r"D:\CNC\Extra"]
     assert loaded.language == "pl"
@@ -53,6 +58,37 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     specs = loaded.root_specs()
     assert any(s.provenance == PROVENANCE_BACKUP and "Catch" in s.path for s in specs)
     assert any(s.provenance == PROVENANCE_EXTRA and "Extra" in s.path for s in specs)
+
+
+def test_instance_ini_extract_falls_back_to_target(tmp_path: Path):
+    path = tmp_path / "gcode-index.ini"
+    path.write_text(
+        """
+[folders]
+backup = /bak
+target = /db
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.extract == ""
+    assert cfg.extract_folder() == "/db"
+
+
+def test_instance_ini_legacy_extract_folder_key(tmp_path: Path):
+    path = tmp_path / "gcode-index.ini"
+    path.write_text(
+        """
+[folders]
+backup = /bak
+target = /db
+extract_folder = /out
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.extract == "/out"
+    assert cfg.extract_folder() == "/out"
 
 
 def test_instance_ini_missing_file(tmp_path: Path):
