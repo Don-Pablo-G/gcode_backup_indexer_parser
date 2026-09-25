@@ -1832,7 +1832,7 @@ class IndexerApp(tk.Tk):
         try:
             aliases = self._load_alias_map()
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("Aliases", str(exc))
+            messagebox.showerror(self._("aliases_dialog_title"), str(exc))
             return
         folders = discover_machine_folders(backup)
         if not folders:
@@ -1890,7 +1890,7 @@ class IndexerApp(tk.Tk):
         try:
             aliases = self._load_alias_map()
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("Aliases", str(exc))
+            messagebox.showerror(self._("aliases_dialog_title"), str(exc))
             return
         dlg = AliasEditorDialog(
             self,
