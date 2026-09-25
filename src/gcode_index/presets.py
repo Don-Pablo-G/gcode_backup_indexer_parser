@@ -20,6 +20,10 @@ class FilterPreset:
     machines: list[str] = field(default_factory=list)
     date_from: str = ""
     date_to: str = ""
+    size_min: str = ""
+    size_max: str = ""
+    mtime_from: str = ""
+    mtime_to: str = ""
     source_type: str = "(all)"
     control: str = "(all)"
     provenance: str = "(all)"
@@ -45,6 +49,10 @@ class FilterPreset:
             machines=machines,
             date_from=str(data.get("date_from") or ""),
             date_to=str(data.get("date_to") or ""),
+            size_min=str(data.get("size_min") or ""),
+            size_max=str(data.get("size_max") or ""),
+            mtime_from=str(data.get("mtime_from") or ""),
+            mtime_to=str(data.get("mtime_to") or ""),
             source_type=str(data.get("source_type") or "(all)"),
             control=str(data.get("control") or "(all)"),
             provenance=str(data.get("provenance") or "(all)"),

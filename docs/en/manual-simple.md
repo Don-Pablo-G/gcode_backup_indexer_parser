@@ -39,6 +39,7 @@ Use **Change…** / **Zmień…** to edit folders; **Done** / **Gotowe** collaps
 2. Optionally open **Machines** and multi-select (Ctrl/Shift+click). Empty / all = every machine.
 3. Optionally set **Date from / to** as `DD.MM.YYYY`.
 4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
+5. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 
 Results appear in the table. The **Preview** pane on the right shows the selected program body.
 

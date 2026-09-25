@@ -103,6 +103,8 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
    - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)  
    - **Newest only** — one row per program + machine (latest backup date)  
    - **Preset** — **Save current…** / **Load** / **Delete** named filter sets (`filter_presets.yaml` next to the DB)  
+   - Click any **results column header** to sort asc/desc (also in Simple mode)  
+   - **More filters** (Full): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges  
    - **Incremental** — skip unchanged source files (size + mtime) and reuse their index rows; uncheck for a full re-parse  
    - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)  
    Text matches program #, part #, path, machine names, FANUC folder paths, and programmer.  

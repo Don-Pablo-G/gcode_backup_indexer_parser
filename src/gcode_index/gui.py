@@ -30,10 +30,12 @@ from gcode_index.compare import (
 )
 from gcode_index.db import (
     format_display_date,
+    format_display_size,
     format_location,
     list_filter_values,
     open_db,
     query_instances,
+    sort_instances,
     write_scan_result,
 )
 from gcode_index.excel_export import export_excel
@@ -170,6 +172,10 @@ class IndexerApp(tk.Tk):
         self.search_var = tk.StringVar()
         self.date_from_var = tk.StringVar()
         self.date_to_var = tk.StringVar()
+        self.size_min_var = tk.StringVar()
+        self.size_max_var = tk.StringVar()
+        self.mtime_from_var = tk.StringVar()
+        self.mtime_to_var = tk.StringVar()
         self.source_type_var = tk.StringVar(value=ALL)
         self.control_var = tk.StringVar(value=ALL)
         self.provenance_var = tk.StringVar(value=ALL)
@@ -192,6 +198,9 @@ class IndexerApp(tk.Tk):
         self._search_after_id: Optional[str] = None
         self._schedule_after_id: Optional[str] = None
         self._result_rows: list = []
+        self._sort_col: Optional[str] = None
+        self._sort_reverse: bool = False
+        self._heading_labels: dict[str, str] = {}
         self._scan_busy = False
         self._watch_rescan_pending = False
         self._folder_watcher: Optional[FolderWatcher] = None
@@ -233,6 +242,10 @@ class IndexerApp(tk.Tk):
         for var in (
             self.date_from_var,
             self.date_to_var,
+            self.size_min_var,
+            self.size_max_var,
+            self.mtime_from_var,
+            self.mtime_to_var,
             self.source_type_var,
             self.control_var,
             self.provenance_var,
@@ -428,6 +441,10 @@ class IndexerApp(tk.Tk):
             "search": self.search_var.get(),
             "date_from": self.date_from_var.get(),
             "date_to": self.date_to_var.get(),
+            "size_min": self.size_min_var.get(),
+            "size_max": self.size_max_var.get(),
+            "mtime_from": self.mtime_from_var.get(),
+            "mtime_to": self.mtime_to_var.get(),
             "source_type": self.source_type_var.get(),
             "control": self.control_var.get(),
             "provenance": self.provenance_var.get(),
@@ -441,6 +458,8 @@ class IndexerApp(tk.Tk):
             "folders_expanded": bool(self._folders_expanded),
             "more_filters": bool(self._more_filters_open),
             "schedule": self._schedule,
+            "sort_col": self._sort_col,
+            "sort_reverse": bool(self._sort_reverse),
         }
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
@@ -498,6 +517,10 @@ class IndexerApp(tk.Tk):
             self.search_var.set(preserved.get("search") or "")
             self.date_from_var.set(preserved.get("date_from") or "")
             self.date_to_var.set(preserved.get("date_to") or "")
+            self.size_min_var.set(preserved.get("size_min") or "")
+            self.size_max_var.set(preserved.get("size_max") or "")
+            self.mtime_from_var.set(preserved.get("mtime_from") or "")
+            self.mtime_to_var.set(preserved.get("mtime_to") or "")
             st = preserved.get("source_type") or self._all_token()
             if st in ALL_TOKENS:
                 st = self._all_token()
@@ -522,6 +545,9 @@ class IndexerApp(tk.Tk):
             self.incremental_var.set(bool(preserved.get("incremental", True)))
             self.watch_var.set(bool(preserved.get("watch", False)))
             self.excel_var.set(bool(preserved.get("excel", True)))
+            sort_col = preserved.get("sort_col")
+            self._sort_col = str(sort_col) if sort_col else None
+            self._sort_reverse = bool(preserved.get("sort_reverse"))
             roots = list(preserved.get("roots") or [])
             self._hidden_root_specs = [
                 r if isinstance(r, ScanRootSpec) else ScanRootSpec(path=str(r))
@@ -1169,6 +1195,40 @@ class IndexerApp(tk.Tk):
                 text=self._("delete"),
                 command=self._delete_selected_preset,
             ).pack(side=tk.LEFT, padx=2)
+
+            # Size / file-date ranges (#10) — Full more-filters only
+            ttk.Label(adv, text=self._("size_from")).grid(
+                row=2, column=0, sticky=tk.W, pady=2
+            )
+            size_row = ttk.Frame(adv)
+            size_row.grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
+            ttk.Entry(size_row, textvariable=self.size_min_var, width=10).pack(
+                side=tk.LEFT
+            )
+            ttk.Label(size_row, text=self._("size_to_sep")).pack(side=tk.LEFT)
+            ttk.Entry(size_row, textvariable=self.size_max_var, width=10).pack(
+                side=tk.LEFT
+            )
+            ttk.Label(adv, text=self._("size_hint"), style="Muted.TLabel").grid(
+                row=2, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
+            )
+
+            ttk.Label(adv, text=self._("mtime_from")).grid(
+                row=3, column=0, sticky=tk.W, pady=2
+            )
+            mtime_row = ttk.Frame(adv)
+            mtime_row.grid(row=3, column=1, sticky=tk.W, padx=4, pady=2)
+            ttk.Entry(mtime_row, textvariable=self.mtime_from_var, width=11).pack(
+                side=tk.LEFT
+            )
+            ttk.Label(mtime_row, text=self._("mtime_to_sep")).pack(side=tk.LEFT)
+            ttk.Entry(mtime_row, textvariable=self.mtime_to_var, width=11).pack(
+                side=tk.LEFT
+            )
+            ttk.Label(adv, text=self._("mtime_hint"), style="Muted.TLabel").grid(
+                row=3, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
+            )
+
             self._apply_more_filters_visibility()
         else:
             for attr in (
@@ -1191,6 +1251,7 @@ class IndexerApp(tk.Tk):
             "programmer",
             "machine",
             "date",
+            "size",
             "type",
             "control",
             "path",
@@ -1211,15 +1272,20 @@ class IndexerApp(tk.Tk):
             "programmer": (self._("col_programmer"), 56),
             "machine": (self._("col_machine"), 110),
             "date": (self._("col_date"), 100),
+            "size": (self._("col_size"), 70),
             "type": (self._("col_type"), 100),
             "control": (self._("col_control"), 70),
             "path": (self._("col_path"), 240),
             "location": (self._("col_location"), 120),
         }
+        self._heading_labels = {k: label for k, (label, _w) in headings.items()}
         for key, (label, width) in headings.items():
-            self.tree.heading(key, text=label)
+            self.tree.heading(
+                key, text=label, command=lambda c=key: self._on_sort_column(c)
+            )
             stretch = key in ("path", "part")
             self.tree.column(key, width=width, stretch=stretch, minwidth=40)
+        self._refresh_heading_labels()
         self.tree.tag_configure("flag_backup", foreground="#1a7f37")
         self.tree.tag_configure("flag_extra", foreground="#b58900")
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -2231,6 +2297,10 @@ class IndexerApp(tk.Tk):
             machines=self._selected_machines(),
             date_from=self.date_from_var.get().strip(),
             date_to=self.date_to_var.get().strip(),
+            size_min=self.size_min_var.get().strip(),
+            size_max=self.size_max_var.get().strip(),
+            mtime_from=self.mtime_from_var.get().strip(),
+            mtime_to=self.mtime_to_var.get().strip(),
             source_type=self.source_type_var.get().strip() or ALL,
             control=self.control_var.get().strip() or ALL,
             provenance=self.provenance_var.get().strip() or ALL,
@@ -2244,6 +2314,10 @@ class IndexerApp(tk.Tk):
             self.search_var.set(preset.text or "")
             self.date_from_var.set(preset.date_from or "")
             self.date_to_var.set(preset.date_to or "")
+            self.size_min_var.set(getattr(preset, "size_min", "") or "")
+            self.size_max_var.set(getattr(preset, "size_max", "") or "")
+            self.mtime_from_var.set(getattr(preset, "mtime_from", "") or "")
+            self.mtime_to_var.set(getattr(preset, "mtime_to", "") or "")
             self.source_type_var.set(preset.source_type or ALL)
             self.control_var.set(preset.control or ALL)
             self.provenance_var.set(preset.provenance or ALL)
@@ -2343,11 +2417,18 @@ class IndexerApp(tk.Tk):
             self._update_machines_button()
             self.date_from_var.set("")
             self.date_to_var.set("")
+            self.size_min_var.set("")
+            self.size_max_var.set("")
+            self.mtime_from_var.set("")
+            self.mtime_to_var.set("")
             self.source_type_var.set(self._all_token())
             self.control_var.set(self._all_token())
             self.provenance_var.set(self._all_token())
             self.programmer_var.set(self._all_token())
             self.newest_only_var.set(False)
+            self._sort_col = None
+            self._sort_reverse = False
+            self._refresh_heading_labels()
         finally:
             self._filter_trace_lock = False
         self._run_query_now(status_prefix=status_prefix)
@@ -2377,6 +2458,10 @@ class IndexerApp(tk.Tk):
         machines = self._selected_machines()
         date_from = self.date_from_var.get().strip() or None
         date_to = self.date_to_var.get().strip() or None
+        size_min = self.size_min_var.get().strip() or None
+        size_max = self.size_max_var.get().strip() or None
+        mtime_from = self.mtime_from_var.get().strip() or None
+        mtime_to = self.mtime_to_var.get().strip() or None
         source_type = self.source_type_var.get().strip()
         control = self.control_var.get().strip()
         provenance = self._provenance_filter_value()
@@ -2395,6 +2480,10 @@ class IndexerApp(tk.Tk):
                     machines=machines or None,
                     date_from=date_from,
                     date_to=date_to,
+                    size_min=size_min,
+                    size_max=size_max,
+                    mtime_from=mtime_from,
+                    mtime_to=mtime_to,
                     source_type=None if self._is_all_token(source_type) else source_type,
                     control_family=None if self._is_all_token(control) else control,
                     provenance=provenance,
@@ -2422,6 +2511,10 @@ class IndexerApp(tk.Tk):
             bits.append(f"machines={len(machines)}")
         if date_from or date_to:
             bits.append(f"dates={date_from or '…'}→{date_to or '…'}")
+        if size_min or size_max:
+            bits.append(f"size={size_min or '…'}→{size_max or '…'}")
+        if mtime_from or mtime_to:
+            bits.append(f"file={mtime_from or '…'}→{mtime_to or '…'}")
         if source_type and not self._is_all_token(source_type):
             bits.append(f"type={source_type}")
         if control and not self._is_all_token(control):
@@ -2432,6 +2525,9 @@ class IndexerApp(tk.Tk):
             bits.append(f"programmer={programmer_filter}")
         if self.newest_only_var.get():
             bits.append("newest-only")
+        if self._sort_col:
+            arrow = "↓" if self._sort_reverse else "↑"
+            bits.append(f"sort={self._sort_col}{arrow}")
         summary = " · ".join(bits)
         if status_prefix:
             self.status_var.set(f"{status_prefix} — {summary}")
@@ -2452,12 +2548,23 @@ class IndexerApp(tk.Tk):
         return None
 
     def _fill_tree(self, rows: list) -> None:
-        self._result_rows = rows
-        for i, r in enumerate(rows):
+        if self._sort_col:
+            rows = sort_instances(
+                rows, self._sort_col, reverse=self._sort_reverse
+            )
+        self._result_rows = list(rows)
+        self._redraw_tree()
+
+    def _redraw_tree(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        for i, r in enumerate(self._result_rows):
             date = format_display_date(r["backup_date"])
             machine = r["machine_label"] or r["machine_id"] or ""
             keys = r.keys() if hasattr(r, "keys") else ()
             control = r["control_family"] if "control_family" in keys else ""
+            size_val = ""
+            if "source_size" in keys:
+                size_val = format_display_size(r["source_size"])
             prog_flag = ""
             if "programmer" in keys and r["programmer"]:
                 prog_flag = str(r["programmer"])
@@ -2481,6 +2588,7 @@ class IndexerApp(tk.Tk):
                     prog_flag,
                     machine,
                     date,
+                    size_val,
                     r["source_type"] or "",
                     control or "",
                     r["source_path"] or "",
@@ -2488,7 +2596,34 @@ class IndexerApp(tk.Tk):
                 ),
                 tags=(tag,),
             )
+        self._refresh_heading_labels()
         self._refresh_preview()
+
+    def _refresh_heading_labels(self) -> None:
+        if not hasattr(self, "tree") or not self._heading_labels:
+            return
+        for key, base in self._heading_labels.items():
+            if self._sort_col == key:
+                mark = " ▼" if self._sort_reverse else " ▲"
+                self.tree.heading(key, text=base + mark)
+            else:
+                self.tree.heading(key, text=base)
+
+    def _on_sort_column(self, column: str) -> None:
+        """Toggle asc/desc sort when a results-table heading is clicked (#3)."""
+        if self._sort_col == column:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_col = column
+            # Dates/sizes: newest/largest first on first click feels natural
+            self._sort_reverse = column in {"date", "size", "mtime"}
+        if not self._result_rows:
+            self._refresh_heading_labels()
+            return
+        self._result_rows = sort_instances(
+            self._result_rows, column, reverse=self._sort_reverse
+        )
+        self._redraw_tree()
 
     def _set_preview_body(self, header: str, body: str, *, is_error: bool = False) -> None:
         self.preview_header_var.set(header)

@@ -12,6 +12,10 @@ from gcode_index.models import FileSeen, ProgramInstance, ScanResult, UnknownFol
 
 # Optional leading O + digits only → treat as a program-number search (#20)
 _PROGRAM_QUERY_RE = re.compile(r"^O?\d+$", re.IGNORECASE)
+# Size filter: optional K/M/G (binary, 1024-based) suffix
+_SIZE_RE = re.compile(
+    r"^\s*(\d+(?:[.,]\d+)?)\s*([kKmMgG])?(?:[bB])?\s*$"
+)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS index_runs (
@@ -386,12 +390,93 @@ def rank_match(
 
 _INSTANCE_SELECT = """
         SELECT instance_id, program_number, part_number, machine_id, machine_label,
-               machine_folder_raw, date_folder_raw, backup_date, source_path,
-               line_start, line_end, byte_start, byte_end, source_type,
-               folder_path, control_family, source_size, content_sha256,
+               machine_folder_raw, date_folder_raw, backup_date, file_ctime,
+               source_path, line_start, line_end, byte_start, byte_end, source_type,
+               folder_path, control_family, source_mtime, source_size, content_sha256,
                provenance, scan_root, programmer
         FROM program_instances
 """
+
+
+def parse_size_bound(value: Optional[str]) -> Optional[int]:
+    """Parse a size filter: plain bytes or ``10k`` / ``1.5M`` / ``2G`` (1024-based).
+
+    Empty / None → None. Raises ``ValueError`` on garbage.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    m = _SIZE_RE.match(s)
+    if not m:
+        raise ValueError(f"invalid size: {value!r}")
+    num = float(m.group(1).replace(",", "."))
+    unit = (m.group(2) or "").upper()
+    mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3}[unit]
+    out = int(num * mult)
+    if out < 0:
+        raise ValueError(f"invalid size: {value!r}")
+    return out
+
+
+def format_display_size(nbytes: Optional[int]) -> str:
+    """Human-readable size for the results table."""
+    if nbytes is None:
+        return ""
+    try:
+        n = int(nbytes)
+    except (TypeError, ValueError):
+        return ""
+    if n < 0:
+        return ""
+    if n < 1024:
+        return str(n)
+    if n < 1024**2:
+        v = n / 1024
+        return f"{v:.1f}K".replace(".0K", "K")
+    if n < 1024**3:
+        v = n / (1024**2)
+        return f"{v:.1f}M".replace(".0M", "M")
+    v = n / (1024**3)
+    return f"{v:.1f}G".replace(".0G", "G")
+
+
+# Column id → sort key (used by GUI header clicks, #3)
+_SORT_KEY_FNS = {
+    "flag": lambda r: str(r["provenance"] or "").casefold(),
+    "program": lambda r: str(r["program_number"] or "").casefold(),
+    "part": lambda r: str(r["part_number"] or "").casefold(),
+    "programmer": lambda r: str(r["programmer"] or "").casefold(),
+    "machine": lambda r: str(
+        r["machine_label"] or r["machine_id"] or ""
+    ).casefold(),
+    "date": lambda r: str(r["backup_date"] or ""),
+    "size": lambda r: int(r["source_size"]) if r["source_size"] is not None else -1,
+    "type": lambda r: str(r["source_type"] or "").casefold(),
+    "control": lambda r: str(r["control_family"] or "").casefold(),
+    "path": lambda r: str(r["source_path"] or "").casefold(),
+    "location": lambda r: (
+        int(r["line_start"]) if r["line_start"] is not None else -1,
+        int(r["byte_start"]) if r["byte_start"] is not None else -1,
+    ),
+    "mtime": lambda r: str(
+        r["source_mtime"] or r["file_ctime"] or r["backup_date"] or ""
+    ),
+}
+
+
+def sort_instances(
+    rows: list,
+    column: str,
+    *,
+    reverse: bool = False,
+) -> list:
+    """Stable sort of query rows by a results-table column id (#3)."""
+    key_fn = _SORT_KEY_FNS.get(column)
+    if key_fn is None or not rows:
+        return list(rows)
+    return sorted(rows, key=key_fn, reverse=reverse)
 
 
 def _normalize_date_bound(value: Optional[str], *, end: bool = False) -> Optional[str]:
@@ -471,6 +556,10 @@ def query_instances(
     machines: Optional[Iterable[str]] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    size_min: Optional[str | int] = None,
+    size_max: Optional[str | int] = None,
+    mtime_from: Optional[str] = None,
+    mtime_to: Optional[str] = None,
     source_type: Optional[str] = None,
     control_family: Optional[str] = None,
     provenance: Optional[str] = None,
@@ -488,6 +577,10 @@ def query_instances(
     ``machines`` — one or more machine ids/labels (multi-select GUI).
     ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date``
     (``DD.MM.YYYY`` or ``YYYY-MM-DD``).
+    ``size_min`` / ``size_max`` — inclusive bounds on ``source_size`` (bytes, or
+    strings like ``10k`` / ``1.5M`` via :func:`parse_size_bound`).
+    ``mtime_from`` / ``mtime_to`` — inclusive bounds on file mtime/ctime
+    (``COALESCE(source_mtime, file_ctime, backup_date)``).
     ``source_type`` / ``control_family`` — exact match when set.
     ``provenance`` — ``backup`` (green / ran on machine) or ``extra`` (yellow).
     ``programmer`` — exact uppercase flag e.g. ``LP1`` (case-insensitive input).
@@ -563,6 +656,35 @@ def query_instances(
     if d_to:
         clauses.append("backup_date <= ?")
         params.append(d_to)
+
+    # Size bounds (#10)
+    s_min = (
+        size_min
+        if isinstance(size_min, int)
+        else parse_size_bound(None if size_min is None else str(size_min))
+    )
+    s_max = (
+        size_max
+        if isinstance(size_max, int)
+        else parse_size_bound(None if size_max is None else str(size_max))
+    )
+    if s_min is not None:
+        clauses.append("source_size IS NOT NULL AND source_size >= ?")
+        params.append(s_min)
+    if s_max is not None:
+        clauses.append("source_size IS NOT NULL AND source_size <= ?")
+        params.append(s_max)
+
+    # File mtime / creation range (#10) — prefer source_mtime, else ctime/backup
+    mt_expr = "COALESCE(NULLIF(source_mtime,''), NULLIF(file_ctime,''), backup_date)"
+    mt_from = _normalize_date_bound(mtime_from, end=False)
+    mt_to = _normalize_date_bound(mtime_to, end=True)
+    if mt_from:
+        clauses.append(f"{mt_expr} >= ?")
+        params.append(mt_from)
+    if mt_to:
+        clauses.append(f"{mt_expr} <= ?")
+        params.append(mt_to)
 
     if source_type is not None and str(source_type).strip() and str(source_type).strip() not in {
         "(all)",

@@ -77,7 +77,8 @@ W **drugim** wierszu paska trybu Pełnego zaznacz **Obserwuj foldery**, aby co k
 
 Ten sam pasek wyszukiwania co w trybie Prostym, plus:
 
-- **Więcej filtrów** — typ źródła, sterowanie, flaga (zielona/żółta), programista, presety
+- **Więcej filtrów** — typ źródła, sterowanie, flaga (zielona/żółta), programista, presety, **rozmiar od/do** (bajty lub `10k` / `1.5M`), **data pliku od/do** (mtime / utworzenie)
+- Kliknij nagłówek kolumny w wynikach, aby sortować rosnąco/malejąco (oba tryby)
 - **Porównaj…** — różnice dwóch zaznaczonych wierszy
 - **Duplikaty…** — grupy dokładnych i podobnych kopii
 - **Otwórz folder** / **Kopiuj ścieżkę** do pliku źródłowego

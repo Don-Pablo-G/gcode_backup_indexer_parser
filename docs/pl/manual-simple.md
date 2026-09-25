@@ -39,6 +39,7 @@ Opcjonalne foldery:
 2. Opcjonalnie **Maszyny** — wielokrotny wybór (Ctrl/Shift+klik). Puste / wszystkie = każda maszyna.
 3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR`.
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
+5. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 
 Wyniki są w tabeli. **Podgląd** po prawej pokazuje treść zaznaczonego programu.
 
