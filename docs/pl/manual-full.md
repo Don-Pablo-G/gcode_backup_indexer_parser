@@ -53,18 +53,19 @@ Przy indeksowaniu pojedynczych plików `.nc` / `.nc.copy` skaner przechodzi fold
 
 1. Ustaw folder kopii + folder bazy (oraz dodatkowe, jeśli potrzeba).
 2. Kliknij zielony **Indeksuj / skanuj**.
-3. Opcje:
+3. Opcje (drugi wiersz paska pod **Indeksuj**):
    - **Przyrostowo** — pomija niezmienione pliki (rozmiar + mtime); ponownie używa wcześniejszych wierszy
    - **Zapisz też Excel** — eksport skoroszytu obok bazy po skanie
-4. Pasek postępu pokazuje liczbę plików i ETA. Po zakończeniu otwiera się **raport skanu** (także przez **Raport skanu…**).
+   - **Obserwuj foldery** — patrz niżej
+4. Pasek postępu pokazuje liczbę plików i ETA. Po zakończeniu otwiera się **raport skanu** (także przez **Raport skanu…** w tym samym wierszu).
 
 ### Auto-indeks
 
-W trybie Pełnym ustaw **Auto-indeks** na co godzinę / codziennie / co tydzień. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
+W trybie Pełnym ustaw **Auto-indeks** (po prawej w drugim wierszu paska) na co godzinę / codziennie / co tydzień. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
 
 ### Obserwuj foldery
 
-Zaznacz **Obserwuj foldery**, aby co kilka sekund sprawdzać drzewo kopii i katalogi dodatkowe (zielone/żółte). Gdy pojawią się nowe lub zmienione pliki indeksowalne, aplikacja czeka chwilę (debounce), potem uruchamia skan **przyrostowy** (bez pełnej przebudowy).
+W **drugim** wierszu paska trybu Pełnego zaznacz **Obserwuj foldery**, aby co kilka sekund sprawdzać drzewo kopii i katalogi dodatkowe (zielone/żółte). Gdy pojawią się nowe lub zmienione pliki indeksowalne, aplikacja czeka chwilę (debounce), potem uruchamia skan **przyrostowy** (bez pełnej przebudowy).
 
 - Tylko w trybie **Pełnym**.
 - Tworzy `gcode_index.lock` obok bazy — **jeden komputer** obserwuje / indeksuje. Inne instancje Pełne zobaczą „Obserwacja zablokowana”. Tryb Prosty nie bierze blokady.

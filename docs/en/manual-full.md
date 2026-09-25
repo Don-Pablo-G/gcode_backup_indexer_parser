@@ -53,18 +53,19 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 
 1. Set backup + database folders (and extras if needed).
 2. Click green **Run index / scan** / **Indeksuj / skanuj**.
-3. Options:
+3. Options (second toolbar row under **Indeksuj**):
    - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
    - **Also write Excel** — export workbook next to the DB after scan
-4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**).
+   - **Watch folders** — see below
+4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
 
 ### Auto-index
 
-In Full mode, set **Auto-index** to hourly / daily / weekly. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
+In Full mode, set **Auto-index** (right side of the second toolbar row) to hourly / daily / weekly. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
 
 ### Watch folders
 
-Tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
+On the **second** Full-mode toolbar row, tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
 
 - Only available in **Full** mode.
 - Takes a `gcode_index.lock` next to the database so **one PC** owns watching/indexing. Other Full instances see “Watch locked” if they try to enable it. Prosty clients never take the lock.

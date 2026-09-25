@@ -896,31 +896,18 @@ class IndexerApp(tk.Tk):
             self._folders_summary_frame.pack(fill=tk.X, **pad)
 
         # --- Actions ---------------------------------------------------------------
+        # Full mode uses two thin rows so buttons/checkboxes fit a laptop width
+        # without horizontal clipping (A+C: keep chrome compact, results dominant).
         actions = ttk.Frame(root)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
 
-        settings = ttk.Frame(actions)
+        row1 = ttk.Frame(actions)
+        row1.pack(fill=tk.X)
+        settings = ttk.Frame(row1)
         settings.pack(side=tk.RIGHT)
-        if not simple:
-            ttk.Label(settings, text=self._("schedule"), style="Muted.TLabel").pack(
-                side=tk.LEFT, padx=(0, 2)
-            )
-            self.schedule_var.set(self._schedule_label(self._schedule))
-            sched_combo = ttk.Combobox(
-                settings,
-                textvariable=self.schedule_var,
-                values=[self._schedule_label(c) for c in SCHEDULE_CHOICES],
-                state="readonly",
-                width=14,
-            )
-            sched_combo.pack(side=tk.LEFT)
-            sched_combo.bind("<<ComboboxSelected>>", self._on_schedule_selected)
-            ttk.Label(
-                settings, textvariable=self.schedule_status_var, style="Muted.TLabel"
-            ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=(12 if not simple else 0, 2)
+            side=tk.LEFT, padx=(0, 2)
         )
         lang_combo = ttk.Combobox(
             settings,
@@ -950,56 +937,79 @@ class IndexerApp(tk.Tk):
             text=self._("menu_help"),
             command=lambda: self._open_manual("simple" if simple else "full"),
         ).pack(side=tk.LEFT, padx=(12, 0))
-        if not simple:
-            self._update_schedule_status()
 
         if simple:
             # Retrieve-only: Open DB is the primary CTA; no scan / index.
             self.scan_btn = None
             self.open_db_btn = self._make_primary_button(
-                actions, self._("open_db"), self._pick_existing_db
+                row1, self._("open_db"), self._pick_existing_db
             )
             self.open_db_btn.pack(side=tk.LEFT)
             ttk.Button(
-                actions, text=self._("clear_filters"), command=self._clear_filters
+                row1, text=self._("clear_filters"), command=self._clear_filters
             ).pack(side=tk.LEFT, padx=8)
         else:
+            # Row 1 — primary: index + folder tools (always visible)
             self.scan_btn = self._make_primary_button(
-                actions, self._("run_scan"), self._start_scan
+                row1, self._("run_scan"), self._start_scan
             )
             self.scan_btn.pack(side=tk.LEFT)
             ttk.Button(
-                actions, text=self._("map_folders"), command=self._open_folder_map
+                row1, text=self._("map_folders"), command=self._open_folder_map
             ).pack(side=tk.LEFT, padx=8)
             ttk.Button(
-                actions, text=self._("aliases"), command=self._open_alias_editor
+                row1, text=self._("aliases"), command=self._open_alias_editor
             ).pack(side=tk.LEFT, padx=4)
             ttk.Button(
-                actions, text=self._("open_db"), command=self._pick_existing_db
+                row1, text=self._("open_db"), command=self._pick_existing_db
             ).pack(side=tk.LEFT, padx=8)
+
+            # Row 2 — secondary tools + scan options (incl. watch) + schedule
+            row2 = ttk.Frame(actions)
+            row2.pack(fill=tk.X, pady=(4, 0))
+            sched = ttk.Frame(row2)
+            sched.pack(side=tk.RIGHT)
+            ttk.Label(sched, text=self._("schedule"), style="Muted.TLabel").pack(
+                side=tk.LEFT, padx=(0, 2)
+            )
+            self.schedule_var.set(self._schedule_label(self._schedule))
+            sched_combo = ttk.Combobox(
+                sched,
+                textvariable=self.schedule_var,
+                values=[self._schedule_label(c) for c in SCHEDULE_CHOICES],
+                state="readonly",
+                width=14,
+            )
+            sched_combo.pack(side=tk.LEFT)
+            sched_combo.bind("<<ComboboxSelected>>", self._on_schedule_selected)
+            ttk.Label(
+                sched, textvariable=self.schedule_status_var, style="Muted.TLabel"
+            ).pack(side=tk.LEFT, padx=(8, 0))
+            self._update_schedule_status()
+
             ttk.Button(
-                actions, text=self._("scan_report"), command=self._open_scan_report
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Button(
-                actions, text=self._("duplicates"), command=self._open_duplicates
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Button(
-                actions, text=self._("clear_filters"), command=self._clear_filters
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Checkbutton(
-                actions, text=self._("also_excel"), variable=self.excel_var
+                row2, text=self._("scan_report"), command=self._open_scan_report
             ).pack(side=tk.LEFT)
+            ttk.Button(
+                row2, text=self._("duplicates"), command=self._open_duplicates
+            ).pack(side=tk.LEFT, padx=4)
+            ttk.Button(
+                row2, text=self._("clear_filters"), command=self._clear_filters
+            ).pack(side=tk.LEFT, padx=4)
             ttk.Checkbutton(
-                actions, text=self._("incremental"), variable=self.incremental_var
+                row2, text=self._("also_excel"), variable=self.excel_var
+            ).pack(side=tk.LEFT, padx=(12, 0))
+            ttk.Checkbutton(
+                row2, text=self._("incremental"), variable=self.incremental_var
             ).pack(side=tk.LEFT, padx=8)
             ttk.Checkbutton(
-                actions,
+                row2,
                 text=self._("watch_folders"),
                 variable=self.watch_var,
                 command=self._on_watch_toggled,
             ).pack(side=tk.LEFT, padx=4)
             ttk.Label(
-                actions, textvariable=self.watch_status_var, style="Muted.TLabel"
+                row2, textvariable=self.watch_status_var, style="Muted.TLabel"
             ).pack(side=tk.LEFT, padx=(4, 0))
             self._update_watch_status()
 
