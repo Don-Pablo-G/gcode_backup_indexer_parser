@@ -210,6 +210,43 @@ def test_nc_copy_indexed_as_special_type(tmp_path: Path):
     ) == "03232.nc.copy"
 
 
+def test_loose_nc_inherits_machine_from_ancestor_folder(tmp_path: Path):
+    """Machine-named folder (or alias) applies to files in that folder and subfolders.
+
+    Deeper machine folders win over shallower ones.
+    """
+    body = b"%\r\nO09901 (INHERIT)\r\nM30\r\n%\r\n"
+    root = tmp_path / "backup"
+    # Top-level machine folder with nested job dirs (was UNKNOWN before deepest-first)
+    (root / "VF2S" / "jobs" / "op1").mkdir(parents=True)
+    (root / "VF2S" / "jobs" / "op1" / "nested.nc").write_bytes(body)
+    (root / "VF2S" / "sibling.nc").write_bytes(body)
+    # Classic date + deeper machine override
+    nest = root / "15.09.2026" / "VF2S" / "UMC750" / "cell"
+    nest.mkdir(parents=True)
+    (nest / "deep.nc").write_bytes(body)
+    # Unmapped parent of mapped machine — still machine from child folder
+    (root / "ShopCatch" / "SL-20" / "stick").mkdir(parents=True)
+    (root / "ShopCatch" / "SL-20" / "stick" / "usb.nc").write_bytes(body)
+    # Still unknown when no ancestor maps
+    (root / "MysteryBox" / "parts").mkdir(parents=True)
+    (root / "MysteryBox" / "parts" / "lost.nc").write_bytes(body)
+
+    am = AliasMap.load(ALIASES)
+    result = scan_backup_tree(root, am)
+    by_name = {Path(i.source_path).name: i for i in result.instances if i.source_type == "loose_nc"}
+
+    assert by_name["nested.nc"].machine_id == "haas-vf-2"
+    assert by_name["nested.nc"].machine_folder_raw == "VF2S"
+    assert by_name["sibling.nc"].machine_id == "haas-vf-2"
+    assert by_name["deep.nc"].machine_id == "haas-umc750"
+    assert by_name["deep.nc"].machine_folder_raw == "UMC750"
+    assert by_name["deep.nc"].date_folder_raw == "15.09.2026"
+    assert by_name["usb.nc"].machine_id == "haas-sl-20"
+    assert by_name["lost.nc"].machine_id == "unknown"
+    assert by_name["lost.nc"].machine_label == "MACHINE UNKNOWN"
+
+
 def test_unmapped_folder_still_indexes_pgm(tmp_path: Path):
     """Odd folder names must not drop .pgm — index as MACHINE UNKNOWN."""
     root = tmp_path / "backup"

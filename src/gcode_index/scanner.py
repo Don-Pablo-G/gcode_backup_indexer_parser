@@ -437,7 +437,13 @@ def _infer_machine_and_date(
 ) -> Tuple[MachineInfo, Optional[str]]:
     """Resolve a machine folder from the path; never invent an assignment.
 
-    Folder map wins, then aliases. Unmatched → MACHINE UNKNOWN.
+    Walk ancestor folders deepest→shallowest. First name that maps via folder
+    map or aliases wins, so a machine-named folder applies to all files in that
+    folder and its subfolders; a deeper machine folder overrides a shallower one.
+
+    Structural dirs (``Memory``, ``HaasBackup(*)``) are skipped. Unmatched →
+    MACHINE UNKNOWN.
+
     Returns (MachineInfo, date_folder_raw).
     """
     parts = _path_parts_under_root(path, root)
@@ -451,53 +457,39 @@ def _infer_machine_and_date(
             None,
         )
 
-    # Conventional layout: <date>/<machine>/...
-    date_folder_raw: Optional[str] = None
-    if len(parts) >= 2:
-        # first component is a directory name when file is nested
-        date_folder_raw = parts[0]
-
-    candidates: list[str] = []
-    # Prefer classic machine slot (second path component)
-    if len(parts) >= 3:
-        candidates.append(parts[1])
-    # Root-level nest: <maybe-machine>/file.nc
-    elif len(parts) == 2:
-        candidates.append(parts[0])
-
-    for part in parts[:-1]:
-        if part in candidates:
-            continue
-        if date_folder_raw and part == date_folder_raw:
-            continue
-        if _is_structural_dir_name(part):
-            continue
-        candidates.append(part)
-
-    for name in candidates:
+    ancestors = [p for p in parts[:-1] if not _is_structural_dir_name(p)]
+    # Deepest first so VF2S/jobs/x.nc → VF2S and date/VF2S/UMC750/x.nc → UMC750
+    for name in reversed(ancestors):
         info = _resolve_machine(name, aliases, folder_map)
-        if info.mapped:
-            # date folder only when classic date/machine/... and machine is 2nd slot
-            date_out: Optional[str] = None
-            if len(parts) >= 3 and name == parts[1]:
+        if not info.mapped:
+            continue
+        date_out: Optional[str] = None
+        if len(parts) >= 3 and name != parts[0]:
+            # Classic-ish: first component is a date (or other non-machine parent)
+            # only when it does not itself map as a machine.
+            top = _resolve_machine(parts[0], aliases, folder_map)
+            if not top.mapped:
                 date_out = parts[0]
-            elif len(parts) >= 3 and name != parts[0]:
-                date_out = parts[0]
-            return (
-                MachineInfo(
-                    machine_id=info.machine_id,
-                    label=info.label,
-                    control_family=info.control_family,
-                    layout=info.layout,
-                    machine_folder_raw=name,
-                    mapped=True,
-                ),
-                date_out,
-            )
+        return (
+            MachineInfo(
+                machine_id=info.machine_id,
+                label=info.label,
+                control_family=info.control_family,
+                layout=info.layout,
+                machine_folder_raw=name,
+                mapped=True,
+            ),
+            date_out,
+        )
 
     # No fuzzy hit — do not force
     raw_guess = parts[1] if len(parts) >= 3 else (parts[0] if len(parts) >= 2 else None)
     date_out = parts[0] if len(parts) >= 3 else None
+    # If the only ancestor is itself a non-mapping top folder used as "date", keep it
+    if date_out is not None:
+        top = _resolve_machine(date_out, aliases, folder_map)
+        if top.mapped:
+            date_out = None
     return (
         MachineInfo(
             machine_id=UNKNOWN_MACHINE_ID,
@@ -533,7 +525,11 @@ def _index_all_nc_files(
     cache: Optional[ScanCache] = None,
     scan_root: str = "",
 ) -> None:
-    """Walk entire backup tree for *.nc / *.nc.copy; fuzzy-match machine or leave unknown."""
+    """Walk entire backup tree for *.nc / *.nc.copy.
+
+    Machine is taken from the deepest ancestor folder that matches a folder map
+    or alias (inherited by subfolders); else MACHINE UNKNOWN.
+    """
     seen: set[Path] = set()
     for path in sorted(root.rglob("*")):
         if not path.is_file() or not _is_nc_like(path):
