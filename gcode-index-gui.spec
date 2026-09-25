@@ -21,10 +21,12 @@ block_cipher = None
 
 ROOT = Path(SPECPATH).resolve()
 
-# Package data (aliases) + openpyxl / PyYAML runtime bits
+# Package data (aliases) + manuals + openpyxl / PyYAML runtime bits
 datas = [
     (str(ROOT / "src" / "gcode_index" / "data" / "aliases.yaml"), "gcode_index/data"),
     (str(ROOT / "aliases.yaml"), "."),
+    (str(ROOT / "docs"), "docs"),
+    (str(ROOT / "src" / "gcode_index" / "docs"), "gcode_index/docs"),
 ]
 binaries: list = []
 hiddenimports = [
@@ -37,6 +39,7 @@ hiddenimports = [
     "gcode_index",
     "gcode_index.gui",
     "gcode_index.cli",
+    "gcode_index.help_docs",
     "gcode_index.scanner",
     "gcode_index.extract",
     "gcode_index.db",

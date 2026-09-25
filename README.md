@@ -4,6 +4,18 @@ Index CNC machine **backup folder trees** into a portable **SQLite** catalog of 
 
 **Canonical repo:** https://github.com/Don-Pablo-G/gcode_backup_indexer_parser
 
+**Polski:** [README.pl.md](README.pl.md)
+
+## User manuals
+
+| Document | Audience |
+|----------|----------|
+| [Operator manual (Simple)](docs/en/manual-simple.md) | Search & extract from an existing database |
+| [Indexer manual (Full)](docs/en/manual-full.md) | Build & maintain the database |
+| Polish manuals | [docs/pl/](docs/pl/) |
+
+In the GUI: **Help / Pomoc** menu (and the **Help** button next to Mode) opens the same manuals.
+
 ## Requirements
 
 - Python **3.11+** (tested on 3.12)

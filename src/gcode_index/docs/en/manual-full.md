@@ -1,0 +1,94 @@
+# Indexer manual — Full mode (Pełny)
+
+**Audience:** people who **build and maintain** the program database from CNC backup trees.  
+**Mode:** **Pełny / Full**.
+
+Operators who only search and extract should use **Simple mode** and the operator manual.
+
+---
+
+## Role of Full mode
+
+Full mode can:
+
+- Scan backup trees and write / update `gcode_index.sqlite`
+- Add **green** (on-machine) and **yellow** (extra) scan roots
+- Run **auto-index** on a schedule while the GUI stays open
+- Map odd folder names to machines and edit **local aliases**
+- Use advanced filters, presets, compare, scan report, duplicates
+- Optionally write Excel after a scan
+
+---
+
+## Folders
+
+| Folder | Purpose |
+|--------|---------|
+| **Backup folder** | Main CNC backup tree (`DATE\MACHINE\…`) |
+| **Database folder** (`target`) | `gcode_index.sqlite` + sidecar files (`machine_folders.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
+| **Extract folder** | Default output for Wydobądź (blank = same as database folder) |
+
+### Extra roots
+
+- **Green** — treat like on-machine / catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
+- **Yellow** — extra trees not from the machine backup. Programs get a **yellow** flag.
+
+Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-index.ini`).
+
+---
+
+## Map folders and aliases
+
+1. **Map folders…** — discovers `<date>/<machine>` folders, auto-matches known aliases, and lists only unmatched names for manual assign. Map is saved as `machine_folders.yaml` (wins over aliases).
+2. Optional: save assignments as **local aliases** (`aliases.local.yaml`) for later scans.
+3. **Aliases…** — add / change / remove local aliases. Bundled `aliases.yaml` stays read-only.
+
+### Loose `.nc` machine assignment
+
+When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent folders **deepest → shallowest**. The first folder name that matches the folder map or an alias becomes the **machine** for that file and everything under that folder. No match → **MACHINE UNKNOWN** (still indexed).
+
+---
+
+## Run index / scan
+
+1. Set backup + database folders (and extras if needed).
+2. Click green **Run index / scan** / **Indeksuj / skanuj**.
+3. Options:
+   - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
+   - **Also write Excel** — export workbook next to the DB after scan
+4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**).
+
+### Auto-index
+
+In Full mode, set **Auto-index** to hourly / daily / weekly. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
+
+---
+
+## Search and extract
+
+Same find bar as Simple mode, plus:
+
+- **More filters** — source type, control, flag (green/yellow), programmer, presets
+- **Compare…** — unified diff of exactly two selected rows
+- **Duplicates…** — exact and near-duplicate groups
+- **Open folder** / **Copy path** on the source file
+
+**Wydobądź / Extract** writes program bodies to the extract folder (or a path you choose). Sources are never modified. Extract checks SHA-256 + size from scan time.
+
+---
+
+## Instance settings
+
+`gcode-index.ini` next to the exe remembers folders, greens/yellows, language, mode, schedule, and window size. Override path with env `GCODE_INDEX_INI=…`.
+
+---
+
+## Haas NGC zip backups
+
+Do **not** expect the scanner to open `.zip` files. Unzip Haas NGC backups into the machine folder first (e.g. `…/HaasBackup(…)/Memory/**/*.nc`), then scan.
+
+---
+
+## Switching to Simple mode
+
+**Tryb / Mode → Prosty / Simple** hides indexing UI so operators only open the DB, search, and extract. See the **Operator (Simple mode) manual**.

@@ -148,6 +148,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "close": "Zamknij",
         "cancel": "Anuluj",
         "show_in_results": "Pokaż w wynikach",
+        "menu_help": "Pomoc",
+        "help_manual_simple": "Instrukcja operatora (Prosty)…",
+        "help_manual_full": "Instrukcja indeksatora (Pełny)…",
+        "help_about": "O programie…",
+        "help_open_folder": "Otwórz folder dokumentacji…",
+        "about_title": "O programie",
+        "about_body": (
+            "Indeksator kopii G-code\n"
+            "Wersja {version}\n\n"
+            "Prosty = wyszukiwanie i wydobycie z istniejącej bazy.\n"
+            "Pełny = indeksowanie / skanowanie kopii CNC.\n\n"
+            "Instrukcje: menu Pomoc."
+        ),
     },
     "en": {
         "app_title": "G-code Backup Indexer",
@@ -282,6 +295,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "close": "Close",
         "cancel": "Cancel",
         "show_in_results": "Show in results",
+        "menu_help": "Help",
+        "help_manual_simple": "Operator manual (Simple)…",
+        "help_manual_full": "Indexer manual (Full)…",
+        "help_about": "About…",
+        "help_open_folder": "Open documentation folder…",
+        "about_title": "About",
+        "about_body": (
+            "G-code Backup Indexer\n"
+            "Version {version}\n\n"
+            "Simple = search and extract from an existing database.\n"
+            "Full = index / scan CNC backup trees.\n\n"
+            "Manuals: Help menu."
+        ),
     },
 }
 

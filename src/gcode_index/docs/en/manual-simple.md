@@ -1,0 +1,81 @@
+# Operator manual — Simple mode (Prosty)
+
+**Audience:** shop-floor operators who need to **find and extract** a program from an existing index.  
+**Mode:** **Prosty / Simple** (default). This mode does **not** build or update the database.
+
+---
+
+## What this app does
+
+The indexer stores a catalog of CNC programs found in machine backups: program number, part number, machine, date, and where the program lives on disk.  
+In Simple mode you **open that catalog**, search, preview, and **extract** (Wydobądź) a program file for another tool or the machine.
+
+You never change the backup files. Extract always writes to a separate folder.
+
+---
+
+## First steps
+
+1. Set language if needed (**Język / Language** → `pl` or `en`).
+2. Stay in **Prosty / Simple** (or switch back to it via **Tryb / Mode**).
+3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.  
+   Or set the **database folder** (the folder that contains that file) under Folders.
+
+Optional folders:
+
+| Folder | Purpose |
+|--------|---------|
+| **Database folder** | Where `gcode_index.sqlite` lives (required) |
+| **Extract folder** | Where Wydobądź saves programs (blank = same as database folder) |
+| **Backup folder** | Only needed if extract must resolve relative paths from the original tree |
+
+Use **Change…** / **Zmień…** to edit folders; **Done** / **Gotowe** collapses the strip.
+
+---
+
+## Find a program
+
+1. Type in **Text** — program #, part #, or path fragment (e.g. `O03232`, `3232`, `P-00253232`). Search is case-insensitive; `O03232` / `03232` / `3232` match the same O-number.
+2. Optionally open **Machines** and multi-select (Ctrl/Shift+click). Empty / all = every machine.
+3. Optionally set **Date from / to** as `DD.MM.YYYY`.
+4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
+
+Results appear in the table. The **Preview** pane on the right shows the selected program body.
+
+---
+
+## Extract (Wydobądź)
+
+1. Select one or more rows (Ctrl/Shift+click for several).
+2. Click green **Extract selected…** / **Wydobądź zaznaczone…**, or double-click a row.  
+   Right-click also offers extract / open folder / copy path.
+3. Choose the save location (defaults to the extract folder).
+
+If the source file changed since the last index, extract may be refused — ask someone with **Full** mode to re-scan.
+
+---
+
+## Flags in the results
+
+| Column / colour | Meaning |
+|-----------------|--------|
+| **Green** machine flag (provenance) | From the main backup / on-machine catch |
+| **Yellow** | From an extra (non-backup) folder |
+| **MACHINE UNKNOWN** | Path did not match a known machine name or alias |
+
+These were assigned when the database was built (Full mode). Simple mode only reads them.
+
+---
+
+## Switching to Full mode
+
+Use **Tryb / Mode → Pełny / Full** when you need to **index / scan**, map folders, edit aliases, or change auto-index.  
+See the **Indexer (Full mode) manual** from the Help menu.
+
+---
+
+## Tips
+
+- Settings for this PC are stored in `gcode-index.ini` next to the exe.
+- **Clear filters** resets the find bar.
+- If search is empty, ask whether the right database was opened and whether Full mode has scanned recently.

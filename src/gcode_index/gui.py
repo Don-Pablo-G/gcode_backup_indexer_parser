@@ -117,6 +117,8 @@ from gcode_index.scan_report import (
     scan_report_from_result,
 )
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
+from gcode_index.help_docs import docs_roots, read_manual, resolve_manual
+from gcode_index import __version__ as APP_VERSION
 from gcode_index.ui_theme import (
     UI_ACCENT,
     UI_ACCENT_HOVER,
@@ -723,6 +725,7 @@ class IndexerApp(tk.Tk):
         self.title(self._("app_title"))
         self.ui_mode_var.set(self._mode_label(self._ui_mode))
         self._update_machines_button()
+        self._build_menubar()
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         self._root_frame = root
@@ -922,6 +925,11 @@ class IndexerApp(tk.Tk):
         )
         mode_combo.pack(side=tk.LEFT)
         mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
+        ttk.Button(
+            settings,
+            text=self._("menu_help"),
+            command=lambda: self._open_manual("simple" if simple else "full"),
+        ).pack(side=tk.LEFT, padx=(12, 0))
         if not simple:
             self._update_schedule_status()
 
@@ -1240,6 +1248,62 @@ class IndexerApp(tk.Tk):
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
         status.pack(fill=tk.X, **pad)
+
+    def _build_menubar(self) -> None:
+        menubar = tk.Menu(self)
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(
+            label=self._("help_manual_simple"),
+            command=lambda: self._open_manual("simple"),
+        )
+        help_menu.add_command(
+            label=self._("help_manual_full"),
+            command=lambda: self._open_manual("full"),
+        )
+        help_menu.add_separator()
+        help_menu.add_command(
+            label=self._("help_open_folder"),
+            command=self._open_docs_folder,
+        )
+        help_menu.add_command(
+            label=self._("help_about"),
+            command=self._show_about,
+        )
+        menubar.add_cascade(label=self._("menu_help"), menu=help_menu)
+        self.config(menu=menubar)
+
+    def _open_manual(self, kind: str) -> None:
+        title_key = "help_manual_simple" if kind == "simple" else "help_manual_full"
+        ManualViewerDialog(
+            self,
+            title=self._(title_key).rstrip("…").rstrip("."),
+            body=read_manual(self._lang, "simple" if kind == "simple" else "full"),
+            close_label=self._("close"),
+        )
+
+    def _open_docs_folder(self) -> None:
+        path = resolve_manual(self._lang, "simple")
+        folder: Optional[Path] = None
+        if path is not None:
+            folder = path.parent.parent
+        else:
+            for root in docs_roots():
+                if root.is_dir():
+                    folder = root
+                    break
+        if folder is None or not folder.is_dir():
+            messagebox.showinfo(self._("menu_help"), self._("help_open_folder"))
+            return
+        try:
+            open_path_in_file_manager(folder)
+        except OSError as exc:
+            messagebox.showerror(self._("menu_help"), str(exc))
+
+    def _show_about(self) -> None:
+        messagebox.showinfo(
+            self._("about_title"),
+            self._("about_body", version=APP_VERSION),
+        )
 
     # --- paths ------------------------------------------------------------------
 
@@ -2498,6 +2562,41 @@ class IndexerApp(tk.Tk):
                 conn.close()
         except Exception:  # noqa: BLE001
             return None
+
+
+class ManualViewerDialog(tk.Toplevel):
+    """Scrollable window for bundled markdown manuals."""
+
+    def __init__(
+        self,
+        master: tk.Tk,
+        *,
+        title: str,
+        body: str,
+        close_label: str = "Close",
+    ) -> None:
+        super().__init__(master)
+        self.title(title)
+        self.transient(master)
+        self.geometry("780x620")
+        self.minsize(480, 360)
+        frame = ttk.Frame(self, padding=8)
+        frame.pack(fill=tk.BOTH, expand=True)
+        text = tk.Text(
+            frame,
+            wrap=tk.WORD,
+            font=("Segoe UI", 10) if sys.platform == "win32" else ("TkDefaultFont", 10),
+        )
+        sb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        text.insert("1.0", body)
+        text.configure(state=tk.DISABLED)
+        ttk.Button(self, text=close_label, command=self.destroy).pack(
+            pady=(0, 8)
+        )
+        self.bind("<Escape>", lambda _e: self.destroy())
 
 
 class CompareDiffDialog(tk.Toplevel):
