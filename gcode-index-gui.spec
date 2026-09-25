@@ -42,6 +42,8 @@ hiddenimports = [
     "gcode_index.help_docs",
     "gcode_index.folder_watch",
     "gcode_index.indexer_lock",
+    "gcode_index.autostart_win",
+    "gcode_index.tray_ui",
     "gcode_index.scanner",
     "gcode_index.extract",
     "gcode_index.db",
@@ -52,10 +54,18 @@ hiddenimports = [
     "gcode_index.locators.fanuc_all_fldr",
     "gcode_index.locators.fanuc_all_prog",
     "gcode_index.locators.whole_file_nc",
+    "pystray",
+    "pystray._win32",
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageDraw",
 ]
 
-for pkg in ("openpyxl", "yaml"):
-    pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+for pkg in ("openpyxl", "yaml", "pystray", "PIL"):
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+    except Exception:
+        continue
     datas += pkg_datas
     binaries += pkg_binaries
     hiddenimports += pkg_hidden

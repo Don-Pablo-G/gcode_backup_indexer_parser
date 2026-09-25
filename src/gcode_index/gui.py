@@ -124,7 +124,16 @@ from gcode_index.scan_report import (
 )
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
 from gcode_index.folder_watch import FolderWatcher
+from gcode_index.autostart_win import (
+    VIA_STARTUP,
+    VIA_TASK,
+    is_windows as autostart_is_windows,
+    normalize_autostart_via,
+    sync_autostart,
+)
+from gcode_index.tray_ui import TrayController, tray_available
 from gcode_index.indexer_lock import (
+    read_lock,
     release_lock,
     try_acquire_lock,
     we_hold_lock,
@@ -197,6 +206,11 @@ class IndexerApp(tk.Tk):
         self.schedule_unit_var = tk.StringVar(value="")
         self.schedule_status_var = tk.StringVar(value="")
         self.watch_status_var = tk.StringVar(value="")
+        self.watch_strip_var = tk.StringVar(value="")
+        self.autostart_var = tk.BooleanVar(value=False)
+        self.autostart_via_var = tk.StringVar(value="")
+        self.close_to_tray_var = tk.BooleanVar(value=True)
+        self.minimize_to_tray_var = tk.BooleanVar(value=True)
         self.preset_var = tk.StringVar(value="")
         self.preview_header_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="")
@@ -213,6 +227,10 @@ class IndexerApp(tk.Tk):
         self._watch_rescan_pending = False
         self._folder_watcher: Optional[FolderWatcher] = None
         self._watch_enabled = False
+        self._tray: Optional[TrayController] = None
+        self._tray_hidden = False
+        self._iconify_guard = False
+        self._last_watch_scan_at = None
         self._filter_trace_lock = False
         self._machine_names: list[str] = []
         self._last_scan_report: Optional[ScanReport] = None
@@ -247,6 +265,7 @@ class IndexerApp(tk.Tk):
                 )
             )
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Unmap>", self._on_minimize_event)
         self.search_var.trace_add("write", self._on_filter_changed)
         for var in (
             self.date_from_var,
@@ -286,6 +305,12 @@ class IndexerApp(tk.Tk):
         self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
+        self.autostart_var.set(bool(cfg.autostart))
+        self.autostart_via_var.set(
+            self._autostart_via_label(normalize_autostart_via(cfg.autostart_via))
+        )
+        self.close_to_tray_var.set(bool(cfg.close_to_tray))
+        self.minimize_to_tray_var.set(bool(cfg.minimize_to_tray))
         self.excel_var.set(bool(cfg.also_excel))
         self.newest_only_var.set(bool(cfg.newest_only))
         self._watch_enabled = bool(cfg.watch_folders) and not self._is_simple()
@@ -333,6 +358,10 @@ class IndexerApp(tk.Tk):
             incremental=bool(self.incremental_var.get()),
             watch_folders=bool(self.watch_var.get()),
             also_excel=bool(self.excel_var.get()),
+            autostart=bool(self.autostart_var.get()),
+            autostart_via=self._autostart_via_code(),
+            close_to_tray=bool(self.close_to_tray_var.get()),
+            minimize_to_tray=bool(self.minimize_to_tray_var.get()),
             newest_only=bool(self.newest_only_var.get()),
             geometry=geom,
             notes=self._ini_notes,
@@ -414,9 +443,88 @@ class IndexerApp(tk.Tk):
         self._folder_save_after_id = self.after(800, self._save_instance_ini)
 
     def _on_close(self) -> None:
+        if (
+            (not self._is_simple())
+            and bool(self.close_to_tray_var.get())
+            and tray_available()
+        ):
+            self._hide_to_tray()
+            return
+        self._quit_app()
+
+    def _quit_app(self) -> None:
+        self._stop_tray()
         self._stop_folder_watch(release=True)
         self._save_instance_ini()
-        self.destroy()
+        try:
+            self.destroy()
+        except tk.TclError:
+            pass
+
+    def _hide_to_tray(self) -> None:
+        if self._tray_hidden:
+            return
+        if not self._ensure_tray():
+            self._quit_app()
+            return
+        self._tray_hidden = True
+        self._iconify_guard = True
+        try:
+            self.withdraw()
+        except tk.TclError:
+            pass
+        finally:
+            self._iconify_guard = False
+        self.status_var.set(self._("tray_hint"))
+
+    def _restore_from_tray(self) -> None:
+        def _show() -> None:
+            self._tray_hidden = False
+            try:
+                self.deiconify()
+                self.lift()
+                self.focus_force()
+            except tk.TclError:
+                pass
+
+        try:
+            self.after(0, _show)
+        except tk.TclError:
+            _show()
+
+    def _ensure_tray(self) -> bool:
+        if not tray_available():
+            return False
+        if self._tray is not None and self._tray.running:
+            return True
+        self._tray = TrayController(
+            title=self._("app_title"),
+            on_restore=self._restore_from_tray,
+            on_quit=lambda: self.after(0, self._quit_app),
+            restore_label=self._("tray_restore"),
+            quit_label=self._("tray_quit"),
+        )
+        return self._tray.start()
+
+    def _stop_tray(self) -> None:
+        if self._tray is not None:
+            try:
+                self._tray.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("stop tray failed")
+            self._tray = None
+        self._tray_hidden = False
+
+    def _on_minimize_event(self, _event=None) -> None:
+        if self._iconify_guard or self._is_simple():
+            return
+        if not bool(self.minimize_to_tray_var.get()) or not tray_available():
+            return
+        try:
+            if self.state() == "iconic":
+                self._hide_to_tray()
+        except tk.TclError:
+            pass
 
     def _ui_font(self, *, size: int = 10, bold: bool = False) -> tuple:
         family = "Segoe UI" if sys.platform == "win32" else "TkDefaultFont"
@@ -1158,6 +1266,56 @@ class IndexerApp(tk.Tk):
             ).pack(side=tk.LEFT, padx=(4, 0))
             self._update_watch_status()
 
+            # Row 3 — autostart / tray prefs (Pełny only, Windows-oriented)
+            row3 = ttk.Frame(actions)
+            row3.pack(fill=tk.X, pady=(4, 0))
+            if tray_available():
+                ttk.Checkbutton(
+                    row3,
+                    text=self._("close_to_tray"),
+                    variable=self.close_to_tray_var,
+                    command=self._on_desktop_pref_changed,
+                ).pack(side=tk.LEFT)
+                ttk.Checkbutton(
+                    row3,
+                    text=self._("minimize_to_tray"),
+                    variable=self.minimize_to_tray_var,
+                    command=self._on_desktop_pref_changed,
+                ).pack(side=tk.LEFT, padx=(8, 0))
+            if autostart_is_windows():
+                ttk.Checkbutton(
+                    row3,
+                    text=self._("autostart"),
+                    variable=self.autostart_var,
+                    command=self._on_autostart_toggled,
+                ).pack(side=tk.LEFT, padx=(12, 0))
+                self.autostart_via_var.set(
+                    self._autostart_via_label(self._autostart_via_code())
+                )
+                via = ttk.Combobox(
+                    row3,
+                    textvariable=self.autostart_via_var,
+                    values=[
+                        self._("autostart_via_startup"),
+                        self._("autostart_via_task"),
+                    ],
+                    state="readonly",
+                    width=18,
+                )
+                via.pack(side=tk.LEFT, padx=(4, 0))
+                via.bind("<<ComboboxSelected>>", self._on_autostart_via_selected)
+
+            # Compact watch health strip
+            strip = ttk.Frame(actions)
+            strip.pack(fill=tk.X, pady=(2, 0))
+            ttk.Label(strip, text=self._("watch_strip") + ":", style="Muted.TLabel").pack(
+                side=tk.LEFT
+            )
+            ttk.Label(
+                strip, textvariable=self.watch_strip_var, style="Muted.TLabel"
+            ).pack(side=tk.LEFT, padx=(4, 0))
+            self._refresh_watch_strip()
+
         # Progress — hidden until a scan runs
         self.prog_frame = ttk.Frame(root)
         self.progress = ttk.Progressbar(
@@ -1863,6 +2021,94 @@ class IndexerApp(tk.Tk):
             self.watch_status_var.set(self._("watch_on"))
         else:
             self.watch_status_var.set(self._("watch_idle"))
+        self._refresh_watch_strip(locked_by=locked_by)
+
+    def _on_watch_poll_thread(self) -> None:
+        try:
+            self.after(0, self._refresh_watch_strip)
+        except tk.TclError:
+            pass
+
+    def _format_watch_when(self, dt) -> str:
+        if dt is None:
+            return self._("watch_strip_never")
+        try:
+            return dt.astimezone().strftime("%H:%M:%S")
+        except Exception:  # noqa: BLE001
+            return self._("watch_strip_never")
+
+    def _refresh_watch_strip(self, locked_by: Optional[str] = None) -> None:
+        if not hasattr(self, "watch_strip_var"):
+            return
+        if self._is_simple():
+            self.watch_strip_var.set("")
+            return
+        fw = self._folder_watcher
+        if fw is None or not fw.running:
+            self.watch_strip_var.set(self._("watch_strip_idle"))
+            return
+        bits = [
+            self._("watch_strip_poll", when=self._format_watch_when(fw.last_poll_at)),
+            self._("watch_strip_files", n=fw.stamp_count),
+            self._(
+                "watch_strip_scan",
+                when=self._format_watch_when(self._last_watch_scan_at),
+            ),
+        ]
+        target = self.target_var.get().strip()
+        if locked_by:
+            bits.append(self._("watch_strip_lock", holder=locked_by))
+        elif target:
+            if we_hold_lock(target):
+                bits.append(self._("watch_strip_lock_us"))
+            else:
+                info = read_lock(target)
+                if info is None:
+                    bits.append(self._("watch_strip_lock_none"))
+                else:
+                    bits.append(self._("watch_strip_lock", holder=info.summary()))
+        self.watch_strip_var.set(" · ".join(bits))
+
+    def _autostart_via_code(self) -> str:
+        raw = (self.autostart_via_var.get() or "").strip()
+        if raw == self._("autostart_via_task"):
+            return VIA_TASK
+        if raw.casefold() in ("task", "scheduler", "harmonogram zadań", "harmonogram zadan"):
+            return VIA_TASK
+        return VIA_STARTUP
+
+    def _autostart_via_label(self, code: str) -> str:
+        if normalize_autostart_via(code) == VIA_TASK:
+            return self._("autostart_via_task")
+        return self._("autostart_via_startup")
+
+    def _on_desktop_pref_changed(self, *_args) -> None:
+        self._save_instance_ini()
+
+    def _on_autostart_via_selected(self, *_args) -> None:
+        self._save_instance_ini()
+        if self.autostart_var.get():
+            self._apply_autostart(enabled=True)
+
+    def _on_autostart_toggled(self) -> None:
+        enabled = bool(self.autostart_var.get())
+        self._apply_autostart(enabled=enabled)
+        self._save_instance_ini()
+
+    def _apply_autostart(self, *, enabled: bool) -> None:
+        ok, detail = sync_autostart(
+            enabled=enabled, via=self._autostart_via_code()
+        )
+        if ok:
+            self.status_var.set(
+                self._("autostart_ok") if enabled else self._("autostart_removed")
+            )
+        else:
+            self.autostart_var.set(False)
+            messagebox.showerror(
+                self._("autostart"),
+                self._("autostart_fail", error=detail),
+            )
 
     def _on_watch_toggled(self) -> None:
         self._watch_enabled = bool(self.watch_var.get()) and not self._is_simple()
@@ -1921,6 +2167,7 @@ class IndexerApp(tk.Tk):
                 on_change=self._on_watch_change_thread,
                 poll_s=5.0,
                 debounce_s=3.0,
+                on_poll=self._on_watch_poll_thread,
             )
         self._folder_watcher.set_roots(roots)
         if not self._folder_watcher.running:
@@ -1945,6 +2192,10 @@ class IndexerApp(tk.Tk):
         if self._scan_busy:
             self._watch_rescan_pending = True
             return
+        from datetime import datetime, timezone
+
+        self._last_watch_scan_at = datetime.now(timezone.utc)
+        self._refresh_watch_strip()
         self.status_var.set(self._("watch_trigger"))
         self._start_scan(auto=True)
 
@@ -2293,6 +2544,11 @@ class IndexerApp(tk.Tk):
             self.progress_var.set(100.0)
             self.progress_label_var.set("Done")
             self._mark_schedule_ran()
+            if auto:
+                from datetime import datetime, timezone
+
+                self._last_watch_scan_at = datetime.now(timezone.utc)
+                self._refresh_watch_strip()
             # Re-seed watcher baseline after a successful index so we don't
             # immediately re-trigger on the same tree.
             if self._folder_watcher is not None and self._folder_watcher.running:
@@ -2300,6 +2556,7 @@ class IndexerApp(tk.Tk):
                     self._folder_watcher.seed()
                 except Exception:  # noqa: BLE001
                     log.exception("re-seed folder watcher failed")
+                self._refresh_watch_strip()
         else:
             self.progress_var.set(0.0)
             self.progress_label_var.set("")

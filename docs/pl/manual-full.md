@@ -84,6 +84,17 @@ W **drugim** wierszu paska trybu Pełnego zaznacz **Obserwuj foldery**, aby co k
 - Tylko w trybie **Pełnym**.
 - Tworzy `gcode_index.lock` obok bazy — **jeden komputer** obserwuje / indeksuje. Inne instancje Pełne zobaczą „Obserwacja zablokowana”. Tryb Prosty nie bierze blokady.
 - Zalecenie: jeden PC indeksujący z Obserwuj; pozostałe — Prosty na tej samej bazie.
+- Kompaktowy pasek **Obserwacja** pod paskiem narzędzi pokazuje czas ostatniego polla, liczbę widzianych plików, ostatni skan przyrostowy oraz kto trzyma `gcode_index.lock`.
+
+### Autostart i zasobnik (Windows)
+
+W **trzecim** wierszu paska trybu Pełnego (build Windows):
+
+- **Autostart przy logowaniu** — instaluje lub usuwa skrót w folderze Autostart albo zadanie Harmonogramu („przy logowaniu”). Preferencja w `gcode-index.ini` w sekcji `[desktop]`.
+- **Zamknij do zasobnika** — **X** chowa okno do zasobnika zamiast kończyć program. Dwuklik ikony (lub **Przywróć**) przywraca okno; **Zakończ** w menu zasobnika zamyka na serio.
+- **Minimalizuj do zasobnika** — minimalizacja też chowa do zasobnika.
+
+Wyłącz **Zamknij do zasobnika**, jeśli **X** ma kończyć aplikację. Tryb Prosty zawsze kończy przy zamknięciu i nie ma kontrolek zasobnika/autostartu.
 
 ---
 

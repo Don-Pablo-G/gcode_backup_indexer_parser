@@ -54,3 +54,13 @@ to_prefix = Z:\CNC\Share
 ; Extra rules (optional), one per line: FROM => TO
 rules =
 
+[desktop]
+; Windows logon autostart (Full / Pełny helper). yes/no
+autostart = no
+; startup = Startup folder shortcut | task = Task Scheduler ONLOGON
+autostart_via = startup
+; Window X closes to tray (yes) or quits (no) — Full mode
+close_to_tray = yes
+; Minimize / iconify also hides to tray
+minimize_to_tray = yes
+

@@ -21,6 +21,7 @@ from gcode_index.path_remap import (
     normalize_remaps,
     parse_remap_rules_block,
 )
+from gcode_index.autostart_win import VIA_STARTUP, normalize_autostart_via
 from gcode_index.schedule import SCHEDULE_OFF, normalize_schedule
 
 INSTANCE_INI_FILENAME = "gcode-index.ini"
@@ -48,6 +49,10 @@ class InstanceConfig:
     notes: str = ""
     # Client extract remaps: indexer prefix → local prefix (e.g. C:\\Share → Z:\\Share).
     path_remaps: list[PathRemap] = field(default_factory=list)
+    autostart: bool = False
+    autostart_via: str = VIA_STARTUP
+    close_to_tray: bool = True
+    minimize_to_tray: bool = True
 
     def root_specs(self) -> list[ScanRootSpec]:
         specs: list[ScanRootSpec] = []
@@ -216,6 +221,20 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             rules = normalize_remaps([PathRemap(fr, to), *rules])
         cfg.path_remaps = rules
 
+    if parser.has_section("desktop"):
+        cfg.autostart = _truthy(
+            parser.get("desktop", "autostart", fallback="no"), default=False
+        )
+        cfg.autostart_via = normalize_autostart_via(
+            parser.get("desktop", "autostart_via", fallback=VIA_STARTUP)
+        )
+        cfg.close_to_tray = _truthy(
+            parser.get("desktop", "close_to_tray", fallback="yes"), default=True
+        )
+        cfg.minimize_to_tray = _truthy(
+            parser.get("desktop", "minimize_to_tray", fallback="yes"), default=True
+        )
+
     return cfg
 
 
@@ -246,6 +265,14 @@ def save_instance_ini(
         notes=str(kwargs.get("notes", base.notes) or ""),
         path_remaps=normalize_remaps(
             kwargs.get("path_remaps", base.path_remaps) or []
+        ),
+        autostart=bool(kwargs.get("autostart", base.autostart)),
+        autostart_via=normalize_autostart_via(
+            str(kwargs.get("autostart_via", base.autostart_via) or VIA_STARTUP)
+        ),
+        close_to_tray=bool(kwargs.get("close_to_tray", base.close_to_tray)),
+        minimize_to_tray=bool(
+            kwargs.get("minimize_to_tray", base.minimize_to_tray)
         ),
     )
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -322,6 +349,16 @@ text = {data.notes}
 from_prefix = {(data.path_remaps[0].from_prefix if data.path_remaps else "")}
 to_prefix = {(data.path_remaps[0].to_prefix if data.path_remaps else "")}
 rules ={format_remap_rules_block(data.path_remaps[1:] if len(data.path_remaps) > 1 else [])}
+
+[desktop]
+; Windows logon autostart (Full mode helper). yes/no
+autostart = {yn(data.autostart)}
+; startup = Startup folder shortcut | task = Task Scheduler ONLOGON
+autostart_via = {data.autostart_via}
+; Window X closes to tray (yes) or quits (no)
+close_to_tray = {yn(data.close_to_tray)}
+; Minimize / iconify also hides to tray
+minimize_to_tray = {yn(data.minimize_to_tray)}
 """
     p.write_text(text, encoding="utf-8", newline="\n")
     return p

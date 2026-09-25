@@ -44,14 +44,18 @@ def test_stamp_tree_and_watcher_detects_new_file(tmp_path: Path):
     root.mkdir()
     (root / "old.nc").write_bytes(b"a")
     hits: list[int] = []
+    polls: list[int] = []
 
     watcher = FolderWatcher(
         on_change=lambda: hits.append(1),
         poll_s=0.2,
         debounce_s=0.3,
+        on_poll=lambda: polls.append(1),
     )
     watcher.set_roots([root])
     assert watcher.seed() == 1
+    assert watcher.stamp_count == 1
+    assert watcher.last_poll_at is not None
     watcher.start()
     try:
         (root / "new.nc").write_bytes(b"b")
@@ -59,8 +63,49 @@ def test_stamp_tree_and_watcher_detects_new_file(tmp_path: Path):
         while not hits and time.time() < deadline:
             time.sleep(0.1)
         assert hits, "watcher should fire after new file + debounce"
+        assert watcher.stamp_count == 2
+        assert watcher.last_change_at is not None
+        # At least one poll callback after start
+        deadline2 = time.time() + 2.0
+        while not polls and time.time() < deadline2:
+            time.sleep(0.1)
+        assert polls, "on_poll should fire"
     finally:
         watcher.stop()
+
+
+def test_watcher_on_poll_updates_last_poll(tmp_path: Path):
+    root = tmp_path / "bak"
+    root.mkdir()
+    (root / "a.nc").write_bytes(b"x")
+    seen: list[int] = []
+    watcher = FolderWatcher(
+        on_change=lambda: None,
+        poll_s=0.15,
+        debounce_s=0.2,
+        on_poll=lambda: seen.append(watcher.stamp_count),
+    )
+    watcher.set_roots([root])
+    watcher.seed()
+    first = watcher.last_poll_at
+    watcher.start()
+    try:
+        deadline = time.time() + 2.0
+        while len(seen) < 1 and time.time() < deadline:
+            time.sleep(0.05)
+        assert seen
+        assert watcher.last_poll_at is not None
+        assert watcher.last_poll_at >= first  # type: ignore[operator]
+        assert watcher.stamp_count == 1
+    finally:
+        watcher.stop()
+
+
+def test_watch_strip_i18n():
+    assert "{when}" in t("pl", "watch_strip_poll")
+    assert "{n}" in t("en", "watch_strip_files")
+    assert "ten PC" in t("pl", "watch_strip_lock_us")
+    assert "this PC" in t("en", "watch_strip_lock_us")
 
 
 def test_indexer_lock_roundtrip(tmp_path: Path):

@@ -10,12 +10,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 log = logging.getLogger("gcode_index.folder_watch")
 
 ChangeCallback = Callable[[], None]
+PollCallback = Callable[[], None]
 
 
 def is_indexable_path(path: Path) -> bool:
@@ -62,8 +64,10 @@ class FolderWatcher:
         on_change: ChangeCallback,
         poll_s: float = 5.0,
         debounce_s: float = 3.0,
+        on_poll: Optional[PollCallback] = None,
     ) -> None:
         self._on_change = on_change
+        self._on_poll = on_poll
         self._poll_s = max(1.0, float(poll_s))
         self._debounce_s = max(0.5, float(debounce_s))
         self._roots: list[Path] = []
@@ -72,10 +76,28 @@ class FolderWatcher:
         self._thread: Optional[threading.Thread] = None
         self._pending_since: Optional[float] = None
         self._lock = threading.Lock()
+        self._last_poll_at: Optional[datetime] = None
+        self._last_change_at: Optional[datetime] = None
+        self._stamp_count: int = 0
 
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def last_poll_at(self) -> Optional[datetime]:
+        with self._lock:
+            return self._last_poll_at
+
+    @property
+    def last_change_at(self) -> Optional[datetime]:
+        with self._lock:
+            return self._last_change_at
+
+    @property
+    def stamp_count(self) -> int:
+        with self._lock:
+            return int(self._stamp_count)
 
     def set_roots(self, roots: Iterable[Path | str]) -> None:
         cleaned: list[Path] = []
@@ -98,9 +120,12 @@ class FolderWatcher:
         with self._lock:
             roots = list(self._roots)
         snap = stamp_tree(roots)
+        now = datetime.now(timezone.utc)
         with self._lock:
             self._snapshot = snap
             self._pending_since = None
+            self._stamp_count = len(snap)
+            self._last_poll_at = now
         return len(snap)
 
     def start(self) -> None:
@@ -138,16 +163,25 @@ class FolderWatcher:
             return
         cur = stamp_tree(roots)
         changed = cur != prev
-        now = time.monotonic()
+        now_mono = time.monotonic()
+        now_wall = datetime.now(timezone.utc)
         with self._lock:
+            self._last_poll_at = now_wall
+            self._stamp_count = len(cur)
             if changed:
                 self._snapshot = cur
+                self._last_change_at = now_wall
                 if self._pending_since is None:
-                    self._pending_since = now
+                    self._pending_since = now_mono
             pending_since = self._pending_since
+        if self._on_poll is not None:
+            try:
+                self._on_poll()
+            except Exception:  # noqa: BLE001
+                log.exception("folder watch on_poll failed")
         if pending_since is None:
             return
-        if (now - pending_since) < self._debounce_s:
+        if (now_mono - pending_since) < self._debounce_s:
             return
         with self._lock:
             self._pending_since = None

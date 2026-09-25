@@ -84,6 +84,17 @@ On the **second** Full-mode toolbar row, tick **Watch folders** to poll the back
 - Only available in **Full** mode.
 - Takes a `gcode_index.lock` next to the database so **one PC** owns watching/indexing. Other Full instances see “Watch locked” if they try to enable it. Prosty clients never take the lock.
 - Prefer: one indexer PC with Watch on; other PCs use Simple mode against the same DB.
+- A compact **Watch** status strip under the toolbar shows last poll time, files seen (stamp count), last incremental run, and who holds `gcode_index.lock`.
+
+### Autostart and tray (Windows)
+
+On the **third** Full-mode toolbar row (Windows builds):
+
+- **Start at Windows logon** — installs or removes either a Startup-folder shortcut or a Task Scheduler “at logon” entry (choose **Method**). Preference is saved in `gcode-index.ini` under `[desktop]`.
+- **Close to tray** — the window **X** hides to the system tray instead of quitting. Double-click the tray icon (or **Restore**) brings the window back; **Quit** on the tray menu exits for real.
+- **Minimize to tray** — iconify also hides to the tray.
+
+Turn **Close to tray** off if you want **X** to quit. Simple mode always quits on close and has no tray/autostart controls.
 
 ---
 

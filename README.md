@@ -65,7 +65,7 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
 | Mode | Who | What you see |
 |------|-----|----------------|
 | **Prosty / Simple** (default) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract. No scan / index / schedule / extra roots. |
-| **Pełny / Full** | Power users | Indexing + everything: backup/target/extract, green/yellow extras, schedule, **watch folders**, map / machines & aliases, Excel, incremental, advanced filters, presets, compare, scan report, duplicates |
+| **Pełny / Full** | Power users | Indexing + everything: backup/target/extract, green/yellow extras, schedule, **watch folders** (+ status strip), Windows **autostart** / **tray**, map / machines & aliases, Excel, incremental, advanced filters, presets, compare, scan report, duplicates |
 
 ### Simple mode (operators — retrieve only)
 
