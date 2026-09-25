@@ -19,13 +19,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "app_title": "Indeksator kopii G-code",
         "folders": "Foldery",
         "folders_step": "1 · Foldery",
+        "folders_step_simple": "1 · Baza / foldery",
         "folders_summary_empty": "Ustaw folder kopii i folder docelowy…",
+        "folders_summary_empty_simple": "Otwórz bazę lub ustaw folder z bazą…",
         "folders_summary": "Kopia: {backup}    Docelowy: {target}",
+        "folders_summary_simple": "Baza: {target}    Kopia: {backup}",
         "change_folders": "Zmień…",
         "folders_done": "Gotowe",
         "path_unset": "(brak)",
         "backup_folder": "Folder kopii zapasowych",
+        "backup_folder_optional": "Folder kopii (opcjonalny — do wydobycia)",
         "target_folder": "Folder docelowy (baza / wydobyte programy)",
+        "target_folder_simple": "Folder z bazą / wydobyte programy",
         "browse": "Przeglądaj…",
         "extra_folders": "Dodatkowe foldery",
         "add_folder": "Dodaj folder…",
@@ -106,11 +111,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "Przyrostowy skan pomija niezmienione pliki."
         ),
         "hint_simple": (
-            "1) Wybierz foldery kopii i docelowy (sekcja zielona). "
-            "2) Kliknij zielony przycisk Indeksuj / skanuj. "
-            "3) Szukaj po numerze programu lub części. "
-            "4) Zaznacz wiersz → zielony Wydobądź (lub podwójne kliknięcie). "
-            "Podgląd pokazuje treść programu. "
+            "Tylko odczyt: otwórz istniejącą bazę (zielony przycisk), "
+            "szukaj po numerze programu lub części, "
+            "zaznacz wiersz → zielony Wydobądź (lub podwójne kliknięcie). "
+            "Folder kopii potrzebny tylko gdy wydobycie wymaga ścieżek względnych. "
+            "Indeksowanie / skan / auto-indeks — w trybie Pełny. "
             "Tylko najnowsze = jedna pozycja na program+maszynę."
         ),
         "col_flag": "Flaga",
@@ -126,6 +131,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "preview": "Podgląd",
         "preview_idle": "Podgląd — wybierz wiersz wyniku",
         "status_pick": "Wybierz folder kopii i folder docelowy dla bazy.",
+        "status_pick_simple": "Otwórz istniejącą bazę (zielony przycisk) lub ustaw folder z bazą.",
         "status_loaded_ini": "Wczytano ustawienia z {filename}",
         "flag_green": "zielona — kopia (była na maszynie)",
         "flag_yellow": "żółta — dodatkowa (nie jechała)",
@@ -145,13 +151,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "app_title": "G-code Backup Indexer",
         "folders": "Folders",
         "folders_step": "1 · Folders",
+        "folders_step_simple": "1 · Database / folders",
         "folders_summary_empty": "Set backup and target folders…",
+        "folders_summary_empty_simple": "Open a database or set the folder that holds it…",
         "folders_summary": "Backup: {backup}    Target: {target}",
+        "folders_summary_simple": "DB folder: {target}    Backup: {backup}",
         "change_folders": "Change…",
         "folders_done": "Done",
         "path_unset": "(not set)",
         "backup_folder": "Backup folder",
+        "backup_folder_optional": "Backup folder (optional — for extract)",
         "target_folder": "Target folder (DB / extracts)",
+        "target_folder_simple": "Folder with database / extracts",
         "browse": "Browse…",
         "extra_folders": "Additional folders",
         "add_folder": "Add folder…",
@@ -232,11 +243,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "Incremental scan skips unchanged files."
         ),
         "hint_simple": (
-            "1) Pick backup + target folders (green section). "
-            "2) Click the green Run index / scan button. "
-            "3) Search by program or part number. "
-            "4) Select a row → green Extract (or double-click). "
-            "Preview shows the program body. "
+            "Retrieve only: open an existing database (green button), "
+            "search by program or part number, "
+            "select a row → green Extract (or double-click). "
+            "Backup folder is needed only when extract uses relative source paths. "
+            "Indexing / scan / auto-index live in Full mode. "
             "Newest only = one row per program+machine."
         ),
         "col_flag": "Flag",
@@ -252,6 +263,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "preview": "Preview",
         "preview_idle": "Preview — select a result row",
         "status_pick": "Pick a backup folder and a target folder for the database.",
+        "status_pick_simple": "Open an existing database (green button) or set the folder that holds it.",
         "status_loaded_ini": "Loaded settings from {filename}",
         "flag_green": "green — backup (ran)",
         "flag_yellow": "yellow — extra (not run)",

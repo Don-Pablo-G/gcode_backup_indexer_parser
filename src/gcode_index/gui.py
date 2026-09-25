@@ -357,7 +357,14 @@ class IndexerApp(tk.Tk):
             highlightthickness=0,
         )
 
-    def _set_primary_button_enabled(self, btn: tk.Button, enabled: bool) -> None:
+    def _set_primary_button_enabled(self, btn: tk.Button | None, enabled: bool) -> None:
+        if btn is None:
+            return
+        try:
+            if not btn.winfo_exists():
+                return
+        except tk.TclError:
+            return
         if enabled:
             btn.configure(
                 state=tk.NORMAL,
@@ -448,6 +455,8 @@ class IndexerApp(tk.Tk):
         if persist:
             self._persist_ui_settings(preserved["target"])
         self._rebuild(preserved)
+        # Prosty is retrieve-only — never run scheduled scans while in that mode.
+        self._arm_schedule_timer()
 
     def _on_ui_mode_selected(self, *_args) -> None:
         self._set_ui_mode(self._mode_from_label(self.ui_mode_var.get()))
@@ -519,6 +528,9 @@ class IndexerApp(tk.Tk):
         return "…" + raw[-(maxlen - 1) :]
 
     def _folders_ready(self) -> bool:
+        # Prosty (retrieve-only): target/DB folder is enough; backup is optional for extract.
+        if self._is_simple():
+            return bool(self.target_var.get().strip())
         return bool(self.backup_var.get().strip() and self.target_var.get().strip())
 
     def _update_folders_summary(self) -> None:
@@ -526,14 +538,27 @@ class IndexerApp(tk.Tk):
             return
         bak = self.backup_var.get().strip()
         tgt = self.target_var.get().strip()
+        unset = self._("path_unset")
+        if self._is_simple():
+            if not tgt:
+                self._folders_summary_var.set(self._("folders_summary_empty_simple"))
+            else:
+                self._folders_summary_var.set(
+                    self._(
+                        "folders_summary_simple",
+                        backup=self._short_path(bak) if bak else unset,
+                        target=self._short_path(tgt),
+                    )
+                )
+            return
         if not bak and not tgt:
             self._folders_summary_var.set(self._("folders_summary_empty"))
         else:
             self._folders_summary_var.set(
                 self._(
                     "folders_summary",
-                    backup=self._short_path(bak),
-                    target=self._short_path(tgt),
+                    backup=self._short_path(bak) if bak else unset,
+                    target=self._short_path(tgt) if tgt else unset,
                 )
             )
 
@@ -564,7 +589,11 @@ class IndexerApp(tk.Tk):
         if not self._folders_ready():
             messagebox.showinfo(
                 self._("folders"),
-                self._("folders_summary_empty"),
+                self._(
+                    "folders_summary_empty_simple"
+                    if self._is_simple()
+                    else "folders_summary_empty"
+                ),
             )
             return
         self._set_folders_expanded(False)
@@ -693,7 +722,9 @@ class IndexerApp(tk.Tk):
         if self._is_all_token(self.provenance_var.get()) or not self.provenance_var.get():
             self.provenance_var.set(self._all_token())
         if not self.status_var.get():
-            self.status_var.set(self._("status_pick"))
+            self.status_var.set(
+                self._("status_pick_simple") if simple else self._("status_pick")
+            )
         if not self.preview_header_var.get():
             self.preview_header_var.set(self._("preview_idle"))
 
@@ -713,14 +744,20 @@ class IndexerApp(tk.Tk):
 
         self._folders_expanded_frame = ttk.LabelFrame(
             root,
-            text=(self._("folders_step") if simple else self._("folders")),
+            text=(
+                self._("folders_step_simple") if simple else self._("folders")
+            ),
             padding=8,
             style="Primary.TLabelframe",
         )
         paths = self._folders_expanded_frame
-        ttk.Label(paths, text=self._("backup_folder"), style="Key.TLabel").grid(
-            row=0, column=0, sticky=tk.W
-        )
+        ttk.Label(
+            paths,
+            text=(
+                self._("backup_folder_optional") if simple else self._("backup_folder")
+            ),
+            style="Key.TLabel",
+        ).grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(paths, textvariable=self.backup_var, style="Key.TEntry").grid(
             row=0, column=1, sticky=tk.EW, padx=4, ipady=2
         )
@@ -728,9 +765,13 @@ class IndexerApp(tk.Tk):
             row=0, column=2
         )
 
-        ttk.Label(paths, text=self._("target_folder"), style="Key.TLabel").grid(
-            row=1, column=0, sticky=tk.W
-        )
+        ttk.Label(
+            paths,
+            text=(
+                self._("target_folder_simple") if simple else self._("target_folder")
+            ),
+            style="Key.TLabel",
+        ).grid(row=1, column=0, sticky=tk.W)
         ttk.Entry(paths, textvariable=self.target_var, style="Key.TEntry").grid(
             row=1, column=1, sticky=tk.EW, padx=4, ipady=2
         )
@@ -739,46 +780,55 @@ class IndexerApp(tk.Tk):
         )
         paths.columnconfigure(1, weight=1)
 
-        # Additional folders (green catch + yellow extras) — both modes
-        extra = ttk.LabelFrame(
-            paths,
-            text=self._("extra_folders"),
-            padding=6,
-        )
-        extra.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
-        extra_row = ttk.Frame(extra)
-        extra_row.pack(fill=tk.X)
-        self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
-        extra_sb = ttk.Scrollbar(
-            extra_row, orient=tk.VERTICAL, command=self.extra_list.yview
-        )
-        self.extra_list.configure(yscrollcommand=extra_sb.set)
-        self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
-        extra_btns = ttk.Frame(extra)
-        extra_btns.pack(fill=tk.X, pady=(4, 0))
-        ttk.Button(
-            extra_btns,
-            text=self._("add_green_folder"),
-            command=lambda: self._add_scan_root(PROVENANCE_BACKUP),
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            extra_btns,
-            text=self._("add_yellow_folder"),
-            command=lambda: self._add_scan_root(PROVENANCE_EXTRA),
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            extra_btns,
-            text=self._("remove_selected"),
-            command=self._remove_extra_roots,
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Label(extra_btns, text=self._("extra_hint"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=8
-        )
-        self._fill_extra_list(self._hidden_root_specs)
+        # Additional folders (green catch + yellow extras) — Full mode only
+        if not simple:
+            extra = ttk.LabelFrame(
+                paths,
+                text=self._("extra_folders"),
+                padding=6,
+            )
+            extra.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
+            extra_row = ttk.Frame(extra)
+            extra_row.pack(fill=tk.X)
+            self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
+            extra_sb = ttk.Scrollbar(
+                extra_row, orient=tk.VERTICAL, command=self.extra_list.yview
+            )
+            self.extra_list.configure(yscrollcommand=extra_sb.set)
+            self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
+            extra_btns = ttk.Frame(extra)
+            extra_btns.pack(fill=tk.X, pady=(4, 0))
+            ttk.Button(
+                extra_btns,
+                text=self._("add_green_folder"),
+                command=lambda: self._add_scan_root(PROVENANCE_BACKUP),
+            ).pack(side=tk.LEFT)
+            ttk.Button(
+                extra_btns,
+                text=self._("add_yellow_folder"),
+                command=lambda: self._add_scan_root(PROVENANCE_EXTRA),
+            ).pack(side=tk.LEFT, padx=4)
+            ttk.Button(
+                extra_btns,
+                text=self._("remove_selected"),
+                command=self._remove_extra_roots,
+            ).pack(side=tk.LEFT, padx=4)
+            ttk.Label(extra_btns, text=self._("extra_hint"), style="Muted.TLabel").pack(
+                side=tk.LEFT, padx=8
+            )
+            self._fill_extra_list(self._hidden_root_specs)
+        elif hasattr(self, "extra_list"):
+            delattr(self, "extra_list")
 
         done_row = ttk.Frame(paths)
-        done_row.grid(row=3, column=0, columnspan=3, sticky=tk.E, pady=(8, 0))
+        done_row.grid(
+            row=3 if not simple else 2,
+            column=0,
+            columnspan=3,
+            sticky=tk.E,
+            pady=(8, 0),
+        )
         ttk.Button(
             done_row, text=self._("folders_done"), command=self._collapse_folders
         ).pack(side=tk.RIGHT)
@@ -797,24 +847,25 @@ class IndexerApp(tk.Tk):
 
         settings = ttk.Frame(actions)
         settings.pack(side=tk.RIGHT)
-        ttk.Label(settings, text=self._("schedule"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=(0, 2)
-        )
-        self.schedule_var.set(self._schedule_label(self._schedule))
-        sched_combo = ttk.Combobox(
-            settings,
-            textvariable=self.schedule_var,
-            values=[self._schedule_label(c) for c in SCHEDULE_CHOICES],
-            state="readonly",
-            width=14,
-        )
-        sched_combo.pack(side=tk.LEFT)
-        sched_combo.bind("<<ComboboxSelected>>", self._on_schedule_selected)
-        ttk.Label(
-            settings, textvariable=self.schedule_status_var, style="Muted.TLabel"
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        if not simple:
+            ttk.Label(settings, text=self._("schedule"), style="Muted.TLabel").pack(
+                side=tk.LEFT, padx=(0, 2)
+            )
+            self.schedule_var.set(self._schedule_label(self._schedule))
+            sched_combo = ttk.Combobox(
+                settings,
+                textvariable=self.schedule_var,
+                values=[self._schedule_label(c) for c in SCHEDULE_CHOICES],
+                state="readonly",
+                width=14,
+            )
+            sched_combo.pack(side=tk.LEFT)
+            sched_combo.bind("<<ComboboxSelected>>", self._on_schedule_selected)
+            ttk.Label(
+                settings, textvariable=self.schedule_status_var, style="Muted.TLabel"
+            ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=(12, 2)
+            side=tk.LEFT, padx=(12 if not simple else 0, 2)
         )
         lang_combo = ttk.Combobox(
             settings,
@@ -839,33 +890,42 @@ class IndexerApp(tk.Tk):
         )
         mode_combo.pack(side=tk.LEFT)
         mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
-        self._update_schedule_status()
-
-        self.scan_btn = self._make_primary_button(
-            actions, self._("run_scan"), self._start_scan
-        )
-        self.scan_btn.pack(side=tk.LEFT)
         if not simple:
+            self._update_schedule_status()
+
+        if simple:
+            # Retrieve-only: Open DB is the primary CTA; no scan / index.
+            self.scan_btn = None
+            self.open_db_btn = self._make_primary_button(
+                actions, self._("open_db"), self._pick_existing_db
+            )
+            self.open_db_btn.pack(side=tk.LEFT)
+            ttk.Button(
+                actions, text=self._("clear_filters"), command=self._clear_filters
+            ).pack(side=tk.LEFT, padx=8)
+        else:
+            self.scan_btn = self._make_primary_button(
+                actions, self._("run_scan"), self._start_scan
+            )
+            self.scan_btn.pack(side=tk.LEFT)
             ttk.Button(
                 actions, text=self._("map_folders"), command=self._open_folder_map
             ).pack(side=tk.LEFT, padx=8)
             ttk.Button(
                 actions, text=self._("aliases"), command=self._open_alias_editor
             ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            actions, text=self._("open_db"), command=self._pick_existing_db
-        ).pack(side=tk.LEFT, padx=8)
-        if not simple:
+            ttk.Button(
+                actions, text=self._("open_db"), command=self._pick_existing_db
+            ).pack(side=tk.LEFT, padx=8)
             ttk.Button(
                 actions, text=self._("scan_report"), command=self._open_scan_report
             ).pack(side=tk.LEFT, padx=4)
             ttk.Button(
                 actions, text=self._("duplicates"), command=self._open_duplicates
             ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            actions, text=self._("clear_filters"), command=self._clear_filters
-        ).pack(side=tk.LEFT, padx=4)
-        if not simple:
+            ttk.Button(
+                actions, text=self._("clear_filters"), command=self._clear_filters
+            ).pack(side=tk.LEFT, padx=4)
             ttk.Checkbutton(
                 actions, text=self._("also_excel"), variable=self.excel_var
             ).pack(side=tk.LEFT)
@@ -1187,7 +1247,7 @@ class IndexerApp(tk.Tk):
 
     def _pick_existing_db(self) -> None:
         path = filedialog.askopenfilename(
-            title="Open existing gcode_index.sqlite",
+            title=self._("open_db"),
             filetypes=[("SQLite", "*.sqlite *.db"), ("All", "*.*")],
         )
         if not path:
@@ -1198,6 +1258,9 @@ class IndexerApp(tk.Tk):
         self.status_var.set(f"Using existing DB: {db}")
         self._refresh_filter_choices()
         self._clear_filters()
+        self._update_folders_summary()
+        self._maybe_auto_collapse_folders()
+        self._save_instance_ini()
 
     def _scan_root_specs(self) -> list[ScanRootSpec]:
         if hasattr(self, "extra_list"):
@@ -1341,6 +1404,9 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 pass
             self._schedule_after_id = None
+        # Prosty is retrieve-only — no auto-index timer.
+        if self._is_simple():
+            return
         # Check every 30s while a schedule is armed
         if self._schedule != SCHEDULE_OFF:
             self._schedule_after_id = self.after(30_000, self._schedule_tick)
@@ -1354,6 +1420,8 @@ class IndexerApp(tk.Tk):
             self._update_schedule_status()
 
     def _maybe_run_scheduled_scan(self) -> None:
+        if self._is_simple():
+            return
         if self._schedule == SCHEDULE_OFF or self._scan_busy:
             return
         if not self._folders_ready():
@@ -1494,6 +1562,14 @@ class IndexerApp(tk.Tk):
 
     def _start_scan(self, auto: bool = False) -> None:
         if self._scan_busy:
+            return
+        # Prosty is retrieve-only — indexing lives in Full mode.
+        if self._is_simple():
+            if not auto:
+                messagebox.showinfo(
+                    self._("run_scan"),
+                    self._("hint_simple"),
+                )
             return
         backup = self.backup_var.get().strip()
         target = self.target_var.get().strip()

@@ -24,9 +24,9 @@ paths =
 [ui]
 ; Language: pl (default) or en
 language = pl
-; Mode: simple (operators) or full (power users)
+; Mode: simple (retrieve-only operators) or full (index + power users)
 mode = simple
-; Auto-index while the GUI stays open: off | hourly | daily | weekly
+; Auto-index while the GUI stays open (Full mode only): off | hourly | daily | weekly
 schedule = off
 schedule_last_run =
 

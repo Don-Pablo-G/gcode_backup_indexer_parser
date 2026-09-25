@@ -51,16 +51,16 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
 
 | Mode | Who | What you see |
 |------|-----|----------------|
-| **Prosty / Simple** (default) | Operators | Folders, scan, open DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract — key fields and the green **Indeksuj** / **Wydobądź** buttons are highlighted |
-| **Pełny / Full** | Power users | Everything above + extra folders, map/aliases, Excel, incremental checkbox, advanced filters, presets, compare, scan report, duplicates |
+| **Prosty / Simple** (default) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract. No scan / index / schedule / extra roots. |
+| **Pełny / Full** | Power users | Indexing + everything: backup/target, green/yellow extras, schedule, map/aliases, Excel, incremental, advanced filters, presets, compare, scan report, duplicates |
 
-### Simple mode (operators)
+### Simple mode (operators — retrieve only)
 
-1. Set **backup** + **target** folders (collapses to a one-line summary; **Change…** to edit).  
-2. Optionally add **green** folders for loose `.nc` to catch before the machine wipe, or **yellow** extras.  
-3. Click green **Indeksuj / skanuj** (or enable **Auto-index**: hourly / daily / weekly).  
-4. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
-5. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.
+1. Click green **Otwórz istniejącą bazę…** / **Open existing DB…** (or set the folder that already holds `gcode_index.sqlite`).  
+2. Optionally set **backup** if extract needs relative source paths.  
+3. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
+4. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.  
+5. Switch to **Pełny** when you need to index / scan.
 
 ### Full mode (power users)
 
@@ -75,7 +75,7 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
    - Optional checkbox: also save assignments as **local aliases** (`aliases.local.yaml` next to the DB) so the same odd folder names auto-match on later scans.  
    - First scan prompts only when unmatched folders remain.  
    - **Aliases…** opens an editor to **add / change / remove** local aliases (and override bundled ones). Bundled `aliases.yaml` stays read-only.  
-5. Click **Run index / scan** (optional Excel export checkbox).  
+5. Click **Run index / scan** (optional Excel export checkbox; optional **Auto-index** schedule).  
    After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
 6. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
    - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  

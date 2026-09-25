@@ -45,12 +45,19 @@ def test_ui_mode_defaults():
     assert "Prosty" in t("pl", "mode_simple")
     assert "Pełny" in t("pl", "mode_full")
     assert "Wydobądź" in t("pl", "hint_simple")
-    assert t("pl", "folders_step").startswith("1")
+    # Prosty = retrieve-only (no scan / index in the hint)
+    assert "Indeksuj" not in t("pl", "hint_simple")
+    assert "odczyt" in t("pl", "hint_simple").lower() or "bazę" in t("pl", "hint_simple")
+    assert "Retrieve only" in t("en", "hint_simple")
+    assert "Full mode" in t("en", "hint_simple")
+    assert t("pl", "folders_step_simple").startswith("1")
     assert t("pl", "find_programs_step").startswith("2")
-    assert "zielony" in t("pl", "hint_simple")
     assert "Zmień" in t("pl", "change_folders")
     assert "wszystkie" in t("pl", "machines_all")
     assert "More filters" in t("en", "more_filters")
+    assert "opcjonalny" in t("pl", "backup_folder_optional")
+    assert "Otwórz" in t("pl", "status_pick_simple")
+    assert "Open an existing" in t("en", "status_pick_simple")
 
 
 def test_ui_accent_constants():
