@@ -28,6 +28,8 @@ Full mode can:
 | **Database folder** (`target`) | `gcode_index.sqlite` + sidecar files (`machine_folders.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
 | **Extract folder** | Default output for Wydobądź (blank = same as database folder) |
 
+Browsing for backup / database / extract keeps the folder panel **open** so you can finish all paths. Collapse with **Done** / **Gotowe** when finished (or when a scan starts).
+
 ### Extra roots
 
 - **Green** — treat like on-machine / catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.

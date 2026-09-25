@@ -641,6 +641,12 @@ class IndexerApp(tk.Tk):
             self._folders_summary_frame.pack(**pack_opts)
 
     def _maybe_auto_collapse_folders(self) -> None:
+        """Collapse only when folders are already complete (startup / scan).
+
+        Path pickers must **not** call this — operators need the panel to stay
+        open so they can set extract (and extras) after choosing the DB folder.
+        Explicit collapse is via **Gotowe** / **Done**.
+        """
         if self._folders_ready() and self._folders_expanded:
             self._set_folders_expanded(False)
 
@@ -1436,7 +1442,7 @@ class IndexerApp(tk.Tk):
         if path:
             self.backup_var.set(path)
             self._update_folders_summary()
-            self._maybe_auto_collapse_folders()
+            # Keep folder section open so extract / extras can still be set.
             self._save_instance_ini()
             self._sync_folder_watch()
 
@@ -1455,7 +1461,8 @@ class IndexerApp(tk.Tk):
             if lang != self._lang or mode != self._ui_mode:
                 preserved = self._snapshot_ui()
                 preserved["target"] = path
-                preserved["folders_expanded"] = False
+                # Stay expanded so backup/extract can still be edited after DB pick
+                preserved["folders_expanded"] = True
                 preserved["schedule"] = self._schedule
                 self._lang = lang
                 self._ui_mode = mode
@@ -1464,7 +1471,6 @@ class IndexerApp(tk.Tk):
                 self._rebuild(preserved)
             else:
                 self._persist_ui_settings(path)
-                self._maybe_auto_collapse_folders()
                 self._sync_folder_watch()
 
     def _pick_extract(self) -> None:
@@ -1472,7 +1478,6 @@ class IndexerApp(tk.Tk):
         if path:
             self.extract_var.set(path)
             self._update_folders_summary()
-            self._maybe_auto_collapse_folders()
             self._save_instance_ini()
 
     def _pick_existing_db(self) -> None:
@@ -1489,7 +1494,10 @@ class IndexerApp(tk.Tk):
         self._refresh_filter_choices()
         self._clear_filters()
         self._update_folders_summary()
-        self._maybe_auto_collapse_folders()
+        # Stay expanded in Full so extract/backup remain editable; Prosty
+        # users collapse via Gotowe when ready.
+        if not self._is_simple():
+            self._set_folders_expanded(True, persist=False)
         self._save_instance_ini()
 
     def _scan_root_specs(self) -> list[ScanRootSpec]:

@@ -28,6 +28,8 @@ Tryb Pełny pozwala:
 | **Folder bazy** (`target`) | `gcode_index.sqlite` + pliki pomocnicze (`machine_folders.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
 | **Folder wydobycia** | Domyślny zapis Wydobądź (puste = ten sam co folder bazy) |
 
+Wybór folderu kopii / bazy / wydobycia **nie zwija** sekcji folderów — możesz dokończyć wszystkie ścieżki. Zwiń przez **Gotowe**, gdy skończysz (albo przy starcie skanu).
+
 ### Dodatkowe katalogi
 
 - **Zielony** — jak z maszyny / folder „łapacza” luźnych `.nc` (zanim znikną z backupu). Podfoldery są skanowane rekurencyjnie. Programy dostają **zieloną** flagę pochodzenia.
