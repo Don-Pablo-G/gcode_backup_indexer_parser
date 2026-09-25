@@ -54,8 +54,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_unit_days": "dni",
         
         "schedule_next": "Następny: {when}",
+        "schedule_countdown": "Za {countdown}",
+        "schedule_due_now": "Teraz…",
         "schedule_idle": "Auto-indeks wyłączony",
-        "schedule_running": "Auto-indeks…",
+        "schedule_running": "Auto-indeks w toku…",
         "schedule_last": "Ostatni auto-indeks: {when}",
         "watch_folders": "Obserwuj foldery",
         "watch_idle": "Obserwacja wyłączona",
@@ -264,6 +266,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_unit_days": "days",
         
         "schedule_next": "Next: {when}",
+        "schedule_countdown": "In {countdown}",
+        "schedule_due_now": "Due now…",
         "schedule_idle": "Auto-index off",
         "schedule_running": "Auto-indexing…",
         "schedule_last": "Last auto-index: {when}",

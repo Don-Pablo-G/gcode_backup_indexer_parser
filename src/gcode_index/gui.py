@@ -105,14 +105,15 @@ from gcode_index.schedule import (
     UNIT_HOURS,
     UNIT_MINUTES,
     UNIT_SECONDS,
+    format_countdown,
     format_iso_datetime,
     format_schedule,
     is_schedule_due,
-    next_schedule_at,
     normalize_schedule,
     parse_iso_datetime,
     parse_schedule,
     schedule_poll_ms,
+    seconds_until_next,
 )
 from gcode_index.scan_cache import load_scan_cache
 from gcode_index.scan_report import (
@@ -220,6 +221,7 @@ class IndexerApp(tk.Tk):
 
         self._search_after_id: Optional[str] = None
         self._schedule_after_id: Optional[str] = None
+        self._schedule_amount_debounce_id: Optional[str] = None
         self._result_rows: list = []
         self._missing_source_count: int = 0
         self._sort_col: Optional[str] = None
@@ -1341,6 +1343,7 @@ class IndexerApp(tk.Tk):
         amount_entry.pack(side=tk.LEFT)
         amount_entry.bind("<FocusOut>", self._on_schedule_widgets_changed)
         amount_entry.bind("<Return>", self._on_schedule_widgets_changed)
+        amount_entry.bind("<KeyRelease>", self._on_schedule_amount_typed)
         unit_combo = ttk.Combobox(
             sched,
             textvariable=self.schedule_unit_var,
@@ -2071,8 +2074,35 @@ class IndexerApp(tk.Tk):
             amount = 1
         return format_schedule(amount, unit)
 
+    def _on_schedule_amount_typed(self, *_args) -> None:
+        """Debounce amount edits so the countdown recalculates while typing."""
+        if self._schedule_amount_debounce_id is not None:
+            try:
+                self.after_cancel(self._schedule_amount_debounce_id)
+            except tk.TclError:
+                pass
+        self._schedule_amount_debounce_id = self.after(
+            400, self._on_schedule_widgets_changed
+        )
+
     def _on_schedule_widgets_changed(self, *_args) -> None:
-        self._set_schedule(self._collect_schedule_from_widgets())
+        if self._schedule_amount_debounce_id is not None:
+            try:
+                self.after_cancel(self._schedule_amount_debounce_id)
+            except tk.TclError:
+                pass
+            self._schedule_amount_debounce_id = None
+        new_code = self._collect_schedule_from_widgets()
+        old_code = self._schedule
+        # Amount/unit change: restart the interval from *now* so next-run
+        # updates immediately instead of staying anchored to an old last_run.
+        if new_code != old_code and new_code != SCHEDULE_OFF:
+            from datetime import datetime, timezone
+
+            self._schedule_last_run = format_iso_datetime(
+                datetime.now(timezone.utc)
+            )
+        self._set_schedule(new_code)
 
     def _set_schedule(self, schedule: str, *, persist: bool = True) -> None:
         code = normalize_schedule(schedule)
@@ -2090,17 +2120,19 @@ class IndexerApp(tk.Tk):
         if self._schedule == SCHEDULE_OFF:
             self.schedule_status_var.set(self._("schedule_idle"))
             return
-        nxt = next_schedule_at(self._schedule, self._schedule_last_run)
-        if nxt is None:
+        if self._scan_busy:
+            self.schedule_status_var.set(self._("schedule_running"))
+            return
+        rem = seconds_until_next(self._schedule, self._schedule_last_run)
+        if rem is None:
             self.schedule_status_var.set(self._("schedule_idle"))
             return
-        # Show seconds for short intervals
-        parsed = parse_schedule(self._schedule)
-        if parsed is not None and parsed[1] == UNIT_SECONDS:
-            local = nxt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            local = nxt.astimezone().strftime("%Y-%m-%d %H:%M")
-        self.schedule_status_var.set(self._("schedule_next", when=local))
+        if rem <= 0.5:
+            self.schedule_status_var.set(self._("schedule_due_now"))
+            return
+        self.schedule_status_var.set(
+            self._("schedule_countdown", countdown=format_countdown(rem))
+        )
 
     def _arm_schedule_timer(self) -> None:
         if self._schedule_after_id is not None:
@@ -2120,9 +2152,11 @@ class IndexerApp(tk.Tk):
     def _schedule_tick(self) -> None:
         self._schedule_after_id = None
         try:
+            self._update_schedule_status()
             self._maybe_run_scheduled_scan()
         finally:
             self._arm_schedule_timer()
+            # Refresh again after possible scan start so "indexing now" shows.
             self._update_schedule_status()
 
     def _maybe_run_scheduled_scan(self) -> None:
@@ -2135,6 +2169,7 @@ class IndexerApp(tk.Tk):
         if not is_schedule_due(self._schedule, self._schedule_last_run):
             return
         self.status_var.set(self._("schedule_running"))
+        self.schedule_status_var.set(self._("schedule_running"))
         self._start_scan(auto=True)
 
     def _mark_schedule_ran(self) -> None:
@@ -2511,6 +2546,7 @@ class IndexerApp(tk.Tk):
         self.status_var.set(
             self._("schedule_running") if auto else "Scanning…"
         )
+        self._update_schedule_status()
         self._show_progress(True)
         self._maybe_auto_collapse_folders()
         if self._is_simple() or auto:
@@ -2703,6 +2739,7 @@ class IndexerApp(tk.Tk):
         else:
             self.progress_var.set(0.0)
             self.progress_label_var.set("")
+        self._update_schedule_status()
         self.status_var.set(message)
         # Hide progress bar shortly after finish to free vertical space
         self.after(1200, lambda: self._show_progress(False) if not self._scan_busy else None)

@@ -144,17 +144,43 @@ def schedule_interval(schedule: str) -> Optional[timedelta]:
 
 
 def schedule_poll_ms(schedule: str) -> int:
-    """How often the GUI should re-check due status while a schedule is armed."""
+    """How often the GUI should re-check due status / refresh countdown."""
     interval = schedule_interval(schedule)
     if interval is None:
         return 30_000
-    secs = max(1.0, interval.total_seconds())
-    if secs <= 60:
-        # Half the interval, but at least 1s and at most 5s
-        return int(max(1.0, min(5.0, secs / 2.0)) * 1000)
-    if secs <= 3600:
-        return 15_000
-    return 30_000
+    # Live countdown needs ~1s ticks; due-check is cheap.
+    return 1_000
+
+
+def format_countdown(seconds: float | int) -> str:
+    """Format remaining time as ``m:ss`` / ``mm:ss`` / ``h:mm:ss``."""
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        total = 0
+    if total < 0:
+        total = 0
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def seconds_until_next(
+    schedule: str,
+    last_run: Optional[datetime | str],
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[float]:
+    """Seconds until next due time, or ``None`` when schedule is off."""
+    nxt = next_schedule_at(schedule, last_run, now=now)
+    if nxt is None:
+        return None
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return max(0.0, (nxt - current).total_seconds())
 
 
 def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:

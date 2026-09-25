@@ -168,10 +168,21 @@ def test_schedule_normalize_and_due():
     assert nxt >= now
 
 
-def test_schedule_poll_ms_scales_for_short_intervals():
-    from gcode_index.schedule import schedule_poll_ms
+def test_schedule_poll_ms_live_countdown():
+    from gcode_index.schedule import format_countdown, schedule_poll_ms, seconds_until_next
 
     assert schedule_poll_ms("off") == 30_000
-    assert schedule_poll_ms("10s") <= 5_000
-    assert schedule_poll_ms("1h") == 15_000
-    assert schedule_poll_ms("1d") == 30_000
+    assert schedule_poll_ms("10s") == 1_000
+    assert schedule_poll_ms("1h") == 1_000
+    assert schedule_poll_ms("1d") == 1_000
+
+    assert format_countdown(0) == "0:00"
+    assert format_countdown(5) == "0:05"
+    assert format_countdown(65) == "1:05"
+    assert format_countdown(3661) == "1:01:01"
+
+    now = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+    rem = seconds_until_next("1m", now - timedelta(seconds=20), now=now)
+    assert rem is not None
+    assert 39 <= rem <= 41
+    assert seconds_until_next("off", now, now=now) is None

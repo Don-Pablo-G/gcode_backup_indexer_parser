@@ -82,7 +82,9 @@ Przy indeksowaniu pojedynczych plików `.nc` / `.nc.copy` skaner przechodzi fold
 
 ### Auto-indeks
 
-W trybie Pełnym ustaw **Auto-indeks** (po prawej w drugim wierszu paska) interwał (sekundy / minuty / godziny / dni), np. 15 minut. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
+Na zakładce **Indeks** ustaw **Auto-indeks**: ilość + jednostka (sekundy / minuty / godziny / dni), np. 15 minut. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
+
+Obok widać **odliczanie** do następnego uruchomienia (`Za m:ss` / `h:mm:ss`, odświeżane co sekundę). Zmiana ilości lub jednostki **od razu** przestawia timer (odliczanie startuje od nowa). Podczas skanu status to **Auto-indeks w toku…**.
 
 ### Obserwuj foldery
 
