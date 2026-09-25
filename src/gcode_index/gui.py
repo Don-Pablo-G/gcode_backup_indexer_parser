@@ -70,6 +70,12 @@ from gcode_index.path_util import (
     open_path_in_file_manager,
     resolve_source_abspath,
 )
+from gcode_index.instance_ini import (
+    InstanceConfig,
+    default_instance_ini_path,
+    load_instance_ini,
+    save_instance_ini,
+)
 from gcode_index.i18n import (
     DEFAULT_LANG,
     DEFAULT_UI_MODE,
@@ -190,13 +196,24 @@ class IndexerApp(tk.Tk):
         self._more_filters_open = False
         self._folders_summary_var = tk.StringVar(value="")
         self._machines_btn_var = tk.StringVar(value="")
+        self._instance_ini_path = default_instance_ini_path()
+        self._ini_notes = ""
 
+        self._apply_instance_ini(load_instance_ini(self._instance_ini_path))
         self._configure_styles()
         self._build()
         # Seed machine list from aliases before any scan
         self._refresh_filter_choices()
         self._maybe_auto_collapse_folders()
         self._arm_schedule_timer()
+        if self._folders_ready():
+            self.status_var.set(
+                self._(
+                    "status_loaded_ini",
+                    filename=self._instance_ini_path.name,
+                )
+            )
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.search_var.trace_add("write", self._on_filter_changed)
         for var in (
             self.date_from_var,
@@ -208,9 +225,89 @@ class IndexerApp(tk.Tk):
             self.newest_only_var,
         ):
             var.trace_add("write", self._on_filter_changed)
+        # Persist folder edits typed by hand (debounced)
+        self.backup_var.trace_add("write", self._on_folder_path_changed)
+        self.target_var.trace_add("write", self._on_folder_path_changed)
+        self._folder_save_after_id: Optional[str] = None
 
     def _(self, key: str, **kwargs) -> str:
         return t(self._lang, key, **kwargs)
+
+    def _apply_instance_ini(self, cfg: InstanceConfig) -> None:
+        """Load last session paths/settings before the first widget build."""
+        self._lang = normalize_lang(cfg.language)
+        self._ui_mode = normalize_ui_mode(cfg.ui_mode)
+        self.lang_var.set(self._lang)
+        self._schedule = normalize_schedule(cfg.schedule)
+        self._schedule_last_run = cfg.schedule_last_run or None
+        self.schedule_var.set(self._schedule)
+        self.backup_var.set(cfg.backup or "")
+        self.target_var.set(cfg.target or "")
+        self.incremental_var.set(bool(cfg.incremental))
+        self.excel_var.set(bool(cfg.also_excel))
+        self.newest_only_var.set(bool(cfg.newest_only))
+        self._hidden_root_specs = list(cfg.root_specs())
+        self._ini_notes = cfg.notes or ""
+        if cfg.geometry:
+            try:
+                self.geometry(cfg.geometry)
+            except tk.TclError:
+                pass
+        # Target-side YAML is a backup copy; INI wins when it already lists roots.
+        target = (cfg.target or "").strip()
+        if target and not self._hidden_root_specs:
+            roots_path = extra_roots_path_for_target(target)
+            if roots_path.is_file():
+                disk_roots = list(load_scan_roots(roots_path))
+                if disk_roots:
+                    self._hidden_root_specs = disk_roots
+        # Keep schedule_last_run from target ui_settings only when INI left it blank
+        if target:
+            settings = load_ui_settings(ui_settings_path_for_target(target))
+            if not self._schedule_last_run and settings.get("schedule_last_run"):
+                self._schedule_last_run = settings["schedule_last_run"]
+
+    def _collect_instance_config(self) -> InstanceConfig:
+        specs = self._scan_root_specs()
+        greens = [s.path for s in specs if s.provenance == PROVENANCE_BACKUP]
+        yellows = [s.path for s in specs if s.provenance == PROVENANCE_EXTRA]
+        try:
+            geom = self.geometry()
+        except tk.TclError:
+            geom = "1320x820"
+        return InstanceConfig(
+            backup=self.backup_var.get().strip(),
+            target=self.target_var.get().strip(),
+            green_roots=greens,
+            yellow_roots=yellows,
+            language=self._lang,
+            ui_mode=self._ui_mode,
+            schedule=self._schedule,
+            schedule_last_run=self._schedule_last_run or "",
+            incremental=bool(self.incremental_var.get()),
+            also_excel=bool(self.excel_var.get()),
+            newest_only=bool(self.newest_only_var.get()),
+            geometry=geom,
+            notes=self._ini_notes,
+        )
+
+    def _save_instance_ini(self) -> None:
+        try:
+            save_instance_ini(self._instance_ini_path, config=self._collect_instance_config())
+        except OSError:
+            log.exception("save instance ini failed: %s", self._instance_ini_path)
+
+    def _on_folder_path_changed(self, *_args) -> None:
+        if getattr(self, "_folder_save_after_id", None):
+            try:
+                self.after_cancel(self._folder_save_after_id)
+            except tk.TclError:
+                pass
+        self._folder_save_after_id = self.after(800, self._save_instance_ini)
+
+    def _on_close(self) -> None:
+        self._save_instance_ini()
+        self.destroy()
 
     def _ui_font(self, *, size: int = 10, bold: bool = False) -> tuple:
         family = "Segoe UI" if sys.platform == "win32" else "TkDefaultFont"
@@ -317,18 +414,18 @@ class IndexerApp(tk.Tk):
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
         dest = (target if target is not None else self.target_var.get()).strip()
-        if not dest:
-            return
-        try:
-            save_ui_settings(
-                ui_settings_path_for_target(dest),
-                language=self._lang,
-                ui_mode=self._ui_mode,
-                schedule=self._schedule,
-                schedule_last_run=self._schedule_last_run or "",
-            )
-        except OSError:
-            log.exception("save ui settings failed")
+        if dest:
+            try:
+                save_ui_settings(
+                    ui_settings_path_for_target(dest),
+                    language=self._lang,
+                    ui_mode=self._ui_mode,
+                    schedule=self._schedule,
+                    schedule_last_run=self._schedule_last_run or "",
+                )
+            except OSError:
+                log.exception("save ui settings failed")
+        self._save_instance_ini()
 
     def _set_language(self, lang: str, *, persist: bool = True) -> None:
         code = normalize_lang(lang)
@@ -1060,6 +1157,7 @@ class IndexerApp(tk.Tk):
             self.backup_var.set(path)
             self._update_folders_summary()
             self._maybe_auto_collapse_folders()
+            self._save_instance_ini()
 
     def _pick_target(self) -> None:
         path = filedialog.askdirectory(title="Select target folder for database / extracts")
@@ -1136,12 +1234,12 @@ class IndexerApp(tk.Tk):
 
     def _persist_extra_roots(self) -> None:
         target = self.target_var.get().strip()
-        if not target:
-            return
-        Path(target).mkdir(parents=True, exist_ok=True)
         specs = self._scan_root_specs()
         self._hidden_root_specs = list(specs)
-        save_scan_roots(extra_roots_path_for_target(target), specs)
+        if target:
+            Path(target).mkdir(parents=True, exist_ok=True)
+            save_scan_roots(extra_roots_path_for_target(target), specs)
+        self._save_instance_ini()
 
     def _add_scan_root(self, provenance: str) -> None:
         if not hasattr(self, "extra_list"):

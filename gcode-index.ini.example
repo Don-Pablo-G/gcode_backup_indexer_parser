@@ -1,0 +1,42 @@
+; ============================================================
+; G-code Backup Indexer — example instance settings
+; Copy next to gcode-index-gui.exe as: gcode-index.ini
+; ============================================================
+
+[folders]
+; Main CNC backup tree (usually DATE\MACHINE\... dumps + .nc files)
+backup = D:\CNC\Backups
+; Target folder for the database + extracted programs
+target = D:\CNC\Index
+
+[green_roots]
+; ON-MACHINE catch folders (green flag). One full path per indented line.
+; Subfolders are scanned recursively.
+paths =
+    D:\CNC\MachineCatch
+    D:\CNC\USB_Stick_Copy
+
+[yellow_roots]
+; EXTRA folders (yellow flag) — not from the machine backup.
+paths =
+    D:\CNC\Archive_Extra
+
+[ui]
+; Language: pl (default) or en
+language = pl
+; Mode: simple (operators) or full (power users)
+mode = simple
+; Auto-index while the GUI stays open: off | hourly | daily | weekly
+schedule = off
+schedule_last_run =
+
+[scan]
+incremental = yes
+also_excel = no
+newest_only = no
+
+[window]
+geometry = 1320x820
+
+[notes]
+text = Shop floor PC — edit paths above if drives change

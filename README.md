@@ -31,6 +31,14 @@ Entry points:
 | `python -m gcode_index` | Same as CLI |
 | `python -m gcode_index.gui` | Same as GUI |
 
+## Instance settings (``gcode-index.ini``)
+
+The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening the app restores backup / target / green & yellow scan roots / language / mode / schedule without re-picking folders.
+
+- Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example)
+- Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
+- The GUI also keeps copies next to the target DB (`extra_scan_roots.yaml`, `ui_settings.yaml`) so the index folder stays portable
+
 ## Windows GUI (Phase 2)
 
 ```bat
