@@ -41,6 +41,7 @@ pythonpath = ["src"]
 include = [
   "/src",
   "/aliases.yaml",
+  "/gcode-index.ini.example",
   "/README.md",
   "/tests",
 ]
