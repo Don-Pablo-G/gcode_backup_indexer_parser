@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import difflib
-from typing import Optional
+from typing import Optional, Sequence
 
 from gcode_index.db import format_display_date
 from gcode_index.extract import ExtractError, RowLike, extract_text
+from gcode_index.path_remap import RemapInput
 
 # Soft caps so huge glued dumps / .nc files do not freeze the GUI
 DEFAULT_PREVIEW_MAX_CHARS = 120_000
@@ -65,6 +66,7 @@ def preview_text(
     max_chars: int = DEFAULT_PREVIEW_MAX_CHARS,
     max_lines: int = DEFAULT_PREVIEW_MAX_LINES,
     skip_integrity: bool = False,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> tuple[str, Optional[str]]:
     """Extract body for preview.
 
@@ -72,7 +74,12 @@ def preview_text(
     Truncation note is appended to the body when caps apply.
     """
     try:
-        raw = extract_text(row, backup_root=backup_root, skip_integrity=skip_integrity)
+        raw = extract_text(
+            row,
+            backup_root=backup_root,
+            skip_integrity=skip_integrity,
+            path_remaps=path_remaps,
+        )
     except ExtractError as exc:
         return "", str(exc)
     except OSError as exc:
@@ -94,14 +101,25 @@ def unified_diff_programs(
     backup_root: str | None = None,
     context: int = 3,
     skip_integrity: bool = False,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> tuple[str, Optional[str]]:
     """Unified diff of two extracted program bodies.
 
     Returns ``(diff_text, error_message)``. Empty diff with no error means identical.
     """
     try:
-        text_a = extract_text(row_a, backup_root=backup_root, skip_integrity=skip_integrity)
-        text_b = extract_text(row_b, backup_root=backup_root, skip_integrity=skip_integrity)
+        text_a = extract_text(
+            row_a,
+            backup_root=backup_root,
+            skip_integrity=skip_integrity,
+            path_remaps=path_remaps,
+        )
+        text_b = extract_text(
+            row_b,
+            backup_root=backup_root,
+            skip_integrity=skip_integrity,
+            path_remaps=path_remaps,
+        )
     except ExtractError as exc:
         return "", str(exc)
     except OSError as exc:

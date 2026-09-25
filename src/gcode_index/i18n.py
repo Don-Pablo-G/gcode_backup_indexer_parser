@@ -171,6 +171,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_about": "O programie…",
         "help_open_folder": "Otwórz folder dokumentacji…",
 
+
+        "path_remap": "Mapowanie ścieżek (klient)",
+        "path_remap_from": "Prefiks w indeksie",
+        "path_remap_to": "Prefiks lokalny",
+        "path_remap_hint": "Np. C:\\Share → Z:\\Share gdy litera dysku się różni. Dotyczy kopii i folderów zielonych/żółtych.",
+        "path_remap_browse": "Przeglądaj…",
         "pin_title": "PIN trybu Pełnego",
         "pin_create_title": "Ustaw PIN trybu Pełnego",
         "pin_change_title": "Zmień PIN trybu Pełnego",
@@ -353,6 +359,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_about": "About…",
         "help_open_folder": "Open documentation folder…",
 
+
+        "path_remap": "Path remap (client)",
+        "path_remap_from": "Prefix in index",
+        "path_remap_to": "Local prefix",
+        "path_remap_hint": "E.g. C:\\Share → Z:\\Share when drive letters differ. Applies to backup and green/yellow roots.",
+        "path_remap_browse": "Browse…",
         "pin_title": "Full mode PIN",
         "pin_create_title": "Set Full mode PIN",
         "pin_change_title": "Change Full mode PIN",

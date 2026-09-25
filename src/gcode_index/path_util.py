@@ -6,25 +6,33 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
+
+from gcode_index.path_remap import RemapInput, apply_path_remaps, remap_root
 
 
 def resolve_source_abspath(
     source_path: str,
     backup_root: Optional[str] = None,
     scan_root: Optional[str] = None,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> Path:
     """Turn a relative or absolute indexed ``source_path`` into an absolute Path.
 
     Prefer ``scan_root`` (per-instance root for multi-folder scans), then ``backup_root``.
+    Optional ``path_remaps`` rewrite drive/share prefixes (client C:→Z:).
     """
-    p = Path(source_path)
-    if p.is_absolute():
-        return p
-    base = scan_root or backup_root
+    scan = remap_root(scan_root, path_remaps)
+    backup = remap_root(backup_root, path_remaps)
+    raw = str(source_path or "")
+    # Treat Windows drive paths as absolute even when tests run on POSIX.
+    is_win_abs = len(raw) >= 2 and raw[1] == ":"
+    if Path(raw).is_absolute() or is_win_abs:
+        return Path(apply_path_remaps(raw, path_remaps))
+    base = scan or backup
     if base:
-        return Path(base) / p
-    return p.resolve()
+        return Path(base) / raw
+    return Path(raw).resolve()
 
 
 def open_path_in_file_manager(path: Path) -> None:

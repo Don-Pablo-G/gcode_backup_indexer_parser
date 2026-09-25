@@ -49,3 +49,12 @@ text = Shop floor PC — edit paths above if drives change
 ; full_pin_hash = pbkdf2_sha256$...
 full_pin_hash =
 
+[path_remap]
+; Client extract remaps when indexer and this PC use different drive letters
+; for the same share (e.g. indexer C:\CNC\Share → client Z:\CNC\Share).
+; Applies to scan_root for main backup AND green/yellow roots on that prefix.
+from_prefix = C:\CNC\Share
+to_prefix = Z:\CNC\Share
+; Extra rules (optional), one per line: FROM => TO
+rules =
+

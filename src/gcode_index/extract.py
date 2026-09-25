@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Mapping, Optional, Union
+from typing import Mapping, Optional, Sequence, Union
 
 from gcode_index.integrity import file_sha256
+from gcode_index.path_remap import RemapInput, apply_path_remaps, remap_root
 
 GLUED_SOURCE_TYPES = frozenset(
     {
@@ -36,18 +37,26 @@ def resolve_source_path(
     backup_root: str | Path | None = None,
     *,
     scan_root: str | Path | None = None,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> Path:
-    """Resolve a DB ``source_path`` (relative or absolute) against scan/backup root."""
-    src = Path(source_path)
-    if src.is_absolute():
-        return src
-    base = scan_root or backup_root
+    """Resolve a DB ``source_path`` (relative or absolute) against scan/backup root.
+
+    ``path_remaps`` rewrites matching prefixes on roots and absolute paths
+    (client drive-letter override).
+    """
+    raw = str(source_path)
+    scan = remap_root(scan_root, path_remaps)
+    backup = remap_root(backup_root, path_remaps)
+    is_win_abs = len(raw) >= 2 and raw[1] == ":"
+    if Path(raw).is_absolute() or is_win_abs:
+        return Path(apply_path_remaps(raw, path_remaps))
+    base = scan or backup
     if base is None:
         raise ExtractError(
             f"source_path is relative ({source_path!r}) but scan_root/backup_root "
             "was not provided"
         )
-    return Path(base) / src
+    return Path(base) / raw
 
 
 def _row_get(row: RowLike, key: str):
@@ -134,6 +143,7 @@ def extract_text(
     *,
     backup_root: str | Path | None = None,
     skip_integrity: bool = False,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> str:
     """Return the program body text for an index row.
 
@@ -152,6 +162,7 @@ def extract_text(
         str(row["source_path"]),
         backup_root,
         scan_root=str(scan_root) if scan_root else None,
+        path_remaps=path_remaps,
     )
     if not skip_integrity:
         verify_source_integrity(row, src)
@@ -246,9 +257,15 @@ def extract_to_path(
     *,
     backup_root: str | Path | None = None,
     skip_integrity: bool = False,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> Path:
     """Extract program text and write UTF-8 to ``out_path``. Returns the path written."""
-    text = extract_text(row, backup_root=backup_root, skip_integrity=skip_integrity)
+    text = extract_text(
+        row,
+        backup_root=backup_root,
+        skip_integrity=skip_integrity,
+        path_remaps=path_remaps,
+    )
     dest = Path(out_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text, encoding="utf-8")
@@ -262,9 +279,14 @@ def extract_instance_to_path(
     *,
     backup_root: str | Path | None = None,
     skip_integrity: bool = False,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> Path:
     """Fetch ``instance_id`` from ``conn`` and write the extracted body to ``out_path``."""
     row = fetch_instance(conn, instance_id)
     return extract_to_path(
-        row, out_path, backup_root=backup_root, skip_integrity=skip_integrity
+        row,
+        out_path,
+        backup_root=backup_root,
+        skip_integrity=skip_integrity,
+        path_remaps=path_remaps,
     )

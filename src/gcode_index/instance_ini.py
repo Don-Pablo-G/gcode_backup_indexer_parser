@@ -15,6 +15,12 @@ from typing import Iterable, Optional
 
 from gcode_index.extra_roots import ScanRootSpec
 from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
+from gcode_index.path_remap import (
+    PathRemap,
+    format_remap_rules_block,
+    normalize_remaps,
+    parse_remap_rules_block,
+)
 from gcode_index.schedule import SCHEDULE_OFF, normalize_schedule
 
 INSTANCE_INI_FILENAME = "gcode-index.ini"
@@ -42,6 +48,8 @@ class InstanceConfig:
     notes: str = ""
     # PBKDF2 hash for Full / Pełny unlock — never store plaintext PIN.
     full_pin_hash: str = ""
+    # Client extract remaps: indexer prefix → local prefix (e.g. C:\\Share → Z:\\Share).
+    path_remaps: list[PathRemap] = field(default_factory=list)
 
     def root_specs(self) -> list[ScanRootSpec]:
         specs: list[ScanRootSpec] = []
@@ -203,6 +211,17 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             "security", "full_pin_hash", fallback=""
         ).strip()
 
+    if parser.has_section("path_remap"):
+        rules = parse_remap_rules_block(
+            parser.get("path_remap", "rules", fallback="")
+        )
+        # Shorthand single pair (also fills when rules empty)
+        fr = parser.get("path_remap", "from_prefix", fallback="").strip()
+        to = parser.get("path_remap", "to_prefix", fallback="").strip()
+        if fr and to:
+            rules = normalize_remaps([PathRemap(fr, to), *rules])
+        cfg.path_remaps = rules
+
     return cfg
 
 
@@ -232,6 +251,9 @@ def save_instance_ini(
         geometry=str(kwargs.get("geometry", base.geometry) or "1320x820"),
         notes=str(kwargs.get("notes", base.notes) or ""),
         full_pin_hash=str(kwargs.get("full_pin_hash", base.full_pin_hash) or ""),
+        path_remaps=normalize_remaps(
+            kwargs.get("path_remaps", base.path_remaps) or []
+        ),
     )
     p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -301,6 +323,15 @@ text = {data.notes}
 ; Hashed PIN for Full / Pełny mode (pbkdf2_sha256$…). Leave blank until set in GUI.
 ; Never put a plaintext PIN here — the app writes the hash when you create/change it.
 full_pin_hash = {data.full_pin_hash}
+
+[path_remap]
+; Client extract remaps when the indexer and this PC use different drive letters
+; for the same share (e.g. indexer C:\\CNC\\Share → client Z:\\CNC\\Share).
+; Applies to scan_root for main backup AND green/yellow roots on that prefix.
+; One rule per indented line: FROM => TO   (also accepted: from_prefix / to_prefix)
+from_prefix = {(data.path_remaps[0].from_prefix if data.path_remaps else "")}
+to_prefix = {(data.path_remaps[0].to_prefix if data.path_remaps else "")}
+rules ={format_remap_rules_block(data.path_remaps[1:] if len(data.path_remaps) > 1 else [])}
 """
     p.write_text(text, encoding="utf-8", newline="\n")
     return p

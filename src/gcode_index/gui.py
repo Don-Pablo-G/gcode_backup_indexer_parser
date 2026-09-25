@@ -72,6 +72,7 @@ from gcode_index.path_util import (
     open_path_in_file_manager,
     resolve_source_abspath,
 )
+from gcode_index.path_remap import PathRemap, normalize_remaps
 from gcode_index.instance_ini import (
     InstanceConfig,
     default_instance_ini_path,
@@ -175,6 +176,8 @@ class IndexerApp(tk.Tk):
         self.backup_var = tk.StringVar()
         self.target_var = tk.StringVar()
         self.extract_var = tk.StringVar()
+        self.remap_from_var = tk.StringVar()
+        self.remap_to_var = tk.StringVar()
         self.search_var = tk.StringVar()
         self.date_from_var = tk.StringVar()
         self.date_to_var = tk.StringVar()
@@ -228,6 +231,7 @@ class IndexerApp(tk.Tk):
         self._instance_ini_path = default_instance_ini_path()
         self._ini_notes = ""
         self._full_pin_hash = ""
+        self._path_remaps: list[PathRemap] = []
 
         self._apply_instance_ini(load_instance_ini(self._instance_ini_path))
         self._configure_styles()
@@ -268,6 +272,8 @@ class IndexerApp(tk.Tk):
         self.backup_var.trace_add("write", self._on_folder_path_changed)
         self.target_var.trace_add("write", self._on_folder_path_changed)
         self.extract_var.trace_add("write", self._on_folder_path_changed)
+        self.remap_from_var.trace_add("write", self._on_remap_changed)
+        self.remap_to_var.trace_add("write", self._on_remap_changed)
         self._folder_save_after_id: Optional[str] = None
 
     def _(self, key: str, **kwargs) -> str:
@@ -292,6 +298,8 @@ class IndexerApp(tk.Tk):
         self._hidden_root_specs = list(cfg.root_specs())
         self._ini_notes = cfg.notes or ""
         self._full_pin_hash = (cfg.full_pin_hash or "").strip()
+        self._path_remaps = normalize_remaps(cfg.path_remaps)
+        self._sync_remap_vars_from_list()
         if cfg.geometry:
             try:
                 self.geometry(cfg.geometry)
@@ -336,7 +344,68 @@ class IndexerApp(tk.Tk):
             geometry=geom,
             notes=self._ini_notes,
             full_pin_hash=self._full_pin_hash or "",
+            path_remaps=self._collect_path_remaps(),
         )
+
+    def _sync_remap_vars_from_list(self) -> None:
+        if self._path_remaps:
+            self.remap_from_var.set(self._path_remaps[0].from_prefix)
+            self.remap_to_var.set(self._path_remaps[0].to_prefix)
+        else:
+            self.remap_from_var.set("")
+            self.remap_to_var.set("")
+
+    def _collect_path_remaps(self) -> list[PathRemap]:
+        """Primary from/to fields + any extra rules kept from the INI."""
+        fr = self.remap_from_var.get().strip()
+        to = self.remap_to_var.get().strip()
+        extras = list(self._path_remaps[1:]) if len(self._path_remaps) > 1 else []
+        if fr and to:
+            return normalize_remaps([PathRemap(fr, to), *extras])
+        return normalize_remaps(extras)
+
+    def _active_path_remaps(self) -> list[PathRemap]:
+        return self._collect_path_remaps()
+
+    def _on_remap_changed(self, *_args) -> None:
+        self._path_remaps = self._collect_path_remaps()
+        self._on_folder_path_changed()
+
+    def _pick_remap_to(self) -> None:
+        path = filedialog.askdirectory(title=self._("path_remap_to"))
+        if path:
+            self.remap_to_var.set(path)
+            self._on_remap_changed()
+
+    def _add_path_remap_fields(self, parent: ttk.Frame, start_row: int) -> int:
+        """Render client path-prefix remap (C:→Z:) fields; return next free row."""
+        box = ttk.LabelFrame(
+            parent, text=self._("path_remap"), padding=6
+        )
+        box.grid(
+            row=start_row, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0)
+        )
+        ttk.Label(box, text=self._("path_remap_from")).grid(
+            row=0, column=0, sticky=tk.W
+        )
+        ttk.Entry(box, textvariable=self.remap_from_var).grid(
+            row=0, column=1, sticky=tk.EW, padx=4
+        )
+        ttk.Label(box, text="→").grid(row=0, column=2, padx=2)
+        ttk.Label(box, text=self._("path_remap_to")).grid(
+            row=1, column=0, sticky=tk.W, pady=(4, 0)
+        )
+        ttk.Entry(box, textvariable=self.remap_to_var).grid(
+            row=1, column=1, sticky=tk.EW, padx=4, pady=(4, 0)
+        )
+        ttk.Button(
+            box, text=self._("browse"), command=self._pick_remap_to
+        ).grid(row=1, column=2, pady=(4, 0))
+        ttk.Label(
+            box, text=self._("path_remap_hint"), style="Muted.TLabel", wraplength=520
+        ).grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(4, 0))
+        box.columnconfigure(1, weight=1)
+        return start_row + 1
 
     def _save_instance_ini(self) -> None:
         try:
@@ -451,6 +520,9 @@ class IndexerApp(tk.Tk):
             "backup": self.backup_var.get(),
             "target": self.target_var.get(),
             "extract": self.extract_var.get(),
+            "remap_from": self.remap_from_var.get(),
+            "remap_to": self.remap_to_var.get(),
+            "path_remaps": list(self._path_remaps),
             "search": self.search_var.get(),
             "date_from": self.date_from_var.get(),
             "date_to": self.date_to_var.get(),
@@ -735,6 +807,16 @@ class IndexerApp(tk.Tk):
             self.backup_var.set(preserved.get("backup") or "")
             self.target_var.set(preserved.get("target") or "")
             self.extract_var.set(preserved.get("extract") or "")
+            remaps = preserved.get("path_remaps")
+            if remaps is not None:
+                self._path_remaps = normalize_remaps(remaps)
+            else:
+                fr = str(preserved.get("remap_from") or "").strip()
+                to = str(preserved.get("remap_to") or "").strip()
+                self._path_remaps = (
+                    normalize_remaps([PathRemap(fr, to)]) if fr and to else []
+                )
+            self._sync_remap_vars_from_list()
             self.search_var.set(preserved.get("search") or "")
             self.date_from_var.set(preserved.get("date_from") or "")
             self.date_to_var.set(preserved.get("date_to") or "")
@@ -1060,7 +1142,7 @@ class IndexerApp(tk.Tk):
                 text=self._("extract_folder_hint_simple"),
                 style="Muted.TLabel",
             ).grid(row=1, column=1, sticky=tk.W, padx=4, pady=(0, 2))
-            done_row_idx = 2
+            done_row_idx = self._add_path_remap_fields(paths, 2)
         else:
             ttk.Label(
                 paths,
@@ -1102,7 +1184,6 @@ class IndexerApp(tk.Tk):
                 text=self._("extract_folder_hint"),
                 style="Muted.TLabel",
             ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(0, 2))
-            done_row_idx = 5
 
             # Additional folders (green catch + yellow extras) — Full mode only
             extra = ttk.LabelFrame(
@@ -1141,6 +1222,7 @@ class IndexerApp(tk.Tk):
                 side=tk.LEFT, padx=8
             )
             self._fill_extra_list(self._hidden_root_specs)
+            done_row_idx = self._add_path_remap_fields(paths, 5)
 
         if simple and hasattr(self, "extra_list"):
             delattr(self, "extra_list")
@@ -2922,7 +3004,11 @@ class IndexerApp(tk.Tk):
         else:
             header = f"Preview — {label}"
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
-        body, err = preview_text(row, backup_root=backup or None)
+        body, err = preview_text(
+            row,
+            backup_root=backup or None,
+            path_remaps=self._active_path_remaps(),
+        )
         if err:
             self._set_preview_body(header, f"Cannot preview:\n{err}", is_error=True)
             return
@@ -2938,7 +3024,10 @@ class IndexerApp(tk.Tk):
             return
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
         diff_text, err = unified_diff_programs(
-            rows[0], rows[1], backup_root=backup or None
+            rows[0],
+            rows[1],
+            backup_root=backup or None,
+            path_remaps=self._active_path_remaps(),
         )
         if err:
             messagebox.showerror("Compare", err)
@@ -2993,7 +3082,12 @@ class IndexerApp(tk.Tk):
         scan_root = None
         if "scan_root" in keys and row["scan_root"]:
             scan_root = str(row["scan_root"])
-        return resolve_source_abspath(sp, backup or None, scan_root)
+        return resolve_source_abspath(
+            sp,
+            backup or None,
+            scan_root,
+            path_remaps=self._active_path_remaps(),
+        )
 
     def _open_selected_folder(self) -> None:
         path = self._row_source_path()
@@ -3074,7 +3168,12 @@ class IndexerApp(tk.Tk):
             if not out:
                 return
             try:
-                path = extract_to_path(row, out, backup_root=backup or None)
+                path = extract_to_path(
+                    row,
+                    out,
+                    backup_root=backup or None,
+                    path_remaps=self._active_path_remaps(),
+                )
             except ExtractError as exc:
                 messagebox.showerror("Extract failed", str(exc))
                 return
@@ -3092,11 +3191,14 @@ class IndexerApp(tk.Tk):
         used: set[str] = set()
         ok = 0
         errors: list[str] = []
+        remaps = self._active_path_remaps()
         for row in rows:
             name = batch_extract_filename(row, used=used)
             dest = Path(out_dir) / name
             try:
-                extract_to_path(row, dest, backup_root=backup or None)
+                extract_to_path(
+                    row, dest, backup_root=backup or None, path_remaps=remaps
+                )
                 ok += 1
             except ExtractError as exc:
                 prog = row["program_number"] if "program_number" in row.keys() else "?"

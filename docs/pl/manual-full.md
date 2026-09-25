@@ -22,6 +22,15 @@ Tryb Pełny pozwala:
 
 
 ## PIN trybu Pełnego
+## Mapowanie ścieżek (klient)
+
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:**, ustaw w **Zmień…** sekcję **Mapowanie ścieżek (klient)**:
+
+- **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
+- **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
+
+Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+
 
 Przejście **Tryb → Pełny** (oraz start z zapisanym trybem Pełnym) wymaga **PIN-u** (4–12 cyfr). Hash PIN-u jest w `gcode-index.ini` sekcja `[security]` — nie zapisujemy PIN-u jawnym tekstem.
 
