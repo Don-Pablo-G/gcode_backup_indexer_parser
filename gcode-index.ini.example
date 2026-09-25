@@ -28,7 +28,7 @@ paths =
 language = pl
 ; Mode: simple (retrieve-only operators) or full (index + power users)
 mode = simple
-; Auto-index while the GUI stays open (Full mode only): off | hourly | daily | weekly
+; Auto-index while GUI open: off | 30s | 15m | 2h | 1d (legacy: hourly/daily/weekly)
 schedule = off
 schedule_last_run =
 

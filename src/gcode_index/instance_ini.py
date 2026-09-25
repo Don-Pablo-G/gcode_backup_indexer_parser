@@ -289,7 +289,8 @@ paths ={_format_paths(data.yellow_roots)}
 language = {data.language}
 ; Mode: simple (operators) or full (power users)
 mode = {data.ui_mode}
-; Auto-index while the GUI stays open: off | hourly | daily | weekly
+; Auto-index while the GUI stays open: off | 30s | 15m | 2h | 1d
+; Legacy hourly/daily/weekly still load as 1h / 1d / 7d
 schedule = {data.schedule}
 ; Last successful auto/manual index time (UTC ISO). Leave blank to force soon.
 schedule_last_run = {data.schedule_last_run}

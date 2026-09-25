@@ -128,8 +128,14 @@ def test_normalize_scan_roots_skips_backup(tmp_path: Path):
 
 
 def test_schedule_normalize_and_due():
-    assert normalize_schedule("daily") == SCHEDULE_DAILY
+    assert normalize_schedule("daily") == SCHEDULE_DAILY  # → 1d
     assert normalize_schedule("1h") == SCHEDULE_HOURLY
+    assert normalize_schedule("hourly") == "1h"
+    assert normalize_schedule("weekly") == "7d"
+    assert normalize_schedule("30s") == "30s"
+    assert normalize_schedule("5s") == "10s"  # clamped minimum
+    assert normalize_schedule("15m") == "15m"
+    assert normalize_schedule("2h") == "2h"
     assert normalize_schedule("nope") == SCHEDULE_OFF
     now = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
     assert is_schedule_due(SCHEDULE_HOURLY, None, now=now) is True
@@ -149,6 +155,23 @@ def test_schedule_normalize_and_due():
         )
         is True
     )
+    assert (
+        is_schedule_due(
+            "30s",
+            now - timedelta(seconds=45),
+            now=now,
+        )
+        is True
+    )
     nxt = next_schedule_at(SCHEDULE_DAILY, now - timedelta(hours=1), now=now)
     assert nxt is not None
     assert nxt >= now
+
+
+def test_schedule_poll_ms_scales_for_short_intervals():
+    from gcode_index.schedule import schedule_poll_ms
+
+    assert schedule_poll_ms("off") == 30_000
+    assert schedule_poll_ms("10s") <= 5_000
+    assert schedule_poll_ms("1h") == 15_000
+    assert schedule_poll_ms("1d") == 30_000

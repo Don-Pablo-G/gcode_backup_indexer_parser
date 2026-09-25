@@ -75,7 +75,7 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 
 ### Auto-index
 
-In Full mode, set **Auto-index** (right side of the second toolbar row) to hourly / daily / weekly. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
+In Full mode, set **Auto-index** (right side of the second toolbar row) to an interval (seconds / minutes / hours / days), e.g. 15 minutes. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
 
 ### Watch folders
 

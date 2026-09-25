@@ -48,9 +48,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "tag_yellow": "[Y]",
         "schedule": "Auto-indeks",
         "schedule_off": "Wyłączony",
-        "schedule_hourly": "Co godzinę",
-        "schedule_daily": "Codziennie",
-        "schedule_weekly": "Co tydzień",
+        "schedule_unit_seconds": "sekundy",
+        "schedule_unit_minutes": "minuty",
+        "schedule_unit_hours": "godziny",
+        "schedule_unit_days": "dni",
+        
         "schedule_next": "Następny: {when}",
         "schedule_idle": "Auto-indeks wyłączony",
         "schedule_running": "Auto-indeks…",
@@ -218,9 +220,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "tag_yellow": "[Y]",
         "schedule": "Auto-index",
         "schedule_off": "Off",
-        "schedule_hourly": "Hourly",
-        "schedule_daily": "Daily",
-        "schedule_weekly": "Weekly",
+        "schedule_unit_seconds": "seconds",
+        "schedule_unit_minutes": "minutes",
+        "schedule_unit_hours": "hours",
+        "schedule_unit_days": "days",
+        
         "schedule_next": "Next: {when}",
         "schedule_idle": "Auto-index off",
         "schedule_running": "Auto-indexing…",
@@ -445,7 +449,7 @@ def save_ui_settings(
         "_comment": (
             "GUI settings for G-code Backup Indexer "
             "(language: pl default; ui_mode: simple|full; "
-            "schedule: off|hourly|daily|weekly)."
+            "schedule: off|15m|2h|1d|30s)."
         ),
     }
     with p.open("w", encoding="utf-8") as f:

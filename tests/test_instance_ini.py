@@ -38,7 +38,7 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     assert r"D:\CNC\Catch" in text
     assert "extract = " in text
     assert r"D:\CNC\Extracted" in text
-    assert "schedule = daily" in text
+    assert "schedule = 1d" in text
 
     loaded = load_instance_ini(path)
     assert loaded.backup == r"D:\CNC\Backups"
@@ -49,7 +49,7 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     assert loaded.yellow_roots == [r"D:\CNC\Extra"]
     assert loaded.language == "pl"
     assert loaded.ui_mode == "simple"
-    assert loaded.schedule == "daily"
+    assert loaded.schedule == "1d"
     assert loaded.newest_only is True
     assert loaded.also_excel is False
     assert loaded.geometry == "1400x900"

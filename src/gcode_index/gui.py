@@ -99,16 +99,19 @@ from gcode_index.presets import (
     upsert_preset,
 )
 from gcode_index.schedule import (
-    SCHEDULE_CHOICES,
-    SCHEDULE_DAILY,
-    SCHEDULE_HOURLY,
     SCHEDULE_OFF,
-    SCHEDULE_WEEKLY,
+    UNIT_DAYS,
+    UNIT_HOURS,
+    UNIT_MINUTES,
+    UNIT_SECONDS,
     format_iso_datetime,
+    format_schedule,
     is_schedule_due,
     next_schedule_at,
     normalize_schedule,
     parse_iso_datetime,
+    parse_schedule,
+    schedule_poll_ms,
 )
 from gcode_index.scan_cache import load_scan_cache
 from gcode_index.scan_report import (
@@ -190,6 +193,8 @@ class IndexerApp(tk.Tk):
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self.ui_mode_var = tk.StringVar(value="")
         self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
+        self.schedule_amount_var = tk.StringVar(value="1")
+        self.schedule_unit_var = tk.StringVar(value="")
         self.schedule_status_var = tk.StringVar(value="")
         self.watch_status_var = tk.StringVar(value="")
         self.preset_var = tk.StringVar(value="")
@@ -275,7 +280,7 @@ class IndexerApp(tk.Tk):
         self.lang_var.set(self._lang)
         self._schedule = normalize_schedule(cfg.schedule)
         self._schedule_last_run = cfg.schedule_last_run or None
-        self.schedule_var.set(self._schedule)
+        self._sync_schedule_widgets()
         self.backup_var.set(cfg.backup or "")
         self.target_var.set(cfg.target or "")
         self.extract_var.set(cfg.extract or "")
@@ -1106,16 +1111,22 @@ class IndexerApp(tk.Tk):
             ttk.Label(sched, text=self._("schedule"), style="Muted.TLabel").pack(
                 side=tk.LEFT, padx=(0, 2)
             )
-            self.schedule_var.set(self._schedule_label(self._schedule))
-            sched_combo = ttk.Combobox(
-                sched,
-                textvariable=self.schedule_var,
-                values=[self._schedule_label(c) for c in SCHEDULE_CHOICES],
-                state="readonly",
-                width=14,
+            self._sync_schedule_widgets()
+            amount_entry = ttk.Entry(
+                sched, textvariable=self.schedule_amount_var, width=5
             )
-            sched_combo.pack(side=tk.LEFT)
-            sched_combo.bind("<<ComboboxSelected>>", self._on_schedule_selected)
+            amount_entry.pack(side=tk.LEFT)
+            amount_entry.bind("<FocusOut>", self._on_schedule_widgets_changed)
+            amount_entry.bind("<Return>", self._on_schedule_widgets_changed)
+            unit_combo = ttk.Combobox(
+                sched,
+                textvariable=self.schedule_unit_var,
+                values=self._schedule_unit_labels(),
+                state="readonly",
+                width=10,
+            )
+            unit_combo.pack(side=tk.LEFT, padx=(4, 0))
+            unit_combo.bind("<<ComboboxSelected>>", self._on_schedule_widgets_changed)
             ttk.Label(
                 sched, textvariable=self.schedule_status_var, style="Muted.TLabel"
             ).pack(side=tk.LEFT, padx=(8, 0))
@@ -1692,31 +1703,83 @@ class IndexerApp(tk.Tk):
         self._persist_extra_roots()
         self._sync_folder_watch()
 
-    def _schedule_label(self, code: str) -> str:
-        key = {
-            SCHEDULE_OFF: "schedule_off",
-            SCHEDULE_HOURLY: "schedule_hourly",
-            SCHEDULE_DAILY: "schedule_daily",
-            SCHEDULE_WEEKLY: "schedule_weekly",
-        }.get(normalize_schedule(code), "schedule_off")
-        return self._(key)
+    def _schedule_unit_labels(self) -> list[str]:
+        return [
+            self._("schedule_off"),
+            self._("schedule_unit_seconds"),
+            self._("schedule_unit_minutes"),
+            self._("schedule_unit_hours"),
+            self._("schedule_unit_days"),
+        ]
 
-    def _schedule_from_label(self, label: str) -> str:
+    def _unit_code_from_label(self, label: str) -> Optional[str]:
         raw = (label or "").strip()
-        for code in SCHEDULE_CHOICES:
-            if raw == self._schedule_label(code):
-                return code
-        return normalize_schedule(raw)
+        mapping = {
+            self._("schedule_off"): None,
+            self._("schedule_unit_seconds"): UNIT_SECONDS,
+            self._("schedule_unit_minutes"): UNIT_MINUTES,
+            self._("schedule_unit_hours"): UNIT_HOURS,
+            self._("schedule_unit_days"): UNIT_DAYS,
+        }
+        if raw in mapping:
+            return mapping[raw]
+        # English/raw fallbacks
+        low = raw.casefold()
+        if low in ("off", "wyłączony", "wylaczony"):
+            return None
+        if low.startswith("sec") or low.startswith("sek"):
+            return UNIT_SECONDS
+        if low.startswith("min"):
+            return UNIT_MINUTES
+        if low.startswith("hour") or low.startswith("godz"):
+            return UNIT_HOURS
+        if low.startswith("day") or low.startswith("dni") or low.startswith("dzie"):
+            return UNIT_DAYS
+        return UNIT_MINUTES
 
-    def _on_schedule_selected(self, *_args) -> None:
-        self._set_schedule(self._schedule_from_label(self.schedule_var.get()))
+    def _unit_label_from_code(self, unit: Optional[str]) -> str:
+        if unit is None or unit == SCHEDULE_OFF:
+            return self._("schedule_off")
+        return {
+            UNIT_SECONDS: self._("schedule_unit_seconds"),
+            UNIT_MINUTES: self._("schedule_unit_minutes"),
+            UNIT_HOURS: self._("schedule_unit_hours"),
+            UNIT_DAYS: self._("schedule_unit_days"),
+        }.get(unit, self._("schedule_off"))
+
+    def _sync_schedule_widgets(self) -> None:
+        parsed = parse_schedule(self._schedule)
+        if parsed is None:
+            self.schedule_amount_var.set("1")
+            self.schedule_unit_var.set(self._("schedule_off"))
+            self.schedule_var.set(SCHEDULE_OFF)
+            return
+        amount, unit = parsed
+        self.schedule_amount_var.set(str(amount))
+        self.schedule_unit_var.set(self._unit_label_from_code(unit))
+        self.schedule_var.set(self._schedule)
+
+    def _collect_schedule_from_widgets(self) -> str:
+        unit = self._unit_code_from_label(self.schedule_unit_var.get())
+        if unit is None:
+            return SCHEDULE_OFF
+        raw_amount = self.schedule_amount_var.get().strip()
+        try:
+            amount = int(float(raw_amount.replace(",", ".")))
+        except ValueError:
+            amount = 1
+        return format_schedule(amount, unit)
+
+    def _on_schedule_widgets_changed(self, *_args) -> None:
+        self._set_schedule(self._collect_schedule_from_widgets())
 
     def _set_schedule(self, schedule: str, *, persist: bool = True) -> None:
         code = normalize_schedule(schedule)
         self._schedule = code
-        self.schedule_var.set(self._schedule_label(code))
+        self._sync_schedule_widgets()
         if persist:
             self._persist_ui_settings()
+            self._save_instance_ini()
         self._update_schedule_status()
         self._arm_schedule_timer()
 
@@ -1730,7 +1793,12 @@ class IndexerApp(tk.Tk):
         if nxt is None:
             self.schedule_status_var.set(self._("schedule_idle"))
             return
-        local = nxt.astimezone().strftime("%Y-%m-%d %H:%M")
+        # Show seconds for short intervals
+        parsed = parse_schedule(self._schedule)
+        if parsed is not None and parsed[1] == UNIT_SECONDS:
+            local = nxt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            local = nxt.astimezone().strftime("%Y-%m-%d %H:%M")
         self.schedule_status_var.set(self._("schedule_next", when=local))
 
     def _arm_schedule_timer(self) -> None:
@@ -1743,9 +1811,10 @@ class IndexerApp(tk.Tk):
         # Prosty is retrieve-only — no auto-index timer.
         if self._is_simple():
             return
-        # Check every 30s while a schedule is armed
         if self._schedule != SCHEDULE_OFF:
-            self._schedule_after_id = self.after(30_000, self._schedule_tick)
+            self._schedule_after_id = self.after(
+                schedule_poll_ms(self._schedule), self._schedule_tick
+            )
 
     def _schedule_tick(self) -> None:
         self._schedule_after_id = None
@@ -1772,6 +1841,7 @@ class IndexerApp(tk.Tk):
 
         self._schedule_last_run = format_iso_datetime(datetime.now(timezone.utc))
         self._persist_ui_settings()
+        self._save_instance_ini()
         self._update_schedule_status()
 
     def _watch_roots(self) -> list[Path]:
