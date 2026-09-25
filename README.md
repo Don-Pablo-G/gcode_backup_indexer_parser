@@ -49,9 +49,10 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
 ### Simple mode (operators)
 
 1. Set **backup** + **target** folders (collapses to a one-line summary; **Change…** to edit).  
-2. Click green **Indeksuj / skanuj**.  
-3. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
-4. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.
+2. Optionally add **green** folders for loose `.nc` to catch before the machine wipe, or **yellow** extras.  
+3. Click green **Indeksuj / skanuj** (or enable **Auto-index**: hourly / daily / weekly).  
+4. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
+5. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.
 
 ### Full mode (power users)
 

@@ -27,10 +27,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "backup_folder": "Folder kopii zapasowych",
         "target_folder": "Folder docelowy (baza / wydobyte programy)",
         "browse": "Przeglądaj…",
-        "extra_folders": "Dodatkowe foldery (żółta flaga — nie z kopii maszyny)",
+        "extra_folders": "Dodatkowe foldery",
         "add_folder": "Dodaj folder…",
+        "add_green_folder": "Dodaj zielony (z maszyny / .nc)…",
+        "add_yellow_folder": "Dodaj żółty (poza kopią)…",
         "remove_selected": "Usuń zaznaczone",
-        "extra_hint": "Główna kopia = zielona (była na maszynie). Dodatkowa = żółta (nie z kopii).",
+        "extra_hint": (
+            "Zielony = traktuj jak z maszyny (luźne .nc zanim znikną z backupu). "
+            "Żółty = dodatkowy folder (nie z kopii)."
+        ),
+        "tag_green": "[G]",
+        "tag_yellow": "[Y]",
+        "schedule": "Auto-indeks",
+        "schedule_off": "Wyłączony",
+        "schedule_hourly": "Co godzinę",
+        "schedule_daily": "Codziennie",
+        "schedule_weekly": "Co tydzień",
+        "schedule_next": "Następny: {when}",
+        "schedule_idle": "Auto-indeks wyłączony",
+        "schedule_running": "Auto-indeks…",
+        "schedule_last": "Ostatni auto-indeks: {when}",
         "run_scan": "Indeksuj / skanuj",
         "map_folders": "Mapuj foldery…",
         "aliases": "Aliasy…",
@@ -136,10 +152,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "backup_folder": "Backup folder",
         "target_folder": "Target folder (DB / extracts)",
         "browse": "Browse…",
-        "extra_folders": "Extra folders (yellow flag — not from machine backup)",
+        "extra_folders": "Additional folders",
         "add_folder": "Add folder…",
+        "add_green_folder": "Add green (on-machine / .nc)…",
+        "add_yellow_folder": "Add yellow (not from backup)…",
         "remove_selected": "Remove selected",
-        "extra_hint": "Main backup = green (ran on machine). Extra = yellow (not in backup).",
+        "extra_hint": (
+            "Green = treat as on-machine (loose .nc before backup misses them). "
+            "Yellow = extra folder (not from backup)."
+        ),
+        "tag_green": "[G]",
+        "tag_yellow": "[Y]",
+        "schedule": "Auto-index",
+        "schedule_off": "Off",
+        "schedule_hourly": "Hourly",
+        "schedule_daily": "Daily",
+        "schedule_weekly": "Weekly",
+        "schedule_next": "Next: {when}",
+        "schedule_idle": "Auto-index off",
+        "schedule_running": "Auto-indexing…",
+        "schedule_last": "Last auto-index: {when}",
         "run_scan": "Run index / scan",
         "map_folders": "Map folders…",
         "aliases": "Aliases…",
@@ -270,8 +302,13 @@ def ui_settings_path_for_target(target: Path | str) -> Path:
 
 
 def load_ui_settings(path: Path | str | None = None) -> dict[str, str]:
-    """Return ``{"language": ..., "ui_mode": ...}`` with defaults."""
-    out = {"language": DEFAULT_LANG, "ui_mode": DEFAULT_UI_MODE}
+    """Return language / ui_mode / schedule settings with defaults."""
+    out = {
+        "language": DEFAULT_LANG,
+        "ui_mode": DEFAULT_UI_MODE,
+        "schedule": "off",
+        "schedule_last_run": "",
+    }
     if path is None:
         return out
     p = Path(path)
@@ -283,6 +320,10 @@ def load_ui_settings(path: Path | str | None = None) -> dict[str, str]:
         if isinstance(data, dict):
             out["language"] = normalize_lang(str(data.get("language") or DEFAULT_LANG))
             out["ui_mode"] = normalize_ui_mode(str(data.get("ui_mode") or DEFAULT_UI_MODE))
+            from gcode_index.schedule import normalize_schedule
+
+            out["schedule"] = normalize_schedule(str(data.get("schedule") or "off"))
+            out["schedule_last_run"] = str(data.get("schedule_last_run") or "").strip()
     except OSError:
         pass
     return out
@@ -293,19 +334,34 @@ def save_ui_settings(
     *,
     language: Optional[str] = None,
     ui_mode: Optional[str] = None,
+    schedule: Optional[str] = None,
+    schedule_last_run: Optional[str] = None,
 ) -> Path:
     """Write UI settings, merging with any existing file values."""
     p = Path(path)
     existing = load_ui_settings(p if p.is_file() else None)
+    from gcode_index.schedule import normalize_schedule
+
     lang = normalize_lang(language if language is not None else existing["language"])
     mode = normalize_ui_mode(ui_mode if ui_mode is not None else existing["ui_mode"])
+    sched = normalize_schedule(
+        schedule if schedule is not None else existing.get("schedule") or "off"
+    )
+    last = (
+        schedule_last_run
+        if schedule_last_run is not None
+        else existing.get("schedule_last_run") or ""
+    )
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "language": lang,
         "ui_mode": mode,
+        "schedule": sched,
+        "schedule_last_run": last,
         "_comment": (
             "GUI settings for G-code Backup Indexer "
-            "(language: pl default; ui_mode: simple|full)."
+            "(language: pl default; ui_mode: simple|full; "
+            "schedule: off|hourly|daily|weekly)."
         ),
     }
     with p.open("w", encoding="utf-8") as f:

@@ -44,10 +44,13 @@ from gcode_index.extract import (
     extract_to_path,
 )
 from gcode_index.extra_roots import (
+    ScanRootSpec,
     extra_roots_path_for_target,
-    load_extra_roots,
-    normalize_extra_roots,
-    save_extra_roots,
+    format_root_label,
+    load_scan_roots,
+    normalize_scan_roots,
+    parse_root_label,
+    save_scan_roots,
 )
 from gcode_index.folder_map import (
     UNKNOWN_ID,
@@ -85,6 +88,18 @@ from gcode_index.presets import (
     load_presets,
     presets_path_for_target,
     upsert_preset,
+)
+from gcode_index.schedule import (
+    SCHEDULE_CHOICES,
+    SCHEDULE_DAILY,
+    SCHEDULE_HOURLY,
+    SCHEDULE_OFF,
+    SCHEDULE_WEEKLY,
+    format_iso_datetime,
+    is_schedule_due,
+    next_schedule_at,
+    normalize_schedule,
+    parse_iso_datetime,
 )
 from gcode_index.scan_cache import load_scan_cache
 from gcode_index.scan_report import (
@@ -149,6 +164,8 @@ class IndexerApp(tk.Tk):
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self.ui_mode_var = tk.StringVar(value="")
+        self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
+        self.schedule_status_var = tk.StringVar(value="")
         self.preset_var = tk.StringVar(value="")
         self.preview_header_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="")
@@ -156,6 +173,7 @@ class IndexerApp(tk.Tk):
         self.progress_label_var = tk.StringVar(value="")
 
         self._search_after_id: Optional[str] = None
+        self._schedule_after_id: Optional[str] = None
         self._result_rows: list = []
         self._scan_busy = False
         self._filter_trace_lock = False
@@ -164,7 +182,9 @@ class IndexerApp(tk.Tk):
         self._root_frame: Optional[ttk.Frame] = None
         self._lang = DEFAULT_LANG
         self._ui_mode = DEFAULT_UI_MODE
-        self._hidden_extras: list[str] = []
+        self._hidden_root_specs: list[ScanRootSpec] = []
+        self._schedule = SCHEDULE_OFF
+        self._schedule_last_run: Optional[str] = None
         self._machine_sel: set[str] = set()
         self._folders_expanded = True
         self._more_filters_open = False
@@ -176,6 +196,7 @@ class IndexerApp(tk.Tk):
         # Seed machine list from aliases before any scan
         self._refresh_filter_choices()
         self._maybe_auto_collapse_folders()
+        self._arm_schedule_timer()
         self.search_var.trace_add("write", self._on_filter_changed)
         for var in (
             self.date_from_var,
@@ -288,9 +309,10 @@ class IndexerApp(tk.Tk):
             "incremental": bool(self.incremental_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
-            "extras": self._extra_roots_from_list(),
+            "roots": list(self._scan_root_specs()),
             "folders_expanded": bool(self._folders_expanded),
             "more_filters": bool(self._more_filters_open),
+            "schedule": self._schedule,
         }
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
@@ -302,6 +324,8 @@ class IndexerApp(tk.Tk):
                 ui_settings_path_for_target(dest),
                 language=self._lang,
                 ui_mode=self._ui_mode,
+                schedule=self._schedule,
+                schedule_last_run=self._schedule_last_run or "",
             )
         except OSError:
             log.exception("save ui settings failed")
@@ -365,12 +389,14 @@ class IndexerApp(tk.Tk):
             self.newest_only_var.set(bool(preserved.get("newest")))
             self.incremental_var.set(bool(preserved.get("incremental", True)))
             self.excel_var.set(bool(preserved.get("excel", True)))
-            extras = list(preserved.get("extras") or [])
-            self._hidden_extras = list(extras)
-            if hasattr(self, "extra_list"):
-                self.extra_list.delete(0, tk.END)
-                for root in extras:
-                    self.extra_list.insert(tk.END, root)
+            roots = list(preserved.get("roots") or [])
+            self._hidden_root_specs = [
+                r if isinstance(r, ScanRootSpec) else ScanRootSpec(path=str(r))
+                for r in roots
+            ]
+            self._fill_extra_list(self._hidden_root_specs)
+            if preserved.get("schedule") is not None:
+                self._set_schedule(str(preserved.get("schedule") or SCHEDULE_OFF), persist=False)
         self._refresh_filter_choices()
         if preserved and preserved.get("machines"):
             self._machine_sel = {
@@ -616,37 +642,46 @@ class IndexerApp(tk.Tk):
         )
         paths.columnconfigure(1, weight=1)
 
-        if not simple:
-            extra = ttk.LabelFrame(
-                paths,
-                text=self._("extra_folders"),
-                padding=6,
-            )
-            extra.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
-            extra_row = ttk.Frame(extra)
-            extra_row.pack(fill=tk.X)
-            self.extra_list = tk.Listbox(extra_row, height=2, selectmode=tk.EXTENDED)
-            extra_sb = ttk.Scrollbar(
-                extra_row, orient=tk.VERTICAL, command=self.extra_list.yview
-            )
-            self.extra_list.configure(yscrollcommand=extra_sb.set)
-            self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
-            extra_btns = ttk.Frame(extra)
-            extra_btns.pack(fill=tk.X, pady=(4, 0))
-            ttk.Button(
-                extra_btns, text=self._("add_folder"), command=self._add_extra_root
-            ).pack(side=tk.LEFT)
-            ttk.Button(
-                extra_btns,
-                text=self._("remove_selected"),
-                command=self._remove_extra_roots,
-            ).pack(side=tk.LEFT, padx=6)
-        elif hasattr(self, "extra_list"):
-            delattr(self, "extra_list")
+        # Additional folders (green catch + yellow extras) — both modes
+        extra = ttk.LabelFrame(
+            paths,
+            text=self._("extra_folders"),
+            padding=6,
+        )
+        extra.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
+        extra_row = ttk.Frame(extra)
+        extra_row.pack(fill=tk.X)
+        self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
+        extra_sb = ttk.Scrollbar(
+            extra_row, orient=tk.VERTICAL, command=self.extra_list.yview
+        )
+        self.extra_list.configure(yscrollcommand=extra_sb.set)
+        self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        extra_btns = ttk.Frame(extra)
+        extra_btns.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(
+            extra_btns,
+            text=self._("add_green_folder"),
+            command=lambda: self._add_scan_root(PROVENANCE_BACKUP),
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            extra_btns,
+            text=self._("add_yellow_folder"),
+            command=lambda: self._add_scan_root(PROVENANCE_EXTRA),
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            extra_btns,
+            text=self._("remove_selected"),
+            command=self._remove_extra_roots,
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Label(extra_btns, text=self._("extra_hint"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=8
+        )
+        self._fill_extra_list(self._hidden_root_specs)
 
         done_row = ttk.Frame(paths)
-        done_row.grid(row=3 if not simple else 2, column=0, columnspan=3, sticky=tk.E, pady=(8, 0))
+        done_row.grid(row=3, column=0, columnspan=3, sticky=tk.E, pady=(8, 0))
         ttk.Button(
             done_row, text=self._("folders_done"), command=self._collapse_folders
         ).pack(side=tk.RIGHT)
@@ -665,8 +700,24 @@ class IndexerApp(tk.Tk):
 
         settings = ttk.Frame(actions)
         settings.pack(side=tk.RIGHT)
-        ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
+        ttk.Label(settings, text=self._("schedule"), style="Muted.TLabel").pack(
             side=tk.LEFT, padx=(0, 2)
+        )
+        self.schedule_var.set(self._schedule_label(self._schedule))
+        sched_combo = ttk.Combobox(
+            settings,
+            textvariable=self.schedule_var,
+            values=[self._schedule_label(c) for c in SCHEDULE_CHOICES],
+            state="readonly",
+            width=14,
+        )
+        sched_combo.pack(side=tk.LEFT)
+        sched_combo.bind("<<ComboboxSelected>>", self._on_schedule_selected)
+        ttk.Label(
+            settings, textvariable=self.schedule_status_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=(12, 2)
         )
         lang_combo = ttk.Combobox(
             settings,
@@ -691,6 +742,7 @@ class IndexerApp(tk.Tk):
         )
         mode_combo.pack(side=tk.LEFT)
         mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
+        self._update_schedule_status()
 
         self.scan_btn = self._make_primary_button(
             actions, self._("run_scan"), self._start_scan
@@ -1019,10 +1071,13 @@ class IndexerApp(tk.Tk):
             settings = load_ui_settings(ui_settings_path_for_target(path))
             lang = settings["language"]
             mode = settings["ui_mode"]
+            self._schedule_last_run = settings.get("schedule_last_run") or None
+            self._set_schedule(settings.get("schedule") or SCHEDULE_OFF, persist=False)
             if lang != self._lang or mode != self._ui_mode:
                 preserved = self._snapshot_ui()
                 preserved["target"] = path
                 preserved["folders_expanded"] = False
+                preserved["schedule"] = self._schedule
                 self._lang = lang
                 self._ui_mode = mode
                 self.lang_var.set(lang)
@@ -1046,39 +1101,62 @@ class IndexerApp(tk.Tk):
         self._refresh_filter_choices()
         self._clear_filters()
 
-    def _extra_roots_from_list(self) -> list[str]:
+    def _scan_root_specs(self) -> list[ScanRootSpec]:
         if hasattr(self, "extra_list"):
-            return [self.extra_list.get(i) for i in range(self.extra_list.size())]
-        return list(self._hidden_extras)
+            specs: list[ScanRootSpec] = []
+            for i in range(self.extra_list.size()):
+                parsed = parse_root_label(self.extra_list.get(i))
+                if parsed is not None:
+                    specs.append(parsed)
+            self._hidden_root_specs = list(specs)
+            return specs
+        return list(self._hidden_root_specs)
 
-    def _load_extra_roots_into_list(self) -> None:
-        target = self.target_var.get().strip()
-        roots: list[str] = []
-        if target:
-            roots = list(load_extra_roots(extra_roots_path_for_target(target)))
-        self._hidden_extras = list(roots)
+    def _fill_extra_list(self, specs: list[ScanRootSpec]) -> None:
+        self._hidden_root_specs = list(specs)
         if not hasattr(self, "extra_list"):
             return
         self.extra_list.delete(0, tk.END)
-        for root in roots:
-            self.extra_list.insert(tk.END, root)
+        for spec in specs:
+            self.extra_list.insert(
+                tk.END,
+                format_root_label(
+                    spec,
+                    green_tag=self._("tag_green"),
+                    yellow_tag=self._("tag_yellow"),
+                ),
+            )
+
+    def _load_extra_roots_into_list(self) -> None:
+        target = self.target_var.get().strip()
+        specs: list[ScanRootSpec] = []
+        if target:
+            specs = list(load_scan_roots(extra_roots_path_for_target(target)))
+        self._fill_extra_list(specs)
 
     def _persist_extra_roots(self) -> None:
         target = self.target_var.get().strip()
         if not target:
             return
         Path(target).mkdir(parents=True, exist_ok=True)
-        roots = self._extra_roots_from_list()
-        self._hidden_extras = list(roots)
-        save_extra_roots(extra_roots_path_for_target(target), roots)
+        specs = self._scan_root_specs()
+        self._hidden_root_specs = list(specs)
+        save_scan_roots(extra_roots_path_for_target(target), specs)
 
-    def _add_extra_root(self) -> None:
+    def _add_scan_root(self, provenance: str) -> None:
+        if not hasattr(self, "extra_list"):
+            self._expand_folders()
         if not hasattr(self, "extra_list"):
             return
-        path = filedialog.askdirectory(title="Select extra folder to scan (and subfolders)")
+        title = (
+            self._("add_green_folder")
+            if provenance == PROVENANCE_BACKUP
+            else self._("add_yellow_folder")
+        )
+        path = filedialog.askdirectory(title=title)
         if not path:
             return
-        existing = {p.casefold() for p in self._extra_roots_from_list()}
+        existing = {s.path.casefold() for s in self._scan_root_specs()}
         backup = self.backup_var.get().strip()
         try:
             resolved = str(Path(path).resolve())
@@ -1088,17 +1166,24 @@ class IndexerApp(tk.Tk):
             try:
                 if str(Path(backup).resolve()) == resolved:
                     messagebox.showinfo(
-                        "Extra folder",
+                        self._("extra_folders"),
                         "That folder is already the main backup root.",
                     )
                     return
             except OSError:
                 pass
         if resolved.casefold() in existing or path.casefold() in existing:
-            messagebox.showinfo("Extra folder", "That folder is already in the list.")
+            messagebox.showinfo(
+                self._("extra_folders"), "That folder is already in the list."
+            )
             return
-        self.extra_list.insert(tk.END, resolved)
+        specs = self._scan_root_specs()
+        specs.append(ScanRootSpec(path=resolved, provenance=provenance))
+        self._fill_extra_list(specs)
         self._persist_extra_roots()
+
+    def _add_extra_root(self) -> None:
+        self._add_scan_root(PROVENANCE_EXTRA)
 
     def _remove_extra_roots(self) -> None:
         if not hasattr(self, "extra_list"):
@@ -1109,6 +1194,83 @@ class IndexerApp(tk.Tk):
         for i in reversed(sel):
             self.extra_list.delete(i)
         self._persist_extra_roots()
+
+    def _schedule_label(self, code: str) -> str:
+        key = {
+            SCHEDULE_OFF: "schedule_off",
+            SCHEDULE_HOURLY: "schedule_hourly",
+            SCHEDULE_DAILY: "schedule_daily",
+            SCHEDULE_WEEKLY: "schedule_weekly",
+        }.get(normalize_schedule(code), "schedule_off")
+        return self._(key)
+
+    def _schedule_from_label(self, label: str) -> str:
+        raw = (label or "").strip()
+        for code in SCHEDULE_CHOICES:
+            if raw == self._schedule_label(code):
+                return code
+        return normalize_schedule(raw)
+
+    def _on_schedule_selected(self, *_args) -> None:
+        self._set_schedule(self._schedule_from_label(self.schedule_var.get()))
+
+    def _set_schedule(self, schedule: str, *, persist: bool = True) -> None:
+        code = normalize_schedule(schedule)
+        self._schedule = code
+        self.schedule_var.set(self._schedule_label(code))
+        if persist:
+            self._persist_ui_settings()
+        self._update_schedule_status()
+        self._arm_schedule_timer()
+
+    def _update_schedule_status(self) -> None:
+        if not hasattr(self, "schedule_status_var"):
+            return
+        if self._schedule == SCHEDULE_OFF:
+            self.schedule_status_var.set(self._("schedule_idle"))
+            return
+        nxt = next_schedule_at(self._schedule, self._schedule_last_run)
+        if nxt is None:
+            self.schedule_status_var.set(self._("schedule_idle"))
+            return
+        local = nxt.astimezone().strftime("%Y-%m-%d %H:%M")
+        self.schedule_status_var.set(self._("schedule_next", when=local))
+
+    def _arm_schedule_timer(self) -> None:
+        if self._schedule_after_id is not None:
+            try:
+                self.after_cancel(self._schedule_after_id)
+            except tk.TclError:
+                pass
+            self._schedule_after_id = None
+        # Check every 30s while a schedule is armed
+        if self._schedule != SCHEDULE_OFF:
+            self._schedule_after_id = self.after(30_000, self._schedule_tick)
+
+    def _schedule_tick(self) -> None:
+        self._schedule_after_id = None
+        try:
+            self._maybe_run_scheduled_scan()
+        finally:
+            self._arm_schedule_timer()
+            self._update_schedule_status()
+
+    def _maybe_run_scheduled_scan(self) -> None:
+        if self._schedule == SCHEDULE_OFF or self._scan_busy:
+            return
+        if not self._folders_ready():
+            return
+        if not is_schedule_due(self._schedule, self._schedule_last_run):
+            return
+        self.status_var.set(self._("schedule_running"))
+        self._start_scan(auto=True)
+
+    def _mark_schedule_ran(self) -> None:
+        from datetime import datetime, timezone
+
+        self._schedule_last_run = format_iso_datetime(datetime.now(timezone.utc))
+        self._persist_ui_settings()
+        self._update_schedule_status()
 
     def _db_path(self) -> Optional[Path]:
         target = self.target_var.get().strip()
@@ -1232,21 +1394,23 @@ class IndexerApp(tk.Tk):
 
     # --- scan -------------------------------------------------------------------
 
-    def _start_scan(self) -> None:
+    def _start_scan(self, auto: bool = False) -> None:
         if self._scan_busy:
             return
         backup = self.backup_var.get().strip()
         target = self.target_var.get().strip()
         if not backup or not Path(backup).is_dir():
-            messagebox.showerror("Backup folder", "Choose a valid backup folder.")
+            if not auto:
+                messagebox.showerror("Backup folder", "Choose a valid backup folder.")
             return
         if not target:
-            messagebox.showerror("Target folder", "Choose a target folder for the database.")
+            if not auto:
+                messagebox.showerror("Target folder", "Choose a target folder for the database.")
             return
         Path(target).mkdir(parents=True, exist_ok=True)
         self._persist_ui_settings(target)
-        # Offer mapper only in Full mode when unmatched folders remain
-        if not self._is_simple():
+        # Offer mapper only in Full mode (manual) when unmatched folders remain
+        if not auto and not self._is_simple():
             try:
                 aliases = self._load_alias_map()
                 folders = discover_machine_folders(backup)
@@ -1266,25 +1430,32 @@ class IndexerApp(tk.Tk):
         self._set_primary_button_enabled(self.scan_btn, False)
         self.progress_var.set(0.0)
         self.progress_label_var.set("Starting…")
-        self.status_var.set("Scanning…")
+        self.status_var.set(
+            self._("schedule_running") if auto else "Scanning…"
+        )
         self._show_progress(True)
         self._maybe_auto_collapse_folders()
-        # Simple mode: quiet defaults (no Excel popup clutter; still incremental)
-        if self._is_simple():
+        if self._is_simple() or auto:
             write_excel = False
             incremental = True
-            extras: list[Path] = []
         else:
             write_excel = bool(self.excel_var.get())
             incremental = bool(self.incremental_var.get())
-            self._persist_extra_roots()
-            extras = normalize_extra_roots(
-                self._extra_roots_from_list(),
-                backup_root=backup,
-            )
+        self._persist_extra_roots()
+        root_specs = normalize_scan_roots(
+            self._scan_root_specs(),
+            backup_root=backup,
+        )
         threading.Thread(
             target=self._scan_worker,
-            args=(Path(backup), Path(target), write_excel, extras, incremental),
+            args=(
+                Path(backup),
+                Path(target),
+                write_excel,
+                root_specs,
+                incremental,
+                auto,
+            ),
             daemon=True,
         ).start()
 
@@ -1327,8 +1498,9 @@ class IndexerApp(tk.Tk):
         backup: Path,
         target: Path,
         write_excel: bool,
-        extras: list[Path],
+        root_specs: list[tuple[Path, str]],
         incremental: bool,
+        auto: bool = False,
     ) -> None:
         try:
             aliases_path = default_aliases_path()
@@ -1349,11 +1521,11 @@ class IndexerApp(tk.Tk):
                 except Exception:  # noqa: BLE001
                     log.exception("load scan cache failed; falling back to full scan")
                     cache = None
-            if extras:
+            if root_specs:
                 result = scan_with_extra_roots(
                     backup,
                     alias_map,
-                    extra_roots=extras,
+                    root_specs=root_specs,
                     progress=self._on_scan_progress,
                     folder_map=fmap,
                     cache=cache,
@@ -1401,19 +1573,22 @@ class IndexerApp(tk.Tk):
             flag_note = f"; flags green={n_green} yellow={n_yellow}"
             cache_note = f"; reused {n_cached} unchanged files" if n_cached else ""
             mode_note = "; incremental" if cache is not None else "; full scan"
+            auto_note = "; auto" if auto else ""
             msg = (
                 f"Indexed {len(result.instances)} programs "
                 f"[{type_note}] "
                 f"({len(result.unknowns)} unknown folders{unk_note}{local_note}"
-                f"{flag_note}{cache_note}{mode_note}) "
+                f"{flag_note}{cache_note}{mode_note}{auto_note}) "
                 f"→ {db_path.name} "
                 f"(run {run_id[:8]}…){excel_note}"
             )
             report = scan_report_from_result(result, run_id=run_id)
-            self.after(0, lambda: self._scan_done(True, msg, report=report))
+            self.after(
+                0, lambda: self._scan_done(True, msg, report=report, auto=auto)
+            )
         except Exception as exc:  # noqa: BLE001 — show in UI
             log.exception("scan failed")
-            self.after(0, lambda: self._scan_done(False, str(exc)))
+            self.after(0, lambda: self._scan_done(False, str(exc), auto=auto))
 
     def _scan_done(
         self,
@@ -1421,6 +1596,7 @@ class IndexerApp(tk.Tk):
         message: str,
         *,
         report: Optional[ScanReport] = None,
+        auto: bool = False,
     ) -> None:
         self._scan_busy = False
         self._set_primary_button_enabled(self.scan_btn, True)
@@ -1432,6 +1608,7 @@ class IndexerApp(tk.Tk):
         if ok:
             self.progress_var.set(100.0)
             self.progress_label_var.set("Done")
+            self._mark_schedule_ran()
         else:
             self.progress_var.set(0.0)
             self.progress_label_var.set("")
@@ -1439,13 +1616,14 @@ class IndexerApp(tk.Tk):
         # Hide progress bar shortly after finish to free vertical space
         self.after(1200, lambda: self._show_progress(False) if not self._scan_busy else None)
         if not ok:
-            messagebox.showerror("Scan failed", message)
+            if not auto:
+                messagebox.showerror("Scan failed", message)
             return
         if report is not None:
             self._last_scan_report = report
         self._refresh_filter_choices()
         self._clear_filters(status_prefix=message)
-        if report is not None and not self._is_simple():
+        if report is not None and not self._is_simple() and not auto:
             self._show_scan_report(report)
 
     def _open_scan_report(self) -> None:

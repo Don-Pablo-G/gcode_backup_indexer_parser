@@ -199,34 +199,58 @@ def scan_with_extra_roots(
     aliases: AliasMap,
     *,
     extra_roots: Optional[list[Path | str]] = None,
+    root_specs: Optional[list[tuple[Path | str, str] | object]] = None,
     progress: Optional[ProgressCallback] = None,
     folder_map: Optional[FolderMachineMap] = None,
     cache: Optional[ScanCache] = None,
 ) -> ScanResult:
-    """Scan the main backup (green) plus optional extra folders (yellow).
+    """Scan the main backup (green) plus optional additional folders.
 
-    Extra roots use the same layout rules (date/machine dumps + tree-wide ``.nc``).
-    ``cache`` enables incremental reuse of unchanged sources (#9).
+    ``extra_roots`` are tagged yellow (``provenance=extra``) for backward compatibility.
+    ``root_specs`` is a list of ``(path, provenance)`` or objects with ``.path`` / ``.provenance``
+    (e.g. ``ScanRootSpec``) so catch folders can be green (``backup``).
     """
     roots: list[tuple[Path, str]] = [(Path(backup_root), PROVENANCE_BACKUP)]
     seen: set[str] = {str(Path(backup_root).resolve())}
-    for raw in extra_roots or []:
-        p = Path(raw)
+
+    def _add(path_raw: Path | str, provenance: str) -> None:
+        p = Path(path_raw)
         try:
             key = str(p.resolve())
         except OSError:
             key = str(p)
         if key in seen:
-            continue
+            return
         if not p.is_dir():
             log.warning("extra scan root skipped (not a directory): %s", p)
-            continue
+            return
         seen.add(key)
-        roots.append((p, PROVENANCE_EXTRA))
+        prov = (
+            PROVENANCE_BACKUP
+            if str(provenance).casefold() in ("backup", "green")
+            else PROVENANCE_EXTRA
+        )
+        roots.append((p, prov))
+
+    for item in root_specs or []:
+        if isinstance(item, tuple) and len(item) == 2:
+            _add(item[0], str(item[1]))
+        elif hasattr(item, "path") and hasattr(item, "provenance"):
+            _add(getattr(item, "path"), str(getattr(item, "provenance")))
+        else:
+            _add(item, PROVENANCE_EXTRA)  # type: ignore[arg-type]
+
+    for raw in extra_roots or []:
+        _add(raw, PROVENANCE_EXTRA)
 
     merged = ScanResult()
     for i, (root_path, prov) in enumerate(roots):
-        label = "backup" if prov == PROVENANCE_BACKUP else f"extra {i}"
+        if prov == PROVENANCE_BACKUP and i == 0:
+            label = "backup"
+        elif prov == PROVENANCE_BACKUP:
+            label = f"green {i}"
+        else:
+            label = f"extra {i}"
         if progress:
             progress(
                 {

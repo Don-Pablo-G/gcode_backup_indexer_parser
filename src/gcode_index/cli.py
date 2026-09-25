@@ -91,6 +91,15 @@ def scan_cmd(
         readable=True,
         help="Additional folder to scan (yellow flag). Repeatable.",
     ),
+    green_root: Optional[list[Path]] = typer.Option(
+        None,
+        "--green-root",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        help="Additional folder tagged green (on-machine / loose .nc). Repeatable.",
+    ),
     incremental: bool = typer.Option(
         False,
         "--incremental",
@@ -108,7 +117,8 @@ def scan_cmd(
             local_path = candidate
     alias_map = AliasMap.load_merged(aliases_path, local_path)
     fmap = FolderMachineMap.load(folder_map) if folder_map else None
-    extras = list(extra_root or [])
+    yellows = list(extra_root or [])
+    greens = list(green_root or [])
     cache = None
     if incremental and db.is_file():
         from gcode_index.scan_cache import load_scan_cache
@@ -119,12 +129,20 @@ def scan_cmd(
         finally:
             prior.close()
         typer.echo(f"Incremental: loaded cache for {len(cache.by_key)} source file(s)")
-    if extras:
-        typer.echo(f"Scanning {backup_root} + {len(extras)} extra root(s) …")
+    if yellows or greens:
+        from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
+
+        specs: list[tuple[Path, str]] = [
+            *[(p, PROVENANCE_BACKUP) for p in greens],
+            *[(p, PROVENANCE_EXTRA) for p in yellows],
+        ]
+        typer.echo(
+            f"Scanning {backup_root} + {len(greens)} green / {len(yellows)} yellow root(s) …"
+        )
         result = scan_with_extra_roots(
             backup_root,
             alias_map,
-            extra_roots=extras,
+            root_specs=specs,
             folder_map=fmap if fmap and fmap.assignments else None,
             cache=cache,
         )
