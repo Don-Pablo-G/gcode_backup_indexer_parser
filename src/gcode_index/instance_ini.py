@@ -38,7 +38,8 @@ class InstanceConfig:
     green_roots: list[str] = field(default_factory=list)
     yellow_roots: list[str] = field(default_factory=list)
     language: str = "pl"
-    ui_mode: str = "simple"
+    ui_mode: str = "simple"  # legacy mirror of can_index (simple|full)
+    can_index: bool = False  # primary capability: indexer PC vs floor client
     schedule: str = SCHEDULE_OFF
     schedule_last_run: str = ""
     incremental: bool = True
@@ -95,6 +96,30 @@ def _truthy(value: str, default: bool = False) -> bool:
     if raw in ("1", "true", "yes", "y", "on", "tak"):
         return True
     if raw in ("0", "false", "no", "n", "off", "nie"):
+        return False
+    return default
+
+
+def ui_mode_from_can_index(can_index: bool) -> str:
+    return "full" if can_index else "simple"
+
+
+def can_index_from_ui_mode(mode: str) -> bool:
+    raw = (mode or "").strip().casefold()
+    return raw in ("full", "advanced", "expert", "pełny", "pelny", "yes", "true", "1")
+
+
+def normalize_can_index(value: Optional[str | bool], *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    raw = str(value).strip().casefold()
+    if not raw:
+        return default
+    if raw in ("1", "true", "yes", "y", "on", "tak", "full", "index", "indexer"):
+        return True
+    if raw in ("0", "false", "no", "n", "off", "nie", "simple", "client", "retrieve"):
         return False
     return default
 
@@ -187,6 +212,16 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             "ui", "schedule_last_run", fallback=""
         ).strip()
 
+    # Capabilities (primary). Migrate from legacy ui.mode when absent.
+    if parser.has_section("capabilities"):
+        cfg.can_index = normalize_can_index(
+            parser.get("capabilities", "can_index", fallback=""),
+            default=can_index_from_ui_mode(cfg.ui_mode),
+        )
+    else:
+        cfg.can_index = can_index_from_ui_mode(cfg.ui_mode)
+    cfg.ui_mode = ui_mode_from_can_index(cfg.can_index)
+
     if parser.has_section("scan"):
         cfg.incremental = _truthy(
             parser.get("scan", "incremental", fallback="yes"), default=True
@@ -247,6 +282,17 @@ def save_instance_ini(
     """Write a comment-rich INI. Keyword overrides apply on top of ``config``."""
     p = Path(path) if path is not None else default_instance_ini_path()
     base = config or InstanceConfig()
+
+    if "can_index" in kwargs:
+        can_index = normalize_can_index(
+            kwargs["can_index"], default=bool(base.can_index)
+        )
+    elif "ui_mode" in kwargs:
+        can_index = can_index_from_ui_mode(str(kwargs.get("ui_mode", base.ui_mode)))
+    else:
+        can_index = bool(base.can_index)
+    ui_mode = ui_mode_from_can_index(can_index)
+
     data = InstanceConfig(
         backup=str(kwargs.get("backup", base.backup) or ""),
         target=str(kwargs.get("target", base.target) or ""),
@@ -254,9 +300,14 @@ def save_instance_ini(
         green_roots=list(kwargs.get("green_roots", base.green_roots) or []),
         yellow_roots=list(kwargs.get("yellow_roots", base.yellow_roots) or []),
         language=str(kwargs.get("language", base.language) or "pl"),
-        ui_mode=str(kwargs.get("ui_mode", base.ui_mode) or "simple"),
-        schedule=normalize_schedule(str(kwargs.get("schedule", base.schedule) or SCHEDULE_OFF)),
-        schedule_last_run=str(kwargs.get("schedule_last_run", base.schedule_last_run) or ""),
+        can_index=can_index,
+        ui_mode=ui_mode,
+        schedule=normalize_schedule(
+            str(kwargs.get("schedule", base.schedule) or SCHEDULE_OFF)
+        ),
+        schedule_last_run=str(
+            kwargs.get("schedule_last_run", base.schedule_last_run) or ""
+        ),
         incremental=bool(kwargs.get("incremental", base.incremental)),
         watch_folders=bool(kwargs.get("watch_folders", base.watch_folders)),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
@@ -287,13 +338,25 @@ def save_instance_ini(
 ; Location: next to gcode-index-gui.exe (or working folder in dev)
 ; Override path with env var {ENV_INI_PATH}=...
 ;
+; Deploy tip:
+;   Shop / floor PCs  →  [capabilities] can_index = no
+;   Indexer PC        →  [capabilities] can_index = yes
+;
 ; Edit this file in Notepad, or change folders in the GUI —
 ; the app rewrites this file when you browse / scan / change settings.
 ; Lines starting with ; are comments.
 ; ============================================================
 
+[capabilities]
+; Primary capability flag for this PC (not a runtime UI toggle).
+; yes = indexer: scan / map / watch / schedule / folder setup available
+; no  = floor client: search + preview + extract only (open DB / remap / extract folder)
+; Legacy [ui] mode=simple|full still loads when this key is absent (simple→no, full→yes).
+can_index = {yn(data.can_index)}
+
 [folders]
 ; Main CNC backup tree (usually DATE\\MACHINE\\... dumps + .nc files)
+; Used by the indexer; optional on floor clients that only open a shared DB.
 backup = {data.backup}
 ; Database folder — gcode_index.sqlite, machine_folders.yaml, aliases.local.yaml
 target = {data.target}
@@ -303,31 +366,33 @@ extract = {data.extract}
 [green_roots]
 ; ON-MACHINE catch folders (green flag). One full path per indented line.
 ; Use for loose .nc copies before the control wipes them / backup misses them.
-; Subfolders are scanned recursively.
+; Subfolders are scanned recursively. Indexer (can_index=yes) only.
 paths ={_format_paths(data.green_roots)}
 
 [yellow_roots]
 ; EXTRA folders (yellow flag) — not from the machine backup.
 ; One full path per indented line. Subfolders are scanned recursively.
+; Indexer (can_index=yes) only.
 paths ={_format_paths(data.yellow_roots)}
 
 [ui]
 ; Language: pl (default) or en
 language = {data.language}
-; Mode: simple (operators) or full (power users)
+; Legacy mirror of [capabilities] can_index (simple = no, full = yes).
+; Prefer can_index above; this is kept so older tools still read the file.
 mode = {data.ui_mode}
-; Auto-index while the GUI stays open: off | 30s | 15m | 2h | 1d
+; Auto-index while the GUI stays open (indexer only): off | 30s | 15m | 2h | 1d
 ; Legacy hourly/daily/weekly still load as 1h / 1d / 7d
 schedule = {data.schedule}
 ; Last successful auto/manual index time (UTC ISO). Leave blank to force soon.
 schedule_last_run = {data.schedule_last_run}
 
 [scan]
-; yes/no — skip unchanged files when re-indexing
+; yes/no — skip unchanged files when re-indexing (indexer)
 incremental = {yn(data.incremental)}
-; yes/no — Full mode: watch backup/extra folders and incremental-index on drop
+; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
 watch_folders = {yn(data.watch_folders)}
-; yes/no — also write gcode_index.xlsx after a full-mode scan
+; yes/no — also write gcode_index.xlsx after a scan (indexer)
 also_excel = {yn(data.also_excel)}
 ; yes/no — default "newest only" filter on startup
 newest_only = {yn(data.newest_only)}
@@ -340,7 +405,6 @@ geometry = {data.geometry}
 ; Free-form note for this PC / shop (optional)
 text = {data.notes}
 
-
 [path_remap]
 ; Client extract remaps when the indexer and this PC use different drive letters
 ; for the same share (e.g. indexer C:\\CNC\\Share → client Z:\\CNC\\Share).
@@ -351,11 +415,11 @@ to_prefix = {(data.path_remaps[0].to_prefix if data.path_remaps else "")}
 rules ={format_remap_rules_block(data.path_remaps[1:] if len(data.path_remaps) > 1 else [])}
 
 [desktop]
-; Windows logon autostart (Full mode helper). yes/no
+; Windows logon autostart (indexer helper). yes/no
 autostart = {yn(data.autostart)}
 ; startup = Startup folder shortcut | task = Task Scheduler ONLOGON
 autostart_via = {data.autostart_via}
-; Window X closes to tray (yes) or quits (no)
+; Window X closes to tray (yes) or quits (no) — indexer / tray builds
 close_to_tray = {yn(data.close_to_tray)}
 ; Minimize / iconify also hides to tray
 minimize_to_tray = {yn(data.minimize_to_tray)}

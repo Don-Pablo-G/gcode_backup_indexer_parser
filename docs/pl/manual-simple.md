@@ -1,14 +1,16 @@
-# Instrukcja operatora — tryb Prosty
+# Instrukcja operatora — klient hali (`can_index=no`)
 
 **Dla kogo:** operatorzy na hali, którzy mają **znaleźć i wydobyć** program z istniejącej bazy.  
-**Tryb:** **Prosty** (domyślny). Ten tryb **nie buduje** i **nie aktualizuje** bazy.
+**Zdolność:** w `gcode-index.ini` obok exe ustaw `can_index = no` (komputery na hali). Ta instalacja **nie buduje** i **nie aktualizuje** bazy.
+
+Uwaga: starsze instalacje z `[ui] mode=simple` mapują się na `can_index=no`.
 
 ---
 
 ## Do czego służy program
 
 Indeksator trzyma katalog programów CNC znalezionych w kopiach zapasowych: numer programu, numer części, maszyna, data oraz lokalizacja na dysku.  
-W trybie Prostym **otwierasz ten katalog**, szukasz, podglądasz i **wydobywasz** plik programu dla innego narzędzia lub maszyny.
+Na kliencie hali **otwierasz ten katalog**, szukasz, podglądasz i **wydobywasz** plik programu dla innego narzędzia lub maszyny.
 
 Plików kopii zapasowej nigdy nie zmieniasz. Wydobycie zawsze zapisuje do osobnego folderu.
 
@@ -17,10 +19,10 @@ Plików kopii zapasowej nigdy nie zmieniasz. Wydobycie zawsze zapisuje do osobne
 ## Pierwsze kroki
 
 1. W razie potrzeby ustaw język (**Język** → `pl` lub `en`).
-2. Pozostań w trybie **Prosty** (albo wróć do niego przez **Tryb**).
+2. Sprawdź, że na tym PC w `gcode-index.ini` jest `can_index = no` (domyślnie dla kopii halowych).
 3. Kliknij zielony przycisk **Otwórz istniejącą bazę…** i wskaż `gcode_index.sqlite`.
 
-Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder co otwarta baza). W trybie Prostym **nie ma** pól folderu kopii ani folderu bazy — katalog wybierasz przez **Otwórz istniejącą bazę…**.
+Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder co otwarta baza). Na kliencie hali **nie ma** pól folderu kopii ani folderu bazy — katalog wybierasz przez **Otwórz istniejącą bazę…**.
 
 ---
 
@@ -43,7 +45,7 @@ Wyniki są w tabeli. **Podgląd** jest na stałe **po prawej** (pełna wysokoś�
    Prawy przycisk myszy: wydobycie / otwórz folder / kopiuj ścieżkę.
 3. Wybierz miejsce zapisu (domyślnie folder wydobycia).
 
-Jeśli plik źródłowy **nie istnieje** na dysku (kolumna **Źródło = BRAK**) albo zmienił się od ostatniego indeksu, wydobycie jest **odmówione** z jasnym komunikatem — poproś osobę z trybem **Pełny** o ponowny skan (albo sprawdź mapowanie ścieżek).
+Jeśli plik źródłowy **nie istnieje** na dysku (kolumna **Źródło = BRAK**) albo zmienił się od ostatniego indeksu, wydobycie jest **odmówione** z jasnym komunikatem — poproś osobę na **PC indeksatora** (`can_index=yes`) o ponowny skan (albo sprawdź mapowanie ścieżek).
 
 ---
 
@@ -56,14 +58,14 @@ Jeśli plik źródłowy **nie istnieje** na dysku (kolumna **Źródło = BRAK**)
 | **Źródło = BRAK** (czerwony wiersz) | Plik źródłowy zniknął z dysku od ostatniego skanu — jest w bazie, ale wydobycie / podgląd się nie uda |
 | **MACHINE UNKNOWN** | Ścieżka nie pasowała do znanej nazwy maszyny ani aliasu |
 
-Te wartości powstają przy budowie bazy (tryb Pełny). Prosty tylko je odczytuje. Kolumna **Źródło** z **BRAK** jest widoczna także w Prostym.
+Te wartości powstają przy budowie bazy na indeksatorze. Klient hali tylko je odczytuje.
 
 ---
 
-## Przejście do trybu Pełny
+## Indeksowanie na innym PC
 
-**Tryb → Pełny**, gdy trzeba **indeksować / skanować**, mapować foldery, edytować aliasy albo włączyć auto-indeks.  
-Zobacz **Instrukcję indeksatora (Pełny)** w menu Pomoc.
+W GUI **nie ma** przełącznika Tryb. Komputery na hali mają `can_index=no`; PC indeksatora ma `can_index=yes` we własnym `gcode-index.ini`.  
+Zobacz **Instrukcję indeksatora** w menu Pomoc.
 
 ## Mapowanie ścieżek (klient)
 
@@ -80,4 +82,5 @@ Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym pre
 
 - Ustawienia tego komputera są w `gcode-index.ini` obok pliku exe.
 - **Wyczyść filtry** zeruje pasek wyszukiwania.
-- Gdy brak wyników: sprawdź, czy otwarto właściwą bazę i czy niedawno zrobiono skan w trybie Pełnym.
+- Gdy brak wyników: sprawdź, czy otwarto właściwą bazę i czy niedawno zrobiono skan na indeksatorze.
+- Wszystkie klucze opisane (zakomentowane) są w `gcode-index.ini.example`.

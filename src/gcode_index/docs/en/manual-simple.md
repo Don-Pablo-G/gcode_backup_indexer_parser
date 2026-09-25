@@ -1,14 +1,16 @@
-# Operator manual — Simple mode (Prosty)
+# Operator manual — floor client (`can_index=no`)
 
 **Audience:** shop-floor operators who need to **find and extract** a program from an existing index.  
-**Mode:** **Prosty / Simple** (default). This mode does **not** build or update the database.
+**Capability:** set `can_index = no` in `gcode-index.ini` next to the exe (shop / floor PCs). This install does **not** build or update the database.
+
+Legacy note: older installs with `[ui] mode=simple` map to `can_index=no`.
 
 ---
 
 ## What this app does
 
 The indexer stores a catalog of CNC programs found in machine backups: program number, part number, machine, date, and where the program lives on disk.  
-In Simple mode you **open that catalog**, search, preview, and **extract** (Wydobądź) a program file for another tool or the machine.
+On a floor client you **open that catalog**, search, preview, and **extract** (Wydobądź) a program file for another tool or the machine.
 
 You never change the backup files. Extract always writes to a separate folder.
 
@@ -17,10 +19,10 @@ You never change the backup files. Extract always writes to a separate folder.
 ## First steps
 
 1. Set language if needed (**Język / Language** → `pl` or `en`).
-2. Stay in **Prosty / Simple** (or switch back to it via **Tryb / Mode**).
+2. Confirm this PC’s `gcode-index.ini` has `can_index = no` (default for shop copies).
 3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.
 
-Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydobądź output (blank = same folder as the open database). Simple mode has **no** backup or database folder pickers — use **Open existing DB…** to choose the catalog.
+Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydobądź output (blank = same folder as the open database). Floor clients have **no** backup or database folder pickers — use **Open existing DB…** to choose the catalog.
 
 ---
 
@@ -43,7 +45,7 @@ Results appear in the table. **Preview** stays docked on the **right** (full hei
    Right-click also offers extract / open folder / copy path.
 3. Choose the save location (defaults to the extract folder).
 
-If the source file is **missing on disk** (column **Source = MISSING**) or changed since the last index, extract is **refused** with a clear message — ask someone with **Full** mode to re-scan (or check path remap).
+If the source file is **missing on disk** (column **Source = MISSING**) or changed since the last index, extract is **refused** with a clear message — ask someone on the **indexer PC** (`can_index=yes`) to re-scan (or check path remap).
 
 ---
 
@@ -56,14 +58,14 @@ If the source file is **missing on disk** (column **Source = MISSING**) or chang
 | **Source = MISSING** (red row) | Source file gone from disk since the last scan — still in the DB, but extract / preview will fail |
 | **MACHINE UNKNOWN** | Path did not match a known machine name or alias |
 
-These were assigned when the database was built (Full mode). Simple mode only reads them. The **Source** column with **MISSING** is visible in Simple too.
+These were assigned when the database was built on the indexer. Floor clients only read them. The **Source** column with **MISSING** is visible here too.
 
 ---
 
-## Switching to Full mode
+## Indexing happens on another PC
 
-Use **Mode → Full** when you need to **index / scan**, map folders, edit aliases, or enable auto-index.  
-See the **Indexer manual (Full)** in the Help menu.
+There is no **Mode** switch in the GUI. Shop PCs keep `can_index=no`; the indexer PC uses `can_index=yes` in its own `gcode-index.ini`.  
+See the **Indexer manual** in the Help menu.
 
 ## Path remap (client)
 
@@ -78,6 +80,7 @@ Applies to the main backup and green/yellow roots under that prefix. Search work
 
 ## Tips
 
-- Settings for this PC are stored in `gcode-index.ini` next to the exe.
-- **Clear filters** resets the find bar.
-- If search is empty, ask whether the right database was opened and whether Full mode has scanned recently.
+- Empty search + filters still lists rows (useful with Newest only).
+- Column **Source** / **Lokalizacja** show where the program lives inside glued dumps.
+- When results look empty: confirm the correct DB is open and that the indexer recently scanned.
+- Every setting is documented (commented) in `gcode-index.ini.example`.

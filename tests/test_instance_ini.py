@@ -7,8 +7,11 @@ from pathlib import Path
 from gcode_index.instance_ini import (
     INSTANCE_INI_FILENAME,
     InstanceConfig,
+    can_index_from_ui_mode,
     load_instance_ini,
+    normalize_can_index,
     save_instance_ini,
+    ui_mode_from_can_index,
 )
 from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
 
@@ -22,6 +25,7 @@ def test_instance_ini_roundtrip(tmp_path: Path):
         green_roots=[r"D:\CNC\Catch", r"D:\CNC\USB"],
         yellow_roots=[r"D:\CNC\Extra"],
         language="pl",
+        can_index=False,
         ui_mode="simple",
         schedule="daily",
         schedule_last_run="2026-09-25T00:00:00+00:00",
@@ -34,6 +38,8 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     save_instance_ini(path, config=cfg)
     text = path.read_text(encoding="utf-8")
     assert "G-code Backup Indexer" in text
+    assert "[capabilities]" in text
+    assert "can_index = no" in text
     assert "green_roots" in text
     assert r"D:\CNC\Catch" in text
     assert "extract = " in text
@@ -48,6 +54,7 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     assert loaded.green_roots == [r"D:\CNC\Catch", r"D:\CNC\USB"]
     assert loaded.yellow_roots == [r"D:\CNC\Extra"]
     assert loaded.language == "pl"
+    assert loaded.can_index is False
     assert loaded.ui_mode == "simple"
     assert loaded.schedule == "1d"
     assert loaded.newest_only is True
@@ -58,6 +65,86 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     specs = loaded.root_specs()
     assert any(s.provenance == PROVENANCE_BACKUP and "Catch" in s.path for s in specs)
     assert any(s.provenance == PROVENANCE_EXTRA and "Extra" in s.path for s in specs)
+
+
+def test_can_index_helpers():
+    assert normalize_can_index("yes") is True
+    assert normalize_can_index("no") is False
+    assert normalize_can_index("full") is True
+    assert normalize_can_index("simple") is False
+    assert can_index_from_ui_mode("full") is True
+    assert can_index_from_ui_mode("simple") is False
+    assert can_index_from_ui_mode("Pełny") is True
+    assert ui_mode_from_can_index(True) == "full"
+    assert ui_mode_from_can_index(False) == "simple"
+
+
+def test_migrate_legacy_ui_mode_to_can_index(tmp_path: Path):
+    path = tmp_path / "gcode-index.ini"
+    path.write_text(
+        """
+[folders]
+backup = /bak
+target = /db
+
+[ui]
+language = en
+mode = full
+schedule = off
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.can_index is True
+    assert cfg.ui_mode == "full"
+
+    path.write_text(
+        """
+[folders]
+target = /db
+
+[ui]
+mode = simple
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.can_index is False
+    assert cfg.ui_mode == "simple"
+
+
+def test_capabilities_can_index_overrides_legacy_mode(tmp_path: Path):
+    path = tmp_path / "gcode-index.ini"
+    path.write_text(
+        """
+[capabilities]
+can_index = yes
+
+[ui]
+mode = simple
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.can_index is True
+    assert cfg.ui_mode == "full"
+
+    save_instance_ini(path, config=cfg)
+    text = path.read_text(encoding="utf-8")
+    assert "can_index = yes" in text
+    assert "mode = full" in text
+
+
+def test_save_ui_mode_kwarg_maps_to_can_index(tmp_path: Path):
+    path = tmp_path / "gcode-index.ini"
+    save_instance_ini(path, ui_mode="full", language="en")
+    loaded = load_instance_ini(path)
+    assert loaded.can_index is True
+    assert loaded.ui_mode == "full"
+    save_instance_ini(path, can_index=False)
+    loaded = load_instance_ini(path)
+    assert loaded.can_index is False
+    assert loaded.ui_mode == "simple"
 
 
 def test_instance_ini_extract_falls_back_to_target(tmp_path: Path):
@@ -96,6 +183,7 @@ def test_instance_ini_missing_file(tmp_path: Path):
     assert cfg.backup == ""
     assert cfg.green_roots == []
     assert cfg.schedule == "off"
+    assert cfg.can_index is False
 
 
 def test_instance_ini_prefixed_paths_in_block(tmp_path: Path):

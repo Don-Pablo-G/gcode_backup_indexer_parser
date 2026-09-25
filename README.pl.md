@@ -10,8 +10,8 @@ Indeksuje **drzewa kopii zapasowych** maszyn CNC do przenośnego katalogu **SQLi
 
 | Dokument | Dla kogo |
 |----------|----------|
-| [Instrukcja operatora (Prosty)](docs/pl/manual-simple.md) | Szukanie i wydobycie z gotowej bazy |
-| [Instrukcja indeksatora (Pełny)](docs/pl/manual-full.md) | Budowa i utrzymanie bazy |
+| [Instrukcja operatora (odczyt)](docs/pl/manual-simple.md) | Szukanie i wydobycie z gotowej bazy (`can_index=no`) |
+| [Instrukcja indeksatora](docs/pl/manual-full.md) | Budowa i utrzymanie bazy (`can_index=yes`) |
 | Same manuals in English | [docs/en/](docs/en/) |
 
 W aplikacji GUI: menu **Pomoc** (otwiera te same instrukcje w oknie).
@@ -39,12 +39,14 @@ python3 -m pip install -e ".[dev]"
 | `gcode-index` | CLI: `scan` / `search` / `extract` |
 | `gcode-index-gui` | GUI tkinter |
 
-## Tryby GUI
+## Zdolności GUI (`can_index` w ini)
 
-| Tryb | Kto | Co widać |
-|------|-----|----------|
-| **Prosty** (domyślny) | Operator | Tylko odczyt — otwórz bazę, szukaj, podgląd, **Wydobądź** |
-| **Pełny** | Indeksator | Skan, zieleń/żółć, zakładki **Praca/Indeks**, harmonogram, **obserwacja folderów** (+ pasek statusu), Windows **autostart** / **zasobnik**, mapa/aliasy, filtry zaawansowane, … |
+| `can_index` | Kto | Co widać |
+|-------------|-----|----------|
+| **no** (domyślnie / hala) | Operator | Tylko odczyt — otwórz bazę, szukaj, podgląd, **Wydobądź** |
+| **yes** (PC indeksatora) | Indeksator | Jedna powierzchnia wyszukiwania + skan, zieleń/żółć, harmonogram, **obserwacja folderów**, Windows **autostart** / **zasobnik**, mapa/aliasy, … |
+
+Legacy `[ui] mode=simple\|full` nadal się wczytuje (`simple`→`no`, `full`→`yes`). Wszystkie klucze: `gcode-index.ini.example`.
 
 Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza).
 

@@ -1,15 +1,17 @@
-# Instrukcja indeksatora — tryb Pełny
+# Instrukcja indeksatora (`can_index=yes`)
 
 **Dla kogo:** osoby, które **budują i utrzymują** bazę programów z drzew kopii CNC.  
-**Tryb:** **Pełny**.
+**Zdolność:** w `gcode-index.ini` obok exe ustaw `can_index = yes` (PC indeksatora).
 
-Operatorzy, którzy tylko szukają i wydobywają, powinni używać trybu **Prosty** i instrukcji operatora.
+Operatorzy na hali powinni mieć `can_index = no` i instrukcję operatora.
+
+Uwaga: starsze instalacje z `[ui] mode=full` mapują się na `can_index=yes`.
 
 ---
 
-## Rola trybu Pełnego
+## Rola indeksatora
 
-Tryb Pełny pozwala:
+Przy `can_index=yes` GUI może:
 
 - Skanować drzewa kopii i zapisywać / aktualizować `gcode_index.sqlite`
 - Dodawać katalogi **zielone** (z maszyny) i **żółte** (dodatkowe)
@@ -17,18 +19,11 @@ Tryb Pełny pozwala:
 - Mapować dziwne nazwy folderów na maszyny i edytować **lokalne aliasy**
 - Korzystać z filtrów zaawansowanych, presetów, porównania, raportu skanu, duplikatów
 - Opcjonalnie zapisać Excel po skanie
+- Używać Windows **autostart** / **zasobnik**
 
-Interfejs Pełny ma dwie zakładki nawigacji (duży pasek segmentowy u góry):
-
-| Zakładka | Zawartość |
-|----------|-----------|
-| **Praca** | Szukanie / filtry / **tabela wyników** \| **podgląd na całą wysokość po prawej** — jak Prosty, bez tłustych pasków folderów. Jedna linia ścieżek + przycisk do Indeksu. Główny przycisk: **Wydobądź**. |
-| **Indeks** | Foldery kopii/bazy/wydobycia, zieleń/żółć, mapowanie ścieżek, **Indeksuj**, Mapuj, Maszyny i aliasy, przyrostowo, obserwacja, harmonogram, autostart/zasobnik, pasek obserwacji, raport/duplikaty/Excel |
+Układ to **jedna powierzchnia wyszukiwania**: zwijane foldery → akcje indeksu (skan / mapa / harmonogram / obserwacja / zasobnik) → pasek szukania → wyniki \| podgląd. Bez etykiet Prosty/Pełny i bez zakładek Praca/Indeks.
 
 ---
-
-
-
 
 ## Mapowanie ścieżek (klient)
 
@@ -44,97 +39,80 @@ Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym pre
 | Folder | Znaczenie |
 |--------|-----------|
 | **Folder kopii** | Główne drzewo kopii CNC (`DATA\MASZYNA\…`) |
-| **Folder bazy** (`target`) | `gcode_index.sqlite` + pliki pomocnicze (`machine_folders.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
+| **Folder bazy** (`target`) | `gcode_index.sqlite` + pliki pomocnicze |
 | **Folder wydobycia** | Domyślny zapis Wydobądź (puste = ten sam co folder bazy) |
 
-Wybór folderu kopii / bazy / wydobycia **nie zwija** sekcji folderów — możesz dokończyć wszystkie ścieżki. Zwiń przez **Gotowe**, gdy skończysz (albo przy starcie skanu).
+Wybór folderów **nie zwija** sekcji — dokończ ścieżki, potem **Gotowe**.
 
 ### Dodatkowe katalogi
 
-- **Zielony** — jak z maszyny / folder „łapacza” luźnych `.nc` (zanim znikną z backupu). Podfoldery są skanowane rekurencyjnie. Programy dostają **zieloną** flagę pochodzenia.
-- **Żółty** — dodatkowe drzewa spoza kopii maszyny. Programy dostają flagę **żółtą**.
+- **Zielone** — złapania z maszyny / luźne `.nc`. Flaga zielona.
+- **Żółte** — dodatkowe drzewa nie z kopii. Flaga żółta.
 
-Katalogi zapisują się jako `extra_scan_roots.yaml` obok bazy (oraz w `gcode-index.ini`).
+Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 ---
 
 ## Mapowanie folderów i aliasy
 
-1. **Mapuj foldery…** — wykrywa foldery `<data>/<maszyna>`, automatycznie dopasowuje znane aliasy i pokazuje tylko niedopasowane do ręcznego przypisania. Mapa: `machine_folders.yaml` (ma pierwszeństwo przed aliasami).
-2. Opcjonalnie: zapisz przypisania jako **lokalne aliasy** (`aliases.local.yaml`) na kolejne skany.
-3. **Maszyny i aliasy…** — lista maszyn po lewej; wybierz maszynę, aby edytować jej **aliasy folderów**, etykietę, sterowanie i layout. **Dodaj maszynę** / **Usuń maszynę** zarządzają maszynami lokalnymi. Aliasy z katalogu (`[bundled]`) są tylko do odczytu — dodaj lokalną pisownię, aby je nadpisać. Zapis: `aliases.local.yaml`.
-
-### Przypisanie maszyny dla luźnych `.nc`
-
-Przy indeksowaniu pojedynczych plików `.nc` / `.nc.copy` skaner przechodzi foldery nadrzędne **od najgłębszego**. Pierwsza nazwa pasująca do mapy folderów lub aliasu staje się **maszyną** dla tego pliku i wszystkiego w tym folderze. Brak dopasowania → **MACHINE UNKNOWN** (plik i tak jest indeksowany).
+1. **Mapuj foldery…** — wykrywa `<data>/<maszyna>`, dopasowuje aliasy, listuje tylko niedopasowane.
+2. Opcjonalnie zapisz jako **lokalne aliasy** (`aliases.local.yaml`).
+3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
 
 ---
 
 ## Indeksuj / skanuj
 
-1. Ustaw folder kopii + folder bazy (oraz dodatkowe, jeśli potrzeba), albo użyj **Otwórz istniejącą bazę…** na pasku, aby wybrać gotowy `gcode_index.sqlite`.
-2. Kliknij zielony **Indeksuj / skanuj**.
-3. Opcje (drugi wiersz paska pod **Indeksuj**):
-   - **Przyrostowo** — pomija niezmienione pliki (rozmiar + mtime); ponownie używa wcześniejszych wierszy
-   - **Zapisz też Excel** — eksport skoroszytu obok bazy po skanie
-   - **Obserwuj foldery** — patrz niżej
-4. Pasek postępu pokazuje liczbę plików i ETA. Po zakończeniu otwiera się **raport skanu** (także przez **Raport skanu…** w tym samym wierszu).
+1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
+2. Zielony **Indeksuj / skanuj**.
+3. Opcje: **Przyrostowo**, **Zapisz też Excel**, **Obserwuj foldery**.
+4. Pasek postępu + **Raport skanu** po zakończeniu.
 
 ### Auto-indeks
 
-Na zakładce **Indeks** ustaw **Auto-indeks**: ilość + jednostka (sekundy / minuty / godziny / dni), np. 15 minut. Gdy GUI jest otwarte, należne skany uruchamiają się same. Tryb Prosty ukrywa i wyłącza tę funkcję.
+Ilość + jednostka (sekundy / minuty / godziny / dni). Klient hali (`can_index=no`) tego nie uruchamia. Live **odliczanie** do następnego uruchomienia.
 
-Obok widać **odliczanie** do następnego uruchomienia (`Za m:ss` / `h:mm:ss`, odświeżane co sekundę). Zmiana ilości lub jednostki **od razu** przestawia timer (odliczanie startuje od nowa). Podczas skanu status to **Auto-indeks w toku…**.
+### Obserwacja folderów
 
-### Obserwuj foldery
+Zaznacz **Obserwuj foldery** — poll kopii i zielonych/żółtych; po zmianach przyrostowy skan.
 
-W **drugim** wierszu paska trybu Pełnego zaznacz **Obserwuj foldery**, aby co kilka sekund sprawdzać drzewo kopii i katalogi dodatkowe (zielone/żółte). Gdy pojawią się nowe lub zmienione pliki indeksowalne, aplikacja czeka chwilę (debounce), potem uruchamia skan **przyrostowy** (bez pełnej przebudowy).
-
-- Tylko w trybie **Pełnym**.
-- Tworzy `gcode_index.lock` obok bazy — **jeden komputer** obserwuje / indeksuje. Inne instancje Pełne zobaczą „Obserwacja zablokowana”. Tryb Prosty nie bierze blokady.
-- Zalecenie: jeden PC indeksujący z Obserwuj; pozostałe — Prosty na tej samej bazie.
-- Kompaktowy pasek **Obserwacja** pod paskiem narzędzi pokazuje czas ostatniego polla, liczbę widzianych plików, ostatni skan przyrostowy oraz kto trzyma `gcode_index.lock`.
+- Tylko przy `can_index=yes`.
+- Blokada `gcode_index.lock` obok bazy — **jeden PC** obserwuje.
+- Zalecenie: jeden PC indeksujący z Obserwuj; pozostałe — `can_index=no` na tej samej bazie.
+- Pasek **Obserwacja** pokazuje poll / pliki / ostatni skan / posiadacza blokady.
 
 ### Autostart i zasobnik (Windows)
 
-W **trzecim** wierszu paska trybu Pełnego (build Windows):
-
-- **Autostart przy logowaniu** — instaluje lub usuwa skrót w folderze Autostart albo zadanie Harmonogramu („przy logowaniu”). Preferencja w `gcode-index.ini` w sekcji `[desktop]`.
-- **Zamknij do zasobnika** — **X** chowa okno do zasobnika zamiast kończyć program. Dwuklik ikony (lub **Przywróć**) przywraca okno; **Zakończ** w menu zasobnika zamyka na serio.
-- **Minimalizuj do zasobnika** — minimalizacja też chowa do zasobnika.
-
-Wyłącz **Zamknij do zasobnika**, jeśli **X** ma kończyć aplikację. Tryb Prosty zawsze kończy przy zamknięciu i nie ma kontrolek zasobnika/autostartu.
-
-GUI jest **jednoinstancyjne**: ponowne uruchomienie (także gdy aplikacja siedzi w zasobniku) przywraca istniejące okno zamiast otwierać drugi proces.
+- **Autostart przy logowaniu** (skrót albo Harmonogram zadań) — `[desktop]` w ini.
+- **Zamknij do zasobnika** / **Minimalizuj do zasobnika**.
+- GUI jest **jednoinstancyjne** (w tym z zasobnika).
 
 ---
 
 ## Szukanie i wydobycie
 
-Ten sam pasek wyszukiwania co w trybie Prostym, plus:
-
-- **Więcej filtrów** — typ źródła, sterowanie, flaga (zielona/żółta), programista, presety, **rozmiar od/do** (bajty lub `10k` / `1.5M`), **data pliku od/do** (mtime / utworzenie; kalendarz przez **▾**)
-- Kliknij nagłówek kolumny w wynikach, aby sortować rosnąco/malejąco (oba tryby)
-- **Porównaj…** — różnice dwóch zaznaczonych wierszy
-- **Duplikaty…** — grupy dokładnych i podobnych kopii
-- **Otwórz folder** / **Kopiuj ścieżkę** do pliku źródłowego
-
-**Wydobądź** zapisuje treść programu do folderu wydobycia (lub wskazanej ścieżki). Źródeł nigdy nie modyfikuje. Sprawdza SHA-256 + rozmiar z czasu skanu.
+Jak na kliencie hali, plus **Więcej filtrów**, **Porównaj…**, **Duplikaty…**. Wydobycie sprawdza SHA-256 + rozmiar ze skanu.
 
 ---
 
-## Ustawienia instancji
+## Ustawienia instalacji
 
-`gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, język, tryb, harmonogram i rozmiar okna. Ścieżkę można nadpisać zmienną `GCODE_INDEX_INI=…`.
+`gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, harmonogram, desktop i geometrię.  
+Wszystkie klucze są opisane w `gcode-index.ini.example`.
+
+Wdrożenie:
+
+- Komputery na hali → `can_index = no`
+- PC indeksatora → `can_index = yes`
 
 ---
 
 ## Kopie Haas NGC w ZIP
 
-Skaner **nie otwiera** plików `.zip`. Najpierw rozpakuj kopię Haas NGC do folderu maszyny (np. `…/HaasBackup(…)/Memory/**/*.nc`), potem skanuj.
+Skaner **nie** otwiera `.zip`. Najpierw rozpakuj do folderu maszyny, potem skanuj.
 
 ---
 
-## Przejście do trybu Prosty
+## Klienci hali
 
-**Tryb → Prosty** ukrywa indeksowanie — operator tylko otwiera bazę, szuka i wydobywa. Zobacz **Instrukcję operatora (Prosty)**.
+Nie ma przełącznika **Tryb** w GUI. Na PC operatora ustaw `can_index = no`. Zobacz **Instrukcję operatora (odczyt)**.

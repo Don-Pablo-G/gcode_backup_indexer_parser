@@ -60,22 +60,24 @@ REM or:
 python -m gcode_index.gui
 ```
 
-The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings.yaml` next to the DB):
+The GUI capability comes from **`gcode-index.ini`** next to the exe (not a runtime mode switch):
 
-| Mode | Who | What you see |
-|------|-----|----------------|
-| **Prosty / Simple** (default) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract. No scan / index / schedule / extra roots. |
-| **Pełny / Full** | Power users | Indexing + everything: backup/target/extract, green/yellow extras, **Praca/Indeks** tabs, schedule, **watch folders** (+ status strip), Windows **autostart** / **tray**, map / machines & aliases, Excel, incremental, advanced filters, presets, compare, scan report, duplicates |
+| `can_index` | Who | What you see |
+|-------------|-----|----------------|
+| **no** (default / shop PCs) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract. Optional extract folder + path remap. No scan / index / schedule / watch / map chrome. |
+| **yes** (indexer PC) | Indexer | Single search surface **plus** indexing tools: backup/target/extract, green/yellow extras, schedule, **watch folders** (+ status strip), Windows **autostart** / **tray**, map / machines & aliases, Excel, incremental, advanced filters, presets, compare, scan report, duplicates |
 
-### Simple mode (operators — retrieve only)
+Legacy `[ui] mode=simple|full` still loads when `can_index` is absent (`simple`→`no`, `full`→`yes`). See `gcode-index.ini.example` for every setting commented.
+
+### Floor client (`can_index=no`)
 
 1. Click green **Otwórz istniejącą bazę…** / **Open existing DB…** and pick `gcode_index.sqlite`.  
-2. Optionally set a separate **extract folder** for Wydobądź output (blank = same folder as the open DB). Simple mode has no backup/database path pickers.  
+2. Optionally set a separate **extract folder** for Wydobądź output (blank = same folder as the open DB). No backup/database path pickers.  
 3. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
 4. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.  
-5. Switch to **Pełny** when you need to index / scan (Full also has **Open existing DB…**).
+5. Indexing happens on the PC with `can_index=yes` (edit that install’s `.ini`).
 
-### Full mode (power users)
+### Indexer (`can_index=yes`)
 
 1. **Browse** → pick the main **backup folder** tree.  
 2. **Browse** → pick a **database folder** (`gcode_index.sqlite` + sidecar yaml live here).  
@@ -102,8 +104,8 @@ The GUI has two modes (switch anytime via **Tryb / Mode**; saved in `ui_settings
    - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)  
    - **Newest only** — one row per program + machine (latest backup date)  
    - **Preset** — **Save current…** / **Load** / **Delete** named filter sets (`filter_presets.yaml` next to the DB)  
-   - Click any **results column header** to sort asc/desc (also in Simple mode)  
-   - **More filters** (Full): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges  
+   - Click any **results column header** to sort asc/desc (also on floor clients)  
+   - **More filters** (indexer): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges  
    - **Incremental** — skip unchanged source files (size + mtime) and reuse their index rows; uncheck for a full re-parse  
    - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)  
    Text matches program #, part #, path, machine names, FANUC folder paths, and programmer.  

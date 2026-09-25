@@ -79,13 +79,12 @@ from gcode_index.instance_ini import (
     default_instance_ini_path,
     load_instance_ini,
     save_instance_ini,
+    ui_mode_from_can_index,
 )
 from gcode_index.i18n import (
     DEFAULT_LANG,
-    DEFAULT_UI_MODE,
     load_ui_settings,
     normalize_lang,
-    normalize_ui_mode,
     save_ui_settings,
     t,
     ui_settings_path_for_target,
@@ -148,10 +147,6 @@ from gcode_index.ui_theme import (
     UI_ACCENT_TEXT,
     UI_KEY_FG,
     UI_MUTED_FG,
-    UI_NAV_BORDER,
-    UI_NAV_IDLE_BG,
-    UI_NAV_IDLE_FG,
-    UI_NAV_IDLE_HOVER,
 )
 
 log = logging.getLogger(__name__)
@@ -206,7 +201,6 @@ class IndexerApp(tk.Tk):
         self.watch_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
-        self.ui_mode_var = tk.StringVar(value="")
         self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
         self.schedule_amount_var = tk.StringVar(value="1")
         self.schedule_unit_var = tk.StringVar(value="")
@@ -244,7 +238,7 @@ class IndexerApp(tk.Tk):
         self._last_scan_report: Optional[ScanReport] = None
         self._root_frame: Optional[ttk.Frame] = None
         self._lang = DEFAULT_LANG
-        self._ui_mode = DEFAULT_UI_MODE
+        self._can_index = False  # from [capabilities] can_index in gcode-index.ini
         self._hidden_root_specs: list[ScanRootSpec] = []
         self._schedule = SCHEDULE_OFF
         self._schedule_last_run: Optional[str] = None
@@ -303,7 +297,7 @@ class IndexerApp(tk.Tk):
     def _apply_instance_ini(self, cfg: InstanceConfig) -> None:
         """Load last session paths/settings before the first widget build."""
         self._lang = normalize_lang(cfg.language)
-        self._ui_mode = normalize_ui_mode(cfg.ui_mode)
+        self._can_index = bool(cfg.can_index)
         self.lang_var.set(self._lang)
         self._schedule = normalize_schedule(cfg.schedule)
         self._schedule_last_run = cfg.schedule_last_run or None
@@ -360,7 +354,8 @@ class IndexerApp(tk.Tk):
             green_roots=greens,
             yellow_roots=yellows,
             language=self._lang,
-            ui_mode=self._ui_mode,
+            can_index=self._can_index,
+            ui_mode=ui_mode_from_can_index(self._can_index),
             schedule=self._schedule,
             schedule_last_run=self._schedule_last_run or "",
             incremental=bool(self.incremental_var.get()),
@@ -652,18 +647,8 @@ class IndexerApp(tk.Tk):
         return (not raw) or raw in ALL_TOKENS or raw == self._all_token()
 
     def _is_simple(self) -> bool:
-        return self._ui_mode == "simple"
-
-    def _mode_label(self, mode: str) -> str:
-        return self._("mode_simple") if normalize_ui_mode(mode) == "simple" else self._("mode_full")
-
-    def _mode_from_label(self, label: str) -> str:
-        raw = (label or "").strip()
-        if raw == self._("mode_simple"):
-            return "simple"
-        if raw == self._("mode_full"):
-            return "full"
-        return normalize_ui_mode(raw)
+        """Retrieve-only floor client when can_index is off."""
+        return not self._can_index
 
     def _snapshot_ui(self) -> dict:
         return {
@@ -704,7 +689,7 @@ class IndexerApp(tk.Tk):
                 save_ui_settings(
                     ui_settings_path_for_target(dest),
                     language=self._lang,
-                    ui_mode=self._ui_mode,
+                    ui_mode=ui_mode_from_can_index(self._can_index),
                     schedule=self._schedule,
                     schedule_last_run=self._schedule_last_run or "",
                 )
@@ -722,25 +707,6 @@ class IndexerApp(tk.Tk):
         if persist:
             self._persist_ui_settings(preserved["target"])
         self._rebuild(preserved)
-
-    def _set_ui_mode(self, mode: str, *, persist: bool = True) -> None:
-        code = normalize_ui_mode(mode)
-        if code == self._ui_mode and self._root_frame is not None:
-            return
-        preserved = self._snapshot_ui()
-        self._ui_mode = code
-        self.ui_mode_var.set(self._mode_label(code))
-        if persist:
-            self._persist_ui_settings(preserved["target"])
-        self._rebuild(preserved)
-        # Prosty is retrieve-only — never run scheduled scans while in that mode.
-        self._arm_schedule_timer()
-        self._sync_folder_watch()
-        if persist:
-            self._save_instance_ini()
-
-    def _on_ui_mode_selected(self, *_args) -> None:
-        self._set_ui_mode(self._mode_from_label(self.ui_mode_var.get()))
 
     def _rebuild(self, preserved: Optional[dict] = None) -> None:
         if self._root_frame is not None:
@@ -829,7 +795,7 @@ class IndexerApp(tk.Tk):
         return "…" + raw[-(maxlen - 1) :]
 
     def _folders_ready(self) -> bool:
-        # Prosty (retrieve-only): target/DB folder is enough; backup is optional for extract.
+        # Floor client (can_index=no): target/DB folder is enough; backup optional for extract.
         if self._is_simple():
             return bool(self.target_var.get().strip())
         return bool(self.backup_var.get().strip() and self.target_var.get().strip())
@@ -854,7 +820,6 @@ class IndexerApp(tk.Tk):
                         extract=extract_disp,
                     )
                 )
-            self._sync_praca_path_from_summary()
             return
         if not bak and not tgt and not ext:
             self._folders_summary_var.set(self._("folders_summary_empty"))
@@ -867,11 +832,6 @@ class IndexerApp(tk.Tk):
                     extract=extract_disp,
                 )
             )
-        self._sync_praca_path_from_summary()
-
-    def _sync_praca_path_from_summary(self) -> None:
-        if hasattr(self, "_praca_path_var") and hasattr(self, "_folders_summary_var"):
-            self._praca_path_var.set(self._folders_summary_var.get())
 
     def _extract_dir(self) -> str:
         """Resolved extract output folder (explicit extract, else database/target)."""
@@ -883,7 +843,7 @@ class IndexerApp(tk.Tk):
             return
         before = getattr(self, "_actions_frame", None)
         pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
-        # Pack above index actions when they share a parent (Indeks tab / Prosty).
+        # Pack above index actions when they share a parent.
         try:
             if (
                 before is not None
@@ -900,10 +860,6 @@ class IndexerApp(tk.Tk):
             self._folders_expanded_frame.pack_forget()
             self._update_folders_summary()
             self._folders_summary_frame.pack(**pack_opts)
-        self._sync_praca_path_from_summary()
-
-    def _update_praca_path_line(self) -> None:
-        self._update_folders_summary()
 
     def _maybe_auto_collapse_folders(self) -> None:
         """Collapse only when folders are already complete (startup / scan).
@@ -916,8 +872,6 @@ class IndexerApp(tk.Tk):
             self._set_folders_expanded(False)
 
     def _expand_folders(self) -> None:
-        if not self._is_simple():
-            self._goto_indeks_tab()
         self._set_folders_expanded(True)
 
     def _collapse_folders(self) -> None:
@@ -932,8 +886,6 @@ class IndexerApp(tk.Tk):
             )
             return
         self._set_folders_expanded(False)
-        if not self._is_simple():
-            self._goto_praca_tab()
 
     def _update_machines_button(self) -> None:
         if not hasattr(self, "_machines_btn_var"):
@@ -1029,136 +981,23 @@ class IndexerApp(tk.Tk):
             return
         if visible:
             if not self.prog_frame.winfo_ismapped():
-                # Prefer Index tab chrome; fall back to packing in parent.
                 after = getattr(self, "_actions_frame", None)
                 pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
                 if after is not None and after.winfo_exists():
                     pack_opts["after"] = after
                 self.prog_frame.pack(**pack_opts)
-                # If scanning from Praca, jump to Indeks so progress is visible.
-                self._goto_indeks_tab()
         else:
             self.prog_frame.pack_forget()
-
-    def _goto_indeks_tab(self) -> None:
-        self._show_pelny_view("indeks")
-
-    def _goto_praca_tab(self) -> None:
-        self._show_pelny_view("praca")
-
-    def _show_pelny_view(self, which: str) -> None:
-        """Switch Pełny primary nav between Praca and Indeks."""
-        if self._is_simple():
-            return
-        praca = getattr(self, "_praca_frame", None)
-        indeks = getattr(self, "_indeks_frame", None)
-        if praca is None or indeks is None:
-            return
-        view = "indeks" if which == "indeks" else "praca"
-        self._pelny_view = view
-        try:
-            if view == "praca":
-                indeks.pack_forget()
-                if not praca.winfo_ismapped():
-                    praca.pack(fill=tk.BOTH, expand=True)
-            else:
-                praca.pack_forget()
-                if not indeks.winfo_ismapped():
-                    indeks.pack(fill=tk.BOTH, expand=True)
-        except tk.TclError:
-            return
-        self._refresh_pelny_nav_styles()
-
-    def _refresh_pelny_nav_styles(self) -> None:
-        """Bold / accent selected segment; muted idle segment."""
-        view = getattr(self, "_pelny_view", "praca")
-        pairs = (
-            (getattr(self, "_nav_praca_btn", None), view == "praca"),
-            (getattr(self, "_nav_indeks_btn", None), view == "indeks"),
-        )
-        for btn, selected in pairs:
-            if btn is None:
-                continue
-            try:
-                if not btn.winfo_exists():
-                    continue
-            except tk.TclError:
-                continue
-            if selected:
-                btn.configure(
-                    bg=UI_ACCENT,
-                    fg=UI_ACCENT_TEXT,
-                    activebackground=UI_ACCENT_HOVER,
-                    activeforeground=UI_ACCENT_TEXT,
-                    relief=tk.SUNKEN,
-                    font=self._ui_font(size=13, bold=True),
-                )
-            else:
-                btn.configure(
-                    bg=UI_NAV_IDLE_BG,
-                    fg=UI_NAV_IDLE_FG,
-                    activebackground=UI_NAV_IDLE_HOVER,
-                    activeforeground=UI_NAV_IDLE_FG,
-                    relief=tk.RAISED,
-                    font=self._ui_font(size=13, bold=False),
-                )
-
-    def _build_pelny_nav(self, parent, pad: dict) -> None:
-        """Large segmented Praca | Indeks control — primary Pełny navigation."""
-        wrap = ttk.Frame(parent)
-        wrap.pack(fill=tk.X, **pad)
-        # Outer border so the control reads as one nav strip
-        strip = tk.Frame(wrap, bg=UI_NAV_BORDER, padx=2, pady=2)
-        strip.pack(fill=tk.X)
-        inner = tk.Frame(strip, bg=UI_NAV_BORDER)
-        inner.pack(fill=tk.X)
-        btn_opts = dict(
-            relief=tk.RAISED,
-            borderwidth=1,
-            padx=28,
-            pady=12,
-            cursor="hand2",
-            highlightthickness=0,
-            font=self._ui_font(size=13, bold=False),
-        )
-        self._nav_praca_btn = tk.Button(
-            inner,
-            text=self._("tab_praca"),
-            command=lambda: self._show_pelny_view("praca"),
-            **btn_opts,
-        )
-        self._nav_praca_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
-        self._nav_indeks_btn = tk.Button(
-            inner,
-            text=self._("tab_indeks"),
-            command=lambda: self._show_pelny_view("indeks"),
-            **btn_opts,
-        )
-        self._nav_indeks_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
-        self._pelny_view = "praca"
-        self._refresh_pelny_nav_styles()
-
-    def _open_indeks_folders(self) -> None:
-        """From Praca path line: switch to Indeks and expand folder editors."""
-        self._goto_indeks_tab()
-        self._set_folders_expanded(True)
 
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 4}
         simple = self._is_simple()
         self.title(window_title(self._("app_title")))
-        self.ui_mode_var.set(self._mode_label(self._ui_mode))
         self._update_machines_button()
         self._build_menubar()
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         self._root_frame = root
-        self._main_notebook = None  # legacy name; Pełny uses segmented nav
-        self._praca_frame = None
-        self._indeks_frame = None
-        self._nav_praca_btn = None
-        self._nav_indeks_btn = None
-        self._pelny_view = "praca"
 
         # Ensure filter "all" token matches current language
         if self._is_all_token(self.source_type_var.get()):
@@ -1176,7 +1015,7 @@ class IndexerApp(tk.Tk):
         if not self.preview_header_var.get():
             self.preview_header_var.set(self._("preview_idle"))
 
-        # --- Top chrome: language / mode / help (always) ---------------------------
+        # --- Top chrome: language / help (capability comes from gcode-index.ini) ---
         top = ttk.Frame(root)
         top.pack(fill=tk.X, **pad)
         settings = ttk.Frame(top)
@@ -1195,57 +1034,26 @@ class IndexerApp(tk.Tk):
         lang_combo.bind(
             "<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get())
         )
-        ttk.Label(settings, text=self._("ui_mode"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=(12, 2)
-        )
-        mode_combo = ttk.Combobox(
-            settings,
-            textvariable=self.ui_mode_var,
-            values=[self._("mode_simple"), self._("mode_full")],
-            state="readonly",
-            width=10,
-        )
-        mode_combo.pack(side=tk.LEFT)
-        mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
         ttk.Button(
             settings,
             text=self._("menu_help"),
             command=lambda: self._open_manual("simple" if simple else "full"),
         ).pack(side=tk.LEFT, padx=(12, 0))
 
+        # Single search surface for both capabilities (no Prosty/Pełny or Praca/Indeks).
         if simple:
-            work = root
-            index_host = root
-            self._build_folders_section(index_host, pad, simple=True)
-            self._build_simple_actions(index_host, pad)
-            self._build_progress_bar(index_host)
-            self._build_find_section(work, pad, simple=True)
-            self._build_results_preview(work, pad, simple=True)
+            self._build_folders_section(root, pad, simple=True)
+            self._build_simple_actions(root, pad)
+            self._build_progress_bar(root)
+            self._build_find_section(root, pad, simple=True)
+            self._build_results_preview(root, pad, simple=True)
         else:
-            self._build_pelny_nav(root, pad)
-            content = ttk.Frame(root)
-            content.pack(fill=tk.BOTH, expand=True, **pad)
-            self._pelny_content = content
-            praca = ttk.Frame(content, padding=4)
-            indeks = ttk.Frame(content, padding=4)
-            self._praca_frame = praca
-            self._indeks_frame = indeks
-
-            # Praca: one-line path + find + results|full-height preview
-            self._build_praca_path_line(praca, pad)
-            self._build_find_section(praca, pad, simple=False)
-            self._build_results_preview(praca, pad, simple=False)
-
-            # Indeks: folders, remap, scan/watch/schedule/tray, progress
-            self._build_folders_section(indeks, pad, simple=False)
-            self._build_full_index_actions(indeks, pad)
-            self._build_progress_bar(indeks)
-
-            # Default to Praca when folders already configured
-            if self._folders_ready():
-                self._show_pelny_view("praca")
-            else:
-                self._show_pelny_view("indeks")
+            self._build_folders_section(root, pad, simple=False)
+            self._build_full_index_actions(root, pad)
+            self._build_progress_bar(root)
+            self._build_find_section(root, pad, simple=False)
+            self._build_results_preview(root, pad, simple=False)
+            if not self._folders_ready():
                 self._set_folders_expanded(True, persist=False)
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
@@ -1253,7 +1061,7 @@ class IndexerApp(tk.Tk):
 
 
     def _build_folders_section(self, parent, pad: dict, *, simple: bool) -> None:
-        """Folder summary + expanded editors (Prosty root or Pełny Indeks tab)."""
+        """Folder summary + expanded editors (client or indexer)."""
         self._folders_summary_frame = ttk.Frame(parent)
         self._update_folders_summary()
         ttk.Label(
@@ -1277,7 +1085,7 @@ class IndexerApp(tk.Tk):
         )
         paths = self._folders_expanded_frame
         if simple:
-            # Prosty: no backup/DB path pickers — open DB via the primary button.
+            # Floor client: no backup/DB path pickers — open DB via the primary button.
             # Optional extract folder only.
             ttk.Label(
                 paths,
@@ -1338,7 +1146,7 @@ class IndexerApp(tk.Tk):
                 style="Muted.TLabel",
             ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(0, 2))
 
-            # Additional folders (green catch + yellow extras) — Full mode only
+            # Additional folders (green catch + yellow extras) — indexer only
             extra = ttk.LabelFrame(
                 paths,
                 text=self._("extra_folders"),
@@ -1403,7 +1211,7 @@ class IndexerApp(tk.Tk):
 
 
     def _build_simple_actions(self, parent, pad: dict) -> None:
-        """Prosty: Open DB + clear filters."""
+        """Floor client (can_index=no): Open DB + clear filters."""
         actions = ttk.Frame(parent)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
@@ -1420,7 +1228,7 @@ class IndexerApp(tk.Tk):
 
 
     def _build_full_index_actions(self, parent, pad: dict) -> None:
-        """Pełny Indeks tab: scan, map, schedule, watch, tray, report tools."""
+        """Indexer (can_index=yes): scan, map, schedule, watch, tray, report tools."""
         actions = ttk.Frame(parent)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
@@ -1498,7 +1306,7 @@ class IndexerApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=(4, 0))
         self._update_watch_status()
 
-        # Row 3 — autostart / tray prefs (Pełny only, Windows-oriented)
+        # Row 3 — autostart / tray prefs (indexer, Windows-oriented)
         row3 = ttk.Frame(actions)
         row3.pack(fill=tk.X, pady=(4, 0))
         if tray_available():
@@ -1562,22 +1370,6 @@ class IndexerApp(tk.Tk):
         ttk.Label(
             self.prog_frame, textvariable=self.progress_label_var, width=42
         ).pack(side=tk.LEFT, padx=(8, 0))
-
-
-    def _build_praca_path_line(self, parent, pad: dict) -> None:
-        """One-line path summary on Praca (no fat folder/remap chrome)."""
-        self._praca_path_var = tk.StringVar(value="")
-        line = ttk.Frame(parent)
-        line.pack(fill=tk.X, **pad)
-        ttk.Label(
-            line, textvariable=self._praca_path_var, style="Muted.TLabel"
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(
-            line,
-            text=self._("goto_indeks"),
-            command=self._open_indeks_folders,
-        ).pack(side=tk.RIGHT)
-        self._update_folders_summary()
 
 
     def _build_find_section(self, parent, pad: dict, *, simple: bool) -> None:
@@ -1979,19 +1771,17 @@ class IndexerApp(tk.Tk):
             self._update_folders_summary()
             settings = load_ui_settings(ui_settings_path_for_target(path))
             lang = settings["language"]
-            mode = settings["ui_mode"]
             self._schedule_last_run = settings.get("schedule_last_run") or None
             self._set_schedule(settings.get("schedule") or SCHEDULE_OFF, persist=False)
-            if lang != self._lang or mode != self._ui_mode:
+            # can_index stays from this PC's gcode-index.ini (not from DB-side yaml).
+            if lang != self._lang:
                 preserved = self._snapshot_ui()
                 preserved["target"] = path
                 # Stay expanded so backup/extract can still be edited after DB pick
                 preserved["folders_expanded"] = True
                 preserved["schedule"] = self._schedule
                 self._lang = lang
-                self._ui_mode = mode
                 self.lang_var.set(lang)
-                self.ui_mode_var.set(self._mode_label(mode))
                 self._rebuild(preserved)
                 self._save_instance_ini()
             else:
@@ -2019,8 +1809,8 @@ class IndexerApp(tk.Tk):
         self._refresh_filter_choices()
         self._clear_filters()
         self._update_folders_summary()
-        # Stay expanded in Full so extract/backup remain editable; Prosty
-        # users collapse via Gotowe when ready.
+        # Stay expanded on indexer so extract/backup remain editable; floor
+        # clients collapse via Gotowe when ready.
         if not self._is_simple():
             self._set_folders_expanded(True, persist=False)
         self._save_instance_ini()
@@ -2255,7 +2045,7 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 pass
             self._schedule_after_id = None
-        # Prosty is retrieve-only — no auto-index timer.
+        # Floor client (can_index=no) — no auto-index timer.
         if self._is_simple():
             return
         if self._schedule != SCHEDULE_OFF:
@@ -2421,7 +2211,7 @@ class IndexerApp(tk.Tk):
         self._update_watch_status()
 
     def _sync_folder_watch(self, *, initial: bool = False) -> None:
-        """Start/stop watcher for Full mode based on checkbox + folders + lock."""
+        """Start/stop watcher for indexer (can_index=yes) based on checkbox + folders + lock."""
         if self._is_simple():
             self._watch_enabled = False
             self._stop_folder_watch(release=True)
@@ -2616,7 +2406,7 @@ class IndexerApp(tk.Tk):
     def _start_scan(self, auto: bool = False) -> None:
         if self._scan_busy:
             return
-        # Prosty is retrieve-only — indexing lives in Full mode.
+        # Floor client (can_index=no) — indexing lives on the indexer PC.
         if self._is_simple():
             if not auto:
                 messagebox.showinfo(
@@ -2636,7 +2426,7 @@ class IndexerApp(tk.Tk):
             return
         Path(target).mkdir(parents=True, exist_ok=True)
         self._persist_ui_settings(target)
-        # Offer mapper only in Full mode (manual) when unmatched folders remain
+        # Offer mapper only on indexer (manual) when unmatched folders remain
         if not auto and not self._is_simple():
             try:
                 aliases = self._load_alias_map()

@@ -20,9 +20,9 @@ def test_manuals_resolve_en_and_pl():
 def test_simple_manual_mentions_retrieve_only():
     pl = read_manual("pl", "simple")
     en = read_manual("en", "simple")
-    assert "Prosty" in pl or "wydob" in pl.casefold()
-    assert "Simple" in en
-    assert "Full" in en or "index" in en.casefold()
+    assert "can_index" in pl or "wydob" in pl.casefold()
+    assert "can_index" in en or "retrieve" in en.casefold()
+    assert "index" in en.casefold() or "scan" in en.casefold()
 
 
 def test_full_manual_mentions_scan():
@@ -30,6 +30,8 @@ def test_full_manual_mentions_scan():
     en = read_manual("en", "full")
     assert "Indeksuj" in pl or "skan" in pl.casefold()
     assert "scan" in en.casefold() or "index" in en.casefold()
+    assert "can_index" in en
+    assert "can_index" in pl
 
 
 def test_docs_roots_nonempty():
@@ -41,7 +43,7 @@ def test_docs_roots_nonempty():
 def test_help_i18n_keys():
     assert "Pomoc" in t("pl", "menu_help")
     assert "Help" in t("en", "menu_help")
-    assert "Prosty" in t("pl", "help_manual_simple")
-    assert "Simple" in t("en", "help_manual_simple")
-    assert "Pełny" in t("pl", "help_manual_full")
-    assert "Full" in t("en", "help_manual_full")
+    assert "operatora" in t("pl", "help_manual_simple").casefold()
+    assert "Operator" in t("en", "help_manual_simple")
+    assert "indeksatora" in t("pl", "help_manual_full").casefold()
+    assert "Indexer" in t("en", "help_manual_full")

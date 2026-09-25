@@ -1,15 +1,17 @@
-# Indexer manual — Full mode (Pełny)
+# Indexer manual (`can_index=yes`)
 
 **Audience:** people who **build and maintain** the program database from CNC backup trees.  
-**Mode:** **Pełny / Full**.
+**Capability:** set `can_index = yes` in `gcode-index.ini` next to the exe (indexer PC).
 
-Operators who only search and extract should use **Simple mode** and the operator manual.
+Operators on shop PCs should use `can_index = no` and the operator manual.
+
+Legacy note: older installs with `[ui] mode=full` map to `can_index=yes`.
 
 ---
 
-## Role of Full mode
+## Role of the indexer
 
-Full mode can:
+With `can_index=yes` the GUI can:
 
 - Scan backup trees and write / update `gcode_index.sqlite`
 - Add **green** (on-machine) and **yellow** (extra) scan roots
@@ -17,18 +19,11 @@ Full mode can:
 - Map odd folder names to machines and edit **local aliases**
 - Use advanced filters, presets, compare, scan report, duplicates
 - Optionally write Excel after a scan
+- Use Windows **autostart** / **tray** helpers
 
-Full mode uses two primary navigation segments (large bar at the top):
-
-| Tab | Contents |
-|-----|----------|
-| **Work** | Search / filters / **results table** \| **full-height preview on the right** — Prosty-like density, no fat folder strips. One-line path summary + button to Index. Primary CTA: **Extract**. |
-| **Index** | Backup/DB/extract folders, green/yellow extras, path remap, **Index/scan**, Map, Machines & aliases, incremental, watch, schedule, autostart/tray, watch status strip, report/duplicates/Excel |
+Layout is a **single search surface**: collapsible folders → index actions (scan / map / schedule / watch / tray) → find bar → results \| preview. There are no Prosty/Pełny labels or Praca/Indeks tabs.
 
 ---
-
-
-
 
 ## Path remap (client)
 
@@ -82,28 +77,28 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 
 ### Auto-index
 
-On the **Index** tab, set **Auto-index**: amount + unit (seconds / minutes / hours / days), e.g. 15 minutes. While the GUI stays open, due scans run automatically. Simple mode hides and disables this.
+Set **Auto-index**: amount + unit (seconds / minutes / hours / days), e.g. 15 minutes. While the GUI stays open, due scans run automatically. Floor clients (`can_index=no`) never run this.
 
 A live **countdown** to the next run appears beside it (`In m:ss` / `h:mm:ss`, refreshing every second). Changing amount or unit **restarts** the timer immediately. While a scan runs, status shows **Auto-indexing…**.
 
 ### Watch folders
 
-On the **second** Full-mode toolbar row, tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
+Tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
 
-- Only available in **Full** mode.
-- Takes a `gcode_index.lock` next to the database so **one PC** owns watching/indexing. Other Full instances see “Watch locked” if they try to enable it. Prosty clients never take the lock.
-- Prefer: one indexer PC with Watch on; other PCs use Simple mode against the same DB.
+- Only available when `can_index=yes`.
+- Takes a `gcode_index.lock` next to the database so **one PC** owns watching/indexing. Other indexer instances see “Watch locked” if they try to enable it. Floor clients never take the lock.
+- Prefer: one indexer PC with Watch on; other PCs use `can_index=no` against the same DB.
 - A compact **Watch** status strip under the toolbar shows last poll time, files seen (stamp count), last incremental run, and who holds `gcode_index.lock`.
 
 ### Autostart and tray (Windows)
 
-On the **third** Full-mode toolbar row (Windows builds):
+On the third toolbar row (Windows builds):
 
 - **Start at Windows logon** — installs or removes either a Startup-folder shortcut or a Task Scheduler “at logon” entry (choose **Method**). Preference is saved in `gcode-index.ini` under `[desktop]`.
 - **Close to tray** — the window **X** hides to the system tray instead of quitting. Double-click the tray icon (or **Restore**) brings the window back; **Quit** on the tray menu exits for real.
 - **Minimize to tray** — iconify also hides to the tray.
 
-Turn **Close to tray** off if you want **X** to quit. Simple mode always quits on close and has no tray/autostart controls.
+Turn **Close to tray** off if you want **X** to quit. Floor clients always quit on close and have no tray/autostart controls.
 
 The GUI is **single-instance**: launching again (including while it sits in the tray) restores the existing window instead of starting a second process.
 
@@ -111,10 +106,10 @@ The GUI is **single-instance**: launching again (including while it sits in the 
 
 ## Search and extract
 
-Same find bar as Simple mode, plus:
+Same find bar as the floor client, plus:
 
 - **More filters** — source type, control, flag (green/yellow), programmer, presets, **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
-- Click any **results column header** to sort ascending/descending (both modes)
+- Click any **results column header** to sort ascending/descending
 - **Compare…** — unified diff of exactly two selected rows
 - **Duplicates…** — exact and near-duplicate groups
 - **Open folder** / **Copy path** on the source file
@@ -125,7 +120,13 @@ Same find bar as Simple mode, plus:
 
 ## Instance settings
 
-`gcode-index.ini` next to the exe remembers folders, greens/yellows, language, mode, schedule, and window size. Override path with env `GCODE_INDEX_INI=…`.
+`gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, and window size.  
+Every available key is commented in `gcode-index.ini.example`. Override path with env `GCODE_INDEX_INI=…`.
+
+Deploy:
+
+- Shop / floor PCs → `can_index = no`
+- Indexer PC → `can_index = yes`
 
 ---
 
@@ -135,6 +136,6 @@ Do **not** expect the scanner to open `.zip` files. Unzip Haas NGC backups into 
 
 ---
 
-## Switching to Simple mode
+## Floor clients
 
-**Tryb / Mode → Prosty / Simple** hides indexing UI so operators only open the DB, search, and extract. See the **Operator (Simple mode) manual**.
+There is no runtime **Mode** switch. Put `can_index = no` in that PC’s `gcode-index.ini` so operators only open the DB, search, and extract. See the **Operator (retrieve) manual**.

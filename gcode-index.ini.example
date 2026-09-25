@@ -1,66 +1,98 @@
 ; ============================================================
 ; G-code Backup Indexer — example instance settings
 ; Copy next to gcode-index-gui.exe as: gcode-index.ini
+;
+; Every available setting is listed below with a short comment.
+; Deploy tip:
+;   Shop / floor PCs  →  can_index = no
+;   Indexer PC        →  can_index = yes
 ; ============================================================
 
+[capabilities]
+; Primary capability for THIS PC (edit the .ini — not a runtime toggle).
+; yes = indexer: scan, map, watch, schedule, backup/extra folder setup
+; no  = floor client: search + preview + extract (open DB / path remap / extract folder)
+; Accepted yes values: yes, true, 1, on, tak, full, index, indexer
+; Accepted no  values: no, false, 0, off, nie, simple, client, retrieve
+; If this section/key is missing, legacy [ui] mode=simple|full is migrated
+; (simple → no, full → yes).
+can_index = no
+
 [folders]
-; Main CNC backup tree (usually DATE\MACHINE\... dumps + .nc files)
+; Main CNC backup tree (usually DATE\MACHINE\... dumps + .nc files).
+; Required on the indexer; optional on floor clients that only open a shared DB.
 backup = D:\CNC\Backups
-; Database folder — gcode_index.sqlite + sidecar yaml live here
+; Database folder — gcode_index.sqlite + sidecar yaml (machine_folders, aliases.local, …)
 target = D:\CNC\Index
-; Extract / Wydobądź output (leave blank to use the database folder)
+; Extract / Wydobądź output folder. Leave blank to use the database folder.
+; Legacy key extract_folder= is still accepted when loading.
 extract = D:\CNC\Extracted
 
 [green_roots]
 ; ON-MACHINE catch folders (green flag). One full path per indented line.
-; Subfolders are scanned recursively.
+; Subfolders are scanned recursively. Used when can_index=yes.
 paths =
     D:\CNC\MachineCatch
     D:\CNC\USB_Stick_Copy
 
 [yellow_roots]
 ; EXTRA folders (yellow flag) — not from the machine backup.
+; One full path per indented line. Subfolders are scanned recursively.
+; Used when can_index=yes.
 paths =
     D:\CNC\Archive_Extra
+
+; Optional legacy combined section (also loaded if present):
+; [scan_roots]
+; root1 = green|D:\CNC\MachineCatch
+; root2 = yellow|D:\CNC\Archive_Extra
 
 [ui]
 ; Language: pl (default) or en
 language = pl
-; Mode: simple (retrieve-only operators) or full (index + power users)
+; Legacy mirror of [capabilities] can_index (simple = no, full = yes).
+; Prefer can_index above; kept so older tools / notes still make sense.
 mode = simple
-; Auto-index while GUI open: off | 30s | 15m | 2h | 1d (legacy: hourly/daily/weekly)
+; Auto-index while the GUI stays open (indexer / can_index=yes only).
+; Values: off | 30s | 15m | 2h | 1d  (legacy: hourly→1h, daily→1d, weekly→7d)
 schedule = off
+; Last successful auto/manual index time (UTC ISO). Leave blank to force soon.
 schedule_last_run =
 
 [scan]
+; yes/no — skip unchanged files when re-indexing (size + mtime cache)
 incremental = yes
+; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
 watch_folders = no
+; yes/no — also write gcode_index.xlsx after a successful scan (indexer)
 also_excel = no
+; yes/no — default "newest only" (one row per program+machine) on startup
 newest_only = no
 
 [window]
+; Width x height in pixels (e.g. 1320x820)
 geometry = 1320x820
 
 [notes]
-text = Shop floor PC — edit paths above if drives change
-
+; Free-form note for this PC / shop (optional; rewritten by the GUI)
+text = Shop floor PC — set can_index=no; indexer PC uses can_index=yes
 
 [path_remap]
-; Client extract remaps when indexer and this PC use different drive letters
+; Client extract remaps when the indexer and this PC use different drive letters
 ; for the same share (e.g. indexer C:\CNC\Share → client Z:\CNC\Share).
 ; Applies to scan_root for main backup AND green/yellow roots on that prefix.
+; Shorthand single pair:
 from_prefix = C:\CNC\Share
 to_prefix = Z:\CNC\Share
-; Extra rules (optional), one per line: FROM => TO
+; Extra rules (optional), one indented line each: FROM => TO
 rules =
 
 [desktop]
-; Windows logon autostart (Full / Pełny helper). yes/no
+; Windows logon autostart (indexer helper). yes/no
 autostart = no
-; startup = Startup folder shortcut | task = Task Scheduler ONLOGON
+; How to register autostart: startup = Startup folder shortcut | task = Task Scheduler ONLOGON
 autostart_via = startup
-; Window X closes to tray (yes) or quits (no) — Full mode
+; Window X closes to tray (yes) or quits (no) — indexer / tray builds
 close_to_tray = yes
 ; Minimize / iconify also hides to tray
 minimize_to_tray = yes
-

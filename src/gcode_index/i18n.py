@@ -84,7 +84,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "mode_full": "Pełny",
         "tab_praca": "Praca",
         "tab_indeks": "Indeks",
-        "goto_indeks": "Indeks / foldery…",
+        "goto_indeks": "Foldery…",
         "find_programs": "Szukaj programów — tekst · maszyny · data · źródło",
         "find_programs_simple": "Szukaj programów",
         "find_programs_step": "2 · Szukaj programów",
@@ -130,11 +130,12 @@ STRINGS: dict[str, dict[str, str]] = {
             "Przyrostowy skan pomija niezmienione pliki."
         ),
         "hint_simple": (
-            "Tylko odczyt: otwórz istniejącą bazę (zielony przycisk), "
+            "Tylko odczyt (can_index=no w gcode-index.ini): "
+            "otwórz istniejącą bazę (zielony przycisk), "
             "szukaj po numerze programu lub części, "
             "zaznacz wiersz → zielony Wydobądź (lub podwójne kliknięcie). "
             "Folder kopii potrzebny tylko gdy wydobycie wymaga ścieżek względnych. "
-            "Indeksowanie / skan / auto-indeks — w trybie Pełny. "
+            "Indeksowanie / skan / auto-indeks — na PC indeksatora (can_index=yes). "
             "Tylko najnowsze = jedna pozycja na program+maszynę."
         ),
         "col_flag": "Flaga",
@@ -154,7 +155,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "extract_source_missing": (
             "Plik źródłowy nie istnieje na dysku (usunięty lub przeniesiony od ostatniego skanu):\n"
             "{path}\n\n"
-            "Poproś o ponowny skan w trybie Pełny albo sprawdź mapowanie ścieżek / folder kopii."
+            "Poproś o ponowny skan na PC indeksatora (can_index=yes) albo sprawdź mapowanie ścieżek / folder kopii."
         ),
         "status_missing_sources": "{n} bez pliku źródłowego",
         "open_source_missing": (
@@ -186,8 +187,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "cancel": "Anuluj",
         "show_in_results": "Pokaż w wynikach",
         "menu_help": "Pomoc",
-        "help_manual_simple": "Instrukcja operatora (Prosty)…",
-        "help_manual_full": "Instrukcja indeksatora (Pełny)…",
+        "help_manual_simple": "Instrukcja operatora (odczyt)…",
+        "help_manual_full": "Instrukcja indeksatora…",
         "help_about": "O programie…",
         "help_open_folder": "Otwórz folder dokumentacji…",
 
@@ -222,9 +223,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "about_body": (
             "Indeksator kopii G-code\n"
             "Wersja {version}\n\n"
-            "Prosty = wyszukiwanie i wydobycie z istniejącej bazy.\n"
-            "Pełny = indeksowanie / skanowanie kopii CNC.\n\n"
-            "Instrukcje: menu Pomoc."
+            "Floor (can_index=no) = wyszukiwanie i wydobycie z istniejącej bazy.\n"
+            "Indeksator (can_index=yes) = skanowanie / budowa bazy.\n\n"
+            "Flaga w gcode-index.ini obok exe. Instrukcje: menu Pomoc."
         ),
     },
     "en": {
@@ -296,7 +297,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "mode_full": "Full",
         "tab_praca": "Work",
         "tab_indeks": "Index",
-        "goto_indeks": "Index / folders…",
+        "goto_indeks": "Folders…",
         "find_programs": "Find programs — text · machines (multi-select) · date · source",
         "find_programs_simple": "Find programs",
         "find_programs_step": "2 · Find programs",
@@ -342,11 +343,12 @@ STRINGS: dict[str, dict[str, str]] = {
             "Incremental scan skips unchanged files."
         ),
         "hint_simple": (
-            "Retrieve only: open an existing database (green button), "
+            "Retrieve only (can_index=no in gcode-index.ini): "
+            "open an existing database (green button), "
             "search by program or part number, "
             "select a row → green Extract (or double-click). "
             "Backup folder is needed only when extract uses relative source paths. "
-            "Indexing / scan / auto-index live in Full mode. "
+            "Indexing / scan / auto-index live on the indexer PC (can_index=yes). "
             "Newest only = one row per program+machine."
         ),
         "col_flag": "Flag",
@@ -366,7 +368,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "extract_source_missing": (
             "Source file is missing on disk (removed or moved since the last scan):\n"
             "{path}\n\n"
-            "Ask for a Full-mode re-scan, or check path remap / backup folder."
+            "Ask for a re-scan on the indexer PC (can_index=yes), or check path remap / backup folder."
         ),
         "status_missing_sources": "{n} missing source file(s)",
         "open_source_missing": (
@@ -398,8 +400,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "cancel": "Cancel",
         "show_in_results": "Show in results",
         "menu_help": "Help",
-        "help_manual_simple": "Operator manual (Simple)…",
-        "help_manual_full": "Indexer manual (Full)…",
+        "help_manual_simple": "Operator manual (retrieve)…",
+        "help_manual_full": "Indexer manual…",
         "help_about": "About…",
         "help_open_folder": "Open documentation folder…",
 
@@ -434,9 +436,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "about_body": (
             "G-code Backup Indexer\n"
             "Version {version}\n\n"
-            "Simple = search and extract from an existing database.\n"
-            "Full = index / scan CNC backup trees.\n\n"
-            "Manuals: Help menu."
+            "Floor (can_index=no) = search and extract from an existing database.\n"
+            "Indexer (can_index=yes) = scan / build the catalog.\n\n"
+            "Set the flag in gcode-index.ini next to the exe. Help menu has manuals."
         ),
     },
 }
