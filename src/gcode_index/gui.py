@@ -126,7 +126,7 @@ from gcode_index.indexer_lock import (
     we_hold_lock,
 )
 from gcode_index.help_docs import docs_roots, read_manual, resolve_manual
-from gcode_index import __version__ as APP_VERSION
+from gcode_index.app_meta import format_version_build, window_title
 from gcode_index.ui_theme import (
     UI_ACCENT,
     UI_ACCENT_HOVER,
@@ -162,7 +162,7 @@ class IndexerApp(tk.Tk):
 
     def __init__(self) -> None:
         super().__init__()
-        self.title("G-code Backup Indexer")
+        self.title(window_title("G-code Backup Indexer"))
         self.minsize(1040, 700)
         self.geometry("1320x820")
 
@@ -773,7 +773,7 @@ class IndexerApp(tk.Tk):
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 4}
         simple = self._is_simple()
-        self.title(self._("app_title"))
+        self.title(window_title(self._("app_title")))
         self.ui_mode_var.set(self._mode_label(self._ui_mode))
         self._update_machines_button()
         self._build_menubar()
@@ -1102,13 +1102,9 @@ class IndexerApp(tk.Tk):
         ttk.Label(filt, text=self._("date_from"), style="Key.TLabel").grid(
             row=0, column=3, sticky=tk.W, padx=(8, 2)
         )
-        ttk.Entry(filt, textvariable=self.date_from_var, width=11).grid(
-            row=0, column=4, sticky=tk.W
-        )
+        self._date_entry(filt, self.date_from_var).grid(row=0, column=4, sticky=tk.W)
         ttk.Label(filt, text=self._("date_to_sep")).grid(row=0, column=5, sticky=tk.W)
-        ttk.Entry(filt, textvariable=self.date_to_var, width=11).grid(
-            row=0, column=6, sticky=tk.W
-        )
+        self._date_entry(filt, self.date_to_var).grid(row=0, column=6, sticky=tk.W)
         ttk.Checkbutton(
             filt,
             text=self._("newest_only"),
@@ -1242,13 +1238,9 @@ class IndexerApp(tk.Tk):
             )
             mtime_row = ttk.Frame(adv)
             mtime_row.grid(row=3, column=1, sticky=tk.W, padx=4, pady=2)
-            ttk.Entry(mtime_row, textvariable=self.mtime_from_var, width=11).pack(
-                side=tk.LEFT
-            )
+            self._date_entry(mtime_row, self.mtime_from_var).pack(side=tk.LEFT)
             ttk.Label(mtime_row, text=self._("mtime_to_sep")).pack(side=tk.LEFT)
-            ttk.Entry(mtime_row, textvariable=self.mtime_to_var, width=11).pack(
-                side=tk.LEFT
-            )
+            self._date_entry(mtime_row, self.mtime_to_var).pack(side=tk.LEFT)
             ttk.Label(adv, text=self._("mtime_hint"), style="Muted.TLabel").grid(
                 row=3, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
             )
@@ -1432,8 +1424,27 @@ class IndexerApp(tk.Tk):
     def _show_about(self) -> None:
         messagebox.showinfo(
             self._("about_title"),
-            self._("about_body", version=APP_VERSION),
+            self._("about_body", version=format_version_build()),
         )
+
+    def _date_entry(self, parent: tk.Misc, var: tk.StringVar) -> ttk.Frame:
+        """Typed DD.MM.YYYY entry + compact calendar button."""
+        from gcode_index.date_picker import open_date_picker
+
+        frame = ttk.Frame(parent)
+        ttk.Entry(frame, textvariable=var, width=11).pack(side=tk.LEFT)
+        ttk.Button(
+            frame,
+            text="▾",
+            width=2,
+            command=lambda: open_date_picker(
+                frame,
+                var,
+                lang=self._lang,
+                title=self._("date_picker_title"),
+            ),
+        ).pack(side=tk.LEFT, padx=(2, 0))
+        return frame
 
     # --- paths ------------------------------------------------------------------
 

@@ -28,7 +28,7 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 
 1. Type in **Text** — program #, part #, or path fragment (e.g. `O03232`, `3232`, `P-00253232`). Search is case-insensitive; `O03232` / `03232` / `3232` match the same O-number.
 2. Optionally open **Machines** and multi-select (Ctrl/Shift+click). Empty / all = every machine.
-3. Optionally set **Date from / to** as `DD.MM.YYYY`.
+3. Optionally set **Date from / to** as `DD.MM.YYYY` (or open the small calendar via **▾** next to each field).
 4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
 5. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 

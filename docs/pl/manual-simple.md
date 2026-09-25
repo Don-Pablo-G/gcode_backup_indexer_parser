@@ -28,7 +28,7 @@ Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder 
 
 1. Wpisz w polu **Tekst** — nr programu, nr części lub fragment ścieżki (np. `O03232`, `3232`, `P-00253232`). Wielkość liter nie ma znaczenia; `O03232` / `03232` / `3232` to ten sam numer O.
 2. Opcjonalnie **Maszyny** — wielokrotny wybór (Ctrl/Shift+klik). Puste / wszystkie = każda maszyna.
-3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR`.
+3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR` (albo mały kalendarz przez **▾** obok pola).
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
 5. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 
