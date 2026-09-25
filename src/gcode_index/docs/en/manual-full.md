@@ -79,7 +79,7 @@ On the **second** Full-mode toolbar row, tick **Watch folders** to poll the back
 
 Same find bar as Simple mode, plus:
 
-- **More filters** — source type, control, flag (green/yellow), programmer, presets, **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation)
+- **More filters** — source type, control, flag (green/yellow), programmer, presets, **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
 - Click any **results column header** to sort ascending/descending (both modes)
 - **Compare…** — unified diff of exactly two selected rows
 - **Duplicates…** — exact and near-duplicate groups
