@@ -494,11 +494,53 @@ class IndexerApp(tk.Tk):
                 self.focus_force()
             except tk.TclError:
                 pass
+            self._bring_to_foreground()
 
         try:
             self.after(0, _show)
         except tk.TclError:
             _show()
+
+    def _activate_from_second_launch(self) -> None:
+        """Second process asked us to show — restore tray or raise window."""
+        def _go() -> None:
+            if getattr(self, "_tray_hidden", False):
+                self._restore_from_tray()
+                return
+            try:
+                self.deiconify()
+                self.state("normal")
+                self.lift()
+                self.focus_force()
+            except tk.TclError:
+                pass
+            self._bring_to_foreground()
+
+        try:
+            self.after(0, _go)
+        except tk.TclError:
+            _go()
+
+    def _bring_to_foreground(self) -> None:
+        """Windows: force Z-order when allowed (second-launch restore)."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+
+            hwnd = int(self.winfo_id())
+            user32 = ctypes.windll.user32
+            # Climb to toplevel HWND
+            cur = hwnd
+            for _ in range(8):
+                parent = user32.GetParent(cur)
+                if not parent:
+                    break
+                cur = parent
+            user32.ShowWindow(cur, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(cur)
+        except Exception:  # noqa: BLE001
+            log.debug("bring to foreground failed", exc_info=True)
 
     def _ensure_tray(self) -> bool:
         if not tray_available():
@@ -4583,8 +4625,29 @@ class MachineForm(tk.Toplevel):
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    app = IndexerApp()
-    app.mainloop()
+    from gcode_index.single_instance import (
+        signal_existing_instance,
+        try_acquire,
+        try_activate_existing_window,
+    )
+
+    guard = try_acquire()
+    if guard is None:
+        log.info("Another GUI instance is already running — activating it")
+        signal_existing_instance()
+        try_activate_existing_window(
+            title_substrings=[
+                "G-code Backup Indexer",
+                "Indeksator kopii G-code",
+            ]
+        )
+        return
+    try:
+        app = IndexerApp()
+        guard.watch_activation(app._activate_from_second_launch)
+        app.mainloop()
+    finally:
+        guard.release()
 
 
 if __name__ == "__main__":

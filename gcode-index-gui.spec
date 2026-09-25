@@ -44,6 +44,7 @@ hiddenimports = [
     "gcode_index.indexer_lock",
     "gcode_index.autostart_win",
     "gcode_index.tray_ui",
+    "gcode_index.single_instance",
     "gcode_index.scanner",
     "gcode_index.extract",
     "gcode_index.db",

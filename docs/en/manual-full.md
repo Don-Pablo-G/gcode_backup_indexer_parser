@@ -105,6 +105,8 @@ On the **third** Full-mode toolbar row (Windows builds):
 
 Turn **Close to tray** off if you want **X** to quit. Simple mode always quits on close and has no tray/autostart controls.
 
+The GUI is **single-instance**: launching again (including while it sits in the tray) restores the existing window instead of starting a second process.
+
 ---
 
 ## Search and extract

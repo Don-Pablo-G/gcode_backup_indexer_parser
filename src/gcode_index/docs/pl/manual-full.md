@@ -105,6 +105,8 @@ W **trzecim** wierszu paska trybu Pełnego (build Windows):
 
 Wyłącz **Zamknij do zasobnika**, jeśli **X** ma kończyć aplikację. Tryb Prosty zawsze kończy przy zamknięciu i nie ma kontrolek zasobnika/autostartu.
 
+GUI jest **jednoinstancyjne**: ponowne uruchomienie (także gdy aplikacja siedzi w zasobniku) przywraca istniejące okno zamiast otwierać drugi proces.
+
 ---
 
 ## Szukanie i wydobycie
