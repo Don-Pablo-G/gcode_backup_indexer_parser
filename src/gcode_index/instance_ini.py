@@ -46,8 +46,6 @@ class InstanceConfig:
     newest_only: bool = False
     geometry: str = "1320x820"
     notes: str = ""
-    # PBKDF2 hash for Full / Pełny unlock — never store plaintext PIN.
-    full_pin_hash: str = ""
     # Client extract remaps: indexer prefix → local prefix (e.g. C:\\Share → Z:\\Share).
     path_remaps: list[PathRemap] = field(default_factory=list)
 
@@ -206,10 +204,6 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
     if parser.has_section("notes"):
         cfg.notes = parser.get("notes", "text", fallback="").strip()
 
-    if parser.has_section("security"):
-        cfg.full_pin_hash = parser.get(
-            "security", "full_pin_hash", fallback=""
-        ).strip()
 
     if parser.has_section("path_remap"):
         rules = parse_remap_rules_block(
@@ -250,7 +244,6 @@ def save_instance_ini(
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
         geometry=str(kwargs.get("geometry", base.geometry) or "1320x820"),
         notes=str(kwargs.get("notes", base.notes) or ""),
-        full_pin_hash=str(kwargs.get("full_pin_hash", base.full_pin_hash) or ""),
         path_remaps=normalize_remaps(
             kwargs.get("path_remaps", base.path_remaps) or []
         ),
@@ -319,10 +312,6 @@ geometry = {data.geometry}
 ; Free-form note for this PC / shop (optional)
 text = {data.notes}
 
-[security]
-; Hashed PIN for Full / Pełny mode (pbkdf2_sha256$…). Leave blank until set in GUI.
-; Never put a plaintext PIN here — the app writes the hash when you create/change it.
-full_pin_hash = {data.full_pin_hash}
 
 [path_remap]
 ; Client extract remaps when the indexer and this PC use different drive letters

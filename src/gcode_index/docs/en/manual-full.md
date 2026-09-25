@@ -21,7 +21,8 @@ Full mode can:
 ---
 
 
-## Full mode PIN
+
+
 ## Path remap (client)
 
 If the index was built on a server as **C:** and this PC sees the same share as **Z:**, open **Change…** and set **Path remap (client)**:
@@ -30,14 +31,6 @@ If the index was built on a server as **C:** and this PC sees the same share as 
 - **Local prefix** = `Z:\…` (as on this PC)
 
 Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
-
-
-Switching **Mode → Full** (and launching already in Full) requires a **PIN** (4–12 digits). The hash is stored in `gcode-index.ini` under `[security]` — never plaintext.
-
-- First unlock: you **must create** a PIN (no factory default like 0000).
-- Wrong PIN: stay in **Simple**.
-- In Full: **Change PIN…** next to the mode selector.
-- Simple (search / extract) is **not** PIN-gated.
 
 ## Folders
 

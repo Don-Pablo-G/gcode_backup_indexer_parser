@@ -171,29 +171,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_about": "O programie…",
         "help_open_folder": "Otwórz folder dokumentacji…",
 
-
         "path_remap": "Mapowanie ścieżek (klient)",
         "path_remap_from": "Prefiks w indeksie",
         "path_remap_to": "Prefiks lokalny",
         "path_remap_hint": "Np. C:\\Share → Z:\\Share gdy litera dysku się różni. Dotyczy kopii i folderów zielonych/żółtych.",
         "path_remap_browse": "Przeglądaj…",
-        "pin_title": "PIN trybu Pełnego",
-        "pin_create_title": "Ustaw PIN trybu Pełnego",
-        "pin_change_title": "Zmień PIN trybu Pełnego",
-        "pin_prompt": "Podaj PIN, aby przejść do trybu Pełnego:",
-        "pin_create_prompt": "Utwórz PIN (4–12 cyfr). Bez niego tryb Pełny jest niedostępny.",
-        "pin_new": "Nowy PIN",
-        "pin_confirm": "Potwierdź PIN",
-        "pin_current": "Obecny PIN",
-        "pin_enter": "PIN",
-        "pin_wrong": "Nieprawidłowy PIN.",
-        "pin_mismatch": "PIN-y nie są takie same.",
-        "pin_too_short": "PIN musi mieć 4–12 cyfr.",
-        "pin_required": "Najpierw ustaw PIN trybu Pełnego.",
-        "pin_changed": "PIN trybu Pełnego został zmieniony.",
-        "pin_created": "PIN trybu Pełnego został ustawiony.",
-        "pin_cancelled": "Pozostajesz w trybie Prosty.",
-        "change_pin": "Zmień PIN…",
         "about_title": "O programie",
         "about_body": (
             "Indeksator kopii G-code\n"
@@ -359,29 +341,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_about": "About…",
         "help_open_folder": "Open documentation folder…",
 
-
         "path_remap": "Path remap (client)",
         "path_remap_from": "Prefix in index",
         "path_remap_to": "Local prefix",
         "path_remap_hint": "E.g. C:\\Share → Z:\\Share when drive letters differ. Applies to backup and green/yellow roots.",
         "path_remap_browse": "Browse…",
-        "pin_title": "Full mode PIN",
-        "pin_create_title": "Set Full mode PIN",
-        "pin_change_title": "Change Full mode PIN",
-        "pin_prompt": "Enter PIN to switch to Full mode:",
-        "pin_create_prompt": "Create a PIN (4–12 digits). Full mode is unavailable until you set one.",
-        "pin_new": "New PIN",
-        "pin_confirm": "Confirm PIN",
-        "pin_current": "Current PIN",
-        "pin_enter": "PIN",
-        "pin_wrong": "Incorrect PIN.",
-        "pin_mismatch": "PINs do not match.",
-        "pin_too_short": "PIN must be 4–12 digits.",
-        "pin_required": "Set a Full mode PIN first.",
-        "pin_changed": "Full mode PIN has been changed.",
-        "pin_created": "Full mode PIN has been set.",
-        "pin_cancelled": "Staying in Simple mode.",
-        "change_pin": "Change PIN…",
         "about_title": "About",
         "about_body": (
             "G-code Backup Indexer\n"
@@ -393,13 +357,11 @@ STRINGS: dict[str, dict[str, str]] = {
     },
 }
 
-
 def normalize_lang(lang: Optional[str]) -> str:
     raw = (lang or DEFAULT_LANG).strip().casefold()
     if raw.startswith("en"):
         return "en"
     return "pl"
-
 
 def normalize_ui_mode(mode: Optional[str]) -> str:
     raw = (mode or DEFAULT_UI_MODE).strip().casefold()
@@ -408,7 +370,6 @@ def normalize_ui_mode(mode: Optional[str]) -> str:
     if raw in ("simple", "basic", "prosty", "minimal", "easy"):
         return "simple"
     return DEFAULT_UI_MODE
-
 
 def t(lang: str, key: str, **kwargs: Any) -> str:
     code = normalize_lang(lang)
@@ -422,10 +383,8 @@ def t(lang: str, key: str, **kwargs: Any) -> str:
             return text
     return text
 
-
 def ui_settings_path_for_target(target: Path | str) -> Path:
     return Path(target) / UI_SETTINGS_FILENAME
-
 
 def load_ui_settings(path: Path | str | None = None) -> dict[str, str]:
     """Return language / ui_mode / schedule settings with defaults."""
@@ -453,7 +412,6 @@ def load_ui_settings(path: Path | str | None = None) -> dict[str, str]:
     except OSError:
         pass
     return out
-
 
 def save_ui_settings(
     path: Path | str,
@@ -494,18 +452,14 @@ def save_ui_settings(
         yaml.safe_dump(payload, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
     return p
 
-
 def load_ui_language(path: Path | str | None = None) -> str:
     return load_ui_settings(path)["language"]
-
 
 def save_ui_language(path: Path | str, lang: str) -> Path:
     return save_ui_settings(path, language=lang)
 
-
 def load_ui_mode(path: Path | str | None = None) -> str:
     return load_ui_settings(path)["ui_mode"]
-
 
 def save_ui_mode(path: Path | str, mode: str) -> Path:
     return save_ui_settings(path, ui_mode=mode)

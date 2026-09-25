@@ -60,6 +60,10 @@ These were assigned when the database was built (Full mode). Simple mode only re
 ---
 
 ## Switching to Full mode
+
+Use **Mode → Full** when you need to **index / scan**, map folders, edit aliases, or enable auto-index.  
+See the **Indexer manual (Full)** in the Help menu.
+
 ## Path remap (client)
 
 If the index was built on a server as **C:** and this PC sees the same share as **Z:**, open **Change…** and set **Path remap (client)**:
@@ -68,13 +72,6 @@ If the index was built on a server as **C:** and this PC sees the same share as 
 - **Local prefix** = `Z:\…` (as on this PC)
 
 Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
-
-
-Switching to **Full** requires a PIN (4–12 digits) set on this PC.
-
-
-Use **Tryb / Mode → Pełny / Full** when you need to **index / scan**, map folders, edit aliases, or change auto-index.  
-See the **Indexer (Full mode) manual** from the Help menu.
 
 ---
 

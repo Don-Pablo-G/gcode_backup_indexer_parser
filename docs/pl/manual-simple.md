@@ -60,6 +60,10 @@ Te wartości powstają przy budowie bazy (tryb Pełny). Prosty tylko je odczytuj
 ---
 
 ## Przejście do trybu Pełny
+
+**Tryb → Pełny**, gdy trzeba **indeksować / skanować**, mapować foldery, edytować aliasy albo włączyć auto-indeks.  
+Zobacz **Instrukcję indeksatora (Pełny)** w menu Pomoc.
+
 ## Mapowanie ścieżek (klient)
 
 Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:**, ustaw w **Zmień…** sekcję **Mapowanie ścieżek (klient)**:
@@ -68,13 +72,6 @@ Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam u
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
 Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
-
-
-Przejście do trybu **Pełny** wymaga PIN-u (4–12 cyfr) ustawionego na tym komputerze.
-
-
-**Tryb → Pełny**, gdy trzeba **indeksować / skanować**, mapować foldery, edytować aliasy albo włączyć auto-indeks.  
-Zobacz **Instrukcję indeksatora (Pełny)** w menu Pomoc.
 
 ---
 
