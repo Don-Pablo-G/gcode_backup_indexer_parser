@@ -148,6 +148,10 @@ from gcode_index.ui_theme import (
     UI_ACCENT_TEXT,
     UI_KEY_FG,
     UI_MUTED_FG,
+    UI_NAV_BORDER,
+    UI_NAV_IDLE_BG,
+    UI_NAV_IDLE_FG,
+    UI_NAV_IDLE_HOVER,
 )
 
 log = logging.getLogger(__name__)
@@ -995,36 +999,102 @@ class IndexerApp(tk.Tk):
             self.prog_frame.pack_forget()
 
     def _goto_indeks_tab(self) -> None:
-        nb = getattr(self, "_main_notebook", None)
-        if nb is None:
-            return
-        try:
-            for i in range(nb.index("end")):
-                if nb.tab(i, "text") in {
-                    self._("tab_indeks"),
-                    "Indeks",
-                    "Index",
-                }:
-                    nb.select(i)
-                    break
-        except tk.TclError:
-            pass
+        self._show_pelny_view("indeks")
 
     def _goto_praca_tab(self) -> None:
-        nb = getattr(self, "_main_notebook", None)
-        if nb is None:
+        self._show_pelny_view("praca")
+
+    def _show_pelny_view(self, which: str) -> None:
+        """Switch Pełny primary nav between Praca and Indeks."""
+        if self._is_simple():
             return
+        praca = getattr(self, "_praca_frame", None)
+        indeks = getattr(self, "_indeks_frame", None)
+        if praca is None or indeks is None:
+            return
+        view = "indeks" if which == "indeks" else "praca"
+        self._pelny_view = view
         try:
-            for i in range(nb.index("end")):
-                if nb.tab(i, "text") in {
-                    self._("tab_praca"),
-                    "Praca",
-                    "Work",
-                }:
-                    nb.select(i)
-                    break
+            if view == "praca":
+                indeks.pack_forget()
+                if not praca.winfo_ismapped():
+                    praca.pack(fill=tk.BOTH, expand=True)
+            else:
+                praca.pack_forget()
+                if not indeks.winfo_ismapped():
+                    indeks.pack(fill=tk.BOTH, expand=True)
         except tk.TclError:
-            pass
+            return
+        self._refresh_pelny_nav_styles()
+
+    def _refresh_pelny_nav_styles(self) -> None:
+        """Bold / accent selected segment; muted idle segment."""
+        view = getattr(self, "_pelny_view", "praca")
+        pairs = (
+            (getattr(self, "_nav_praca_btn", None), view == "praca"),
+            (getattr(self, "_nav_indeks_btn", None), view == "indeks"),
+        )
+        for btn, selected in pairs:
+            if btn is None:
+                continue
+            try:
+                if not btn.winfo_exists():
+                    continue
+            except tk.TclError:
+                continue
+            if selected:
+                btn.configure(
+                    bg=UI_ACCENT,
+                    fg=UI_ACCENT_TEXT,
+                    activebackground=UI_ACCENT_HOVER,
+                    activeforeground=UI_ACCENT_TEXT,
+                    relief=tk.SUNKEN,
+                    font=self._ui_font(size=13, bold=True),
+                )
+            else:
+                btn.configure(
+                    bg=UI_NAV_IDLE_BG,
+                    fg=UI_NAV_IDLE_FG,
+                    activebackground=UI_NAV_IDLE_HOVER,
+                    activeforeground=UI_NAV_IDLE_FG,
+                    relief=tk.RAISED,
+                    font=self._ui_font(size=13, bold=False),
+                )
+
+    def _build_pelny_nav(self, parent, pad: dict) -> None:
+        """Large segmented Praca | Indeks control — primary Pełny navigation."""
+        wrap = ttk.Frame(parent)
+        wrap.pack(fill=tk.X, **pad)
+        # Outer border so the control reads as one nav strip
+        strip = tk.Frame(wrap, bg=UI_NAV_BORDER, padx=2, pady=2)
+        strip.pack(fill=tk.X)
+        inner = tk.Frame(strip, bg=UI_NAV_BORDER)
+        inner.pack(fill=tk.X)
+        btn_opts = dict(
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=28,
+            pady=12,
+            cursor="hand2",
+            highlightthickness=0,
+            font=self._ui_font(size=13, bold=False),
+        )
+        self._nav_praca_btn = tk.Button(
+            inner,
+            text=self._("tab_praca"),
+            command=lambda: self._show_pelny_view("praca"),
+            **btn_opts,
+        )
+        self._nav_praca_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
+        self._nav_indeks_btn = tk.Button(
+            inner,
+            text=self._("tab_indeks"),
+            command=lambda: self._show_pelny_view("indeks"),
+            **btn_opts,
+        )
+        self._nav_indeks_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
+        self._pelny_view = "praca"
+        self._refresh_pelny_nav_styles()
 
     def _open_indeks_folders(self) -> None:
         """From Praca path line: switch to Indeks and expand folder editors."""
@@ -1041,9 +1111,12 @@ class IndexerApp(tk.Tk):
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         self._root_frame = root
-        self._main_notebook = None
+        self._main_notebook = None  # legacy name; Pełny uses segmented nav
         self._praca_frame = None
         self._indeks_frame = None
+        self._nav_praca_btn = None
+        self._nav_indeks_btn = None
+        self._pelny_view = "praca"
 
         # Ensure filter "all" token matches current language
         if self._is_all_token(self.source_type_var.get()):
@@ -1107,15 +1180,14 @@ class IndexerApp(tk.Tk):
             self._build_find_section(work, pad, simple=True)
             self._build_results_preview(work, pad, simple=True)
         else:
-            nb = ttk.Notebook(root)
-            nb.pack(fill=tk.BOTH, expand=True, **pad)
-            self._main_notebook = nb
-            praca = ttk.Frame(nb, padding=4)
-            indeks = ttk.Frame(nb, padding=4)
+            self._build_pelny_nav(root, pad)
+            content = ttk.Frame(root)
+            content.pack(fill=tk.BOTH, expand=True, **pad)
+            self._pelny_content = content
+            praca = ttk.Frame(content, padding=4)
+            indeks = ttk.Frame(content, padding=4)
             self._praca_frame = praca
             self._indeks_frame = indeks
-            nb.add(praca, text=self._("tab_praca"))
-            nb.add(indeks, text=self._("tab_indeks"))
 
             # Praca: one-line path + find + results|full-height preview
             self._build_praca_path_line(praca, pad)
@@ -1129,9 +1201,9 @@ class IndexerApp(tk.Tk):
 
             # Default to Praca when folders already configured
             if self._folders_ready():
-                self._goto_praca_tab()
+                self._show_pelny_view("praca")
             else:
-                self._goto_indeks_tab()
+                self._show_pelny_view("indeks")
                 self._set_folders_expanded(True, persist=False)
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)

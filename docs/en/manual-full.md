@@ -18,7 +18,7 @@ Full mode can:
 - Use advanced filters, presets, compare, scan report, duplicates
 - Optionally write Excel after a scan
 
-Full mode uses two tabs:
+Full mode uses two primary navigation segments (large bar at the top):
 
 | Tab | Contents |
 |-----|----------|

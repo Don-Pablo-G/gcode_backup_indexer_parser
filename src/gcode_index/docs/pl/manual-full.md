@@ -18,7 +18,7 @@ Tryb Pełny pozwala:
 - Korzystać z filtrów zaawansowanych, presetów, porównania, raportu skanu, duplikatów
 - Opcjonalnie zapisać Excel po skanie
 
-Interfejs Pełny ma dwie zakładki:
+Interfejs Pełny ma dwie zakładki nawigacji (duży pasek segmentowy u góry):
 
 | Zakładka | Zawartość |
 |----------|-----------|
