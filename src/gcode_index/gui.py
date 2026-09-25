@@ -806,6 +806,7 @@ class IndexerApp(tk.Tk):
                         extract=extract_disp,
                     )
                 )
+            self._sync_praca_path_from_summary()
             return
         if not bak and not tgt and not ext:
             self._folders_summary_var.set(self._("folders_summary_empty"))
@@ -818,6 +819,11 @@ class IndexerApp(tk.Tk):
                     extract=extract_disp,
                 )
             )
+        self._sync_praca_path_from_summary()
+
+    def _sync_praca_path_from_summary(self) -> None:
+        if hasattr(self, "_praca_path_var") and hasattr(self, "_folders_summary_var"):
+            self._praca_path_var.set(self._folders_summary_var.get())
 
     def _extract_dir(self) -> str:
         """Resolved extract output folder (explicit extract, else database/target)."""
@@ -829,8 +835,16 @@ class IndexerApp(tk.Tk):
             return
         before = getattr(self, "_actions_frame", None)
         pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
-        if before is not None and before.winfo_exists():
-            pack_opts["before"] = before
+        # Pack above index actions when they share a parent (Indeks tab / Prosty).
+        try:
+            if (
+                before is not None
+                and before.winfo_exists()
+                and str(before.master) == str(self._folders_expanded_frame.master)
+            ):
+                pack_opts["before"] = before
+        except tk.TclError:
+            pass
         if self._folders_expanded:
             self._folders_summary_frame.pack_forget()
             self._folders_expanded_frame.pack(**pack_opts)
@@ -838,6 +852,10 @@ class IndexerApp(tk.Tk):
             self._folders_expanded_frame.pack_forget()
             self._update_folders_summary()
             self._folders_summary_frame.pack(**pack_opts)
+        self._sync_praca_path_from_summary()
+
+    def _update_praca_path_line(self) -> None:
+        self._update_folders_summary()
 
     def _maybe_auto_collapse_folders(self) -> None:
         """Collapse only when folders are already complete (startup / scan).
@@ -850,6 +868,8 @@ class IndexerApp(tk.Tk):
             self._set_folders_expanded(False)
 
     def _expand_folders(self) -> None:
+        if not self._is_simple():
+            self._goto_indeks_tab()
         self._set_folders_expanded(True)
 
     def _collapse_folders(self) -> None:
@@ -864,6 +884,8 @@ class IndexerApp(tk.Tk):
             )
             return
         self._set_folders_expanded(False)
+        if not self._is_simple():
+            self._goto_praca_tab()
 
     def _update_machines_button(self) -> None:
         if not hasattr(self, "_machines_btn_var"):
@@ -959,15 +981,53 @@ class IndexerApp(tk.Tk):
             return
         if visible:
             if not self.prog_frame.winfo_ismapped():
-                # Pack just above the find bar if possible
-                if hasattr(self, "filt_frame") and self.filt_frame.winfo_ismapped():
-                    self.prog_frame.pack(
-                        fill=tk.X, padx=8, pady=4, before=self.filt_frame
-                    )
-                else:
-                    self.prog_frame.pack(fill=tk.X, padx=8, pady=4)
+                # Prefer Index tab chrome; fall back to packing in parent.
+                after = getattr(self, "_actions_frame", None)
+                pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
+                if after is not None and after.winfo_exists():
+                    pack_opts["after"] = after
+                self.prog_frame.pack(**pack_opts)
+                # If scanning from Praca, jump to Indeks so progress is visible.
+                self._goto_indeks_tab()
         else:
             self.prog_frame.pack_forget()
+
+    def _goto_indeks_tab(self) -> None:
+        nb = getattr(self, "_main_notebook", None)
+        if nb is None:
+            return
+        try:
+            for i in range(nb.index("end")):
+                if nb.tab(i, "text") in {
+                    self._("tab_indeks"),
+                    "Indeks",
+                    "Index",
+                }:
+                    nb.select(i)
+                    break
+        except tk.TclError:
+            pass
+
+    def _goto_praca_tab(self) -> None:
+        nb = getattr(self, "_main_notebook", None)
+        if nb is None:
+            return
+        try:
+            for i in range(nb.index("end")):
+                if nb.tab(i, "text") in {
+                    self._("tab_praca"),
+                    "Praca",
+                    "Work",
+                }:
+                    nb.select(i)
+                    break
+        except tk.TclError:
+            pass
+
+    def _open_indeks_folders(self) -> None:
+        """From Praca path line: switch to Indeks and expand folder editors."""
+        self._goto_indeks_tab()
+        self._set_folders_expanded(True)
 
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 4}
@@ -979,6 +1039,9 @@ class IndexerApp(tk.Tk):
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         self._root_frame = root
+        self._main_notebook = None
+        self._praca_frame = None
+        self._indeks_frame = None
 
         # Ensure filter "all" token matches current language
         if self._is_all_token(self.source_type_var.get()):
@@ -996,8 +1059,86 @@ class IndexerApp(tk.Tk):
         if not self.preview_header_var.get():
             self.preview_header_var.set(self._("preview_idle"))
 
-        # --- Folders: collapsed summary OR expanded editors -------------------------
-        self._folders_summary_frame = ttk.Frame(root)
+        # --- Top chrome: language / mode / help (always) ---------------------------
+        top = ttk.Frame(root)
+        top.pack(fill=tk.X, **pad)
+        settings = ttk.Frame(top)
+        settings.pack(side=tk.RIGHT)
+        ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=(0, 2)
+        )
+        lang_combo = ttk.Combobox(
+            settings,
+            textvariable=self.lang_var,
+            values=["pl", "en"],
+            state="readonly",
+            width=6,
+        )
+        lang_combo.pack(side=tk.LEFT)
+        lang_combo.bind(
+            "<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get())
+        )
+        ttk.Label(settings, text=self._("ui_mode"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=(12, 2)
+        )
+        mode_combo = ttk.Combobox(
+            settings,
+            textvariable=self.ui_mode_var,
+            values=[self._("mode_simple"), self._("mode_full")],
+            state="readonly",
+            width=10,
+        )
+        mode_combo.pack(side=tk.LEFT)
+        mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
+        ttk.Button(
+            settings,
+            text=self._("menu_help"),
+            command=lambda: self._open_manual("simple" if simple else "full"),
+        ).pack(side=tk.LEFT, padx=(12, 0))
+
+        if simple:
+            work = root
+            index_host = root
+            self._build_folders_section(index_host, pad, simple=True)
+            self._build_simple_actions(index_host, pad)
+            self._build_progress_bar(index_host)
+            self._build_find_section(work, pad, simple=True)
+            self._build_results_preview(work, pad, simple=True)
+        else:
+            nb = ttk.Notebook(root)
+            nb.pack(fill=tk.BOTH, expand=True, **pad)
+            self._main_notebook = nb
+            praca = ttk.Frame(nb, padding=4)
+            indeks = ttk.Frame(nb, padding=4)
+            self._praca_frame = praca
+            self._indeks_frame = indeks
+            nb.add(praca, text=self._("tab_praca"))
+            nb.add(indeks, text=self._("tab_indeks"))
+
+            # Praca: one-line path + find + results|full-height preview
+            self._build_praca_path_line(praca, pad)
+            self._build_find_section(praca, pad, simple=False)
+            self._build_results_preview(praca, pad, simple=False)
+
+            # Indeks: folders, remap, scan/watch/schedule/tray, progress
+            self._build_folders_section(indeks, pad, simple=False)
+            self._build_full_index_actions(indeks, pad)
+            self._build_progress_bar(indeks)
+
+            # Default to Praca when folders already configured
+            if self._folders_ready():
+                self._goto_praca_tab()
+            else:
+                self._goto_indeks_tab()
+                self._set_folders_expanded(True, persist=False)
+
+        status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
+        status.pack(fill=tk.X, **pad)
+
+
+    def _build_folders_section(self, parent, pad: dict, *, simple: bool) -> None:
+        """Folder summary + expanded editors (Prosty root or Pełny Indeks tab)."""
+        self._folders_summary_frame = ttk.Frame(parent)
         self._update_folders_summary()
         ttk.Label(
             self._folders_summary_frame,
@@ -1011,7 +1152,7 @@ class IndexerApp(tk.Tk):
         ).pack(side=tk.RIGHT)
 
         self._folders_expanded_frame = ttk.LabelFrame(
-            root,
+            parent,
             text=(
                 self._("folders_step_simple") if simple else self._("folders")
             ),
@@ -1144,182 +1285,156 @@ class IndexerApp(tk.Tk):
         else:
             self._folders_summary_frame.pack(fill=tk.X, **pad)
 
-        # --- Actions ---------------------------------------------------------------
-        # Full mode uses two thin rows so buttons/checkboxes fit a laptop width
-        # without horizontal clipping (A+C: keep chrome compact, results dominant).
-        actions = ttk.Frame(root)
+
+    def _build_simple_actions(self, parent, pad: dict) -> None:
+        """Prosty: Open DB + clear filters."""
+        actions = ttk.Frame(parent)
+        self._actions_frame = actions
+        actions.pack(fill=tk.X, **pad)
+        row1 = ttk.Frame(actions)
+        row1.pack(fill=tk.X)
+        self.scan_btn = None
+        self.open_db_btn = self._make_primary_button(
+            row1, self._("open_db"), self._pick_existing_db
+        )
+        self.open_db_btn.pack(side=tk.LEFT)
+        ttk.Button(
+            row1, text=self._("clear_filters"), command=self._clear_filters
+        ).pack(side=tk.LEFT, padx=8)
+
+
+    def _build_full_index_actions(self, parent, pad: dict) -> None:
+        """Pełny Indeks tab: scan, map, schedule, watch, tray, report tools."""
+        actions = ttk.Frame(parent)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
 
         row1 = ttk.Frame(actions)
         row1.pack(fill=tk.X)
-        settings = ttk.Frame(row1)
-        settings.pack(side=tk.RIGHT)
-        ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
+        # Row 1 — primary: index + folder tools (always visible)
+        self.scan_btn = self._make_primary_button(
+            row1, self._("run_scan"), self._start_scan
+        )
+        self.scan_btn.pack(side=tk.LEFT)
+        ttk.Button(
+            row1, text=self._("map_folders"), command=self._open_folder_map
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Button(
+            row1, text=self._("aliases"), command=self._open_alias_editor
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            row1, text=self._("open_db"), command=self._pick_existing_db
+        ).pack(side=tk.LEFT, padx=8)
+
+        # Row 2 — secondary tools + scan options (incl. watch) + schedule
+        row2 = ttk.Frame(actions)
+        row2.pack(fill=tk.X, pady=(4, 0))
+        sched = ttk.Frame(row2)
+        sched.pack(side=tk.RIGHT)
+        ttk.Label(sched, text=self._("schedule"), style="Muted.TLabel").pack(
             side=tk.LEFT, padx=(0, 2)
         )
-        lang_combo = ttk.Combobox(
-            settings,
-            textvariable=self.lang_var,
-            values=["pl", "en"],
-            state="readonly",
-            width=6,
+        self._sync_schedule_widgets()
+        amount_entry = ttk.Entry(
+            sched, textvariable=self.schedule_amount_var, width=5
         )
-        lang_combo.pack(side=tk.LEFT)
-        lang_combo.bind(
-            "<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get())
-        )
-        ttk.Label(settings, text=self._("ui_mode"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=(12, 2)
-        )
-        mode_combo = ttk.Combobox(
-            settings,
-            textvariable=self.ui_mode_var,
-            values=[self._("mode_simple"), self._("mode_full")],
+        amount_entry.pack(side=tk.LEFT)
+        amount_entry.bind("<FocusOut>", self._on_schedule_widgets_changed)
+        amount_entry.bind("<Return>", self._on_schedule_widgets_changed)
+        unit_combo = ttk.Combobox(
+            sched,
+            textvariable=self.schedule_unit_var,
+            values=self._schedule_unit_labels(),
             state="readonly",
             width=10,
         )
-        mode_combo.pack(side=tk.LEFT)
-        mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
+        unit_combo.pack(side=tk.LEFT, padx=(4, 0))
+        unit_combo.bind("<<ComboboxSelected>>", self._on_schedule_widgets_changed)
+        ttk.Label(
+            sched, textvariable=self.schedule_status_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        self._update_schedule_status()
+
         ttk.Button(
-            settings,
-            text=self._("menu_help"),
-            command=lambda: self._open_manual("simple" if simple else "full"),
+            row2, text=self._("scan_report"), command=self._open_scan_report
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            row2, text=self._("duplicates"), command=self._open_duplicates
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            row2, text=self._("clear_filters"), command=self._clear_filters
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Checkbutton(
+            row2, text=self._("also_excel"), variable=self.excel_var
         ).pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Checkbutton(
+            row2, text=self._("incremental"), variable=self.incremental_var
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Checkbutton(
+            row2,
+            text=self._("watch_folders"),
+            variable=self.watch_var,
+            command=self._on_watch_toggled,
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Label(
+            row2, textvariable=self.watch_status_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=(4, 0))
+        self._update_watch_status()
 
-        if simple:
-            # Retrieve-only: Open DB is the primary CTA; no scan / index.
-            self.scan_btn = None
-            self.open_db_btn = self._make_primary_button(
-                row1, self._("open_db"), self._pick_existing_db
-            )
-            self.open_db_btn.pack(side=tk.LEFT)
-            ttk.Button(
-                row1, text=self._("clear_filters"), command=self._clear_filters
-            ).pack(side=tk.LEFT, padx=8)
-        else:
-            # Row 1 — primary: index + folder tools (always visible)
-            self.scan_btn = self._make_primary_button(
-                row1, self._("run_scan"), self._start_scan
-            )
-            self.scan_btn.pack(side=tk.LEFT)
-            ttk.Button(
-                row1, text=self._("map_folders"), command=self._open_folder_map
-            ).pack(side=tk.LEFT, padx=8)
-            ttk.Button(
-                row1, text=self._("aliases"), command=self._open_alias_editor
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Button(
-                row1, text=self._("open_db"), command=self._pick_existing_db
-            ).pack(side=tk.LEFT, padx=8)
-
-            # Row 2 — secondary tools + scan options (incl. watch) + schedule
-            row2 = ttk.Frame(actions)
-            row2.pack(fill=tk.X, pady=(4, 0))
-            sched = ttk.Frame(row2)
-            sched.pack(side=tk.RIGHT)
-            ttk.Label(sched, text=self._("schedule"), style="Muted.TLabel").pack(
-                side=tk.LEFT, padx=(0, 2)
-            )
-            self._sync_schedule_widgets()
-            amount_entry = ttk.Entry(
-                sched, textvariable=self.schedule_amount_var, width=5
-            )
-            amount_entry.pack(side=tk.LEFT)
-            amount_entry.bind("<FocusOut>", self._on_schedule_widgets_changed)
-            amount_entry.bind("<Return>", self._on_schedule_widgets_changed)
-            unit_combo = ttk.Combobox(
-                sched,
-                textvariable=self.schedule_unit_var,
-                values=self._schedule_unit_labels(),
-                state="readonly",
-                width=10,
-            )
-            unit_combo.pack(side=tk.LEFT, padx=(4, 0))
-            unit_combo.bind("<<ComboboxSelected>>", self._on_schedule_widgets_changed)
-            ttk.Label(
-                sched, textvariable=self.schedule_status_var, style="Muted.TLabel"
-            ).pack(side=tk.LEFT, padx=(8, 0))
-            self._update_schedule_status()
-
-            ttk.Button(
-                row2, text=self._("scan_report"), command=self._open_scan_report
+        # Row 3 — autostart / tray prefs (Pełny only, Windows-oriented)
+        row3 = ttk.Frame(actions)
+        row3.pack(fill=tk.X, pady=(4, 0))
+        if tray_available():
+            ttk.Checkbutton(
+                row3,
+                text=self._("close_to_tray"),
+                variable=self.close_to_tray_var,
+                command=self._on_desktop_pref_changed,
             ).pack(side=tk.LEFT)
-            ttk.Button(
-                row2, text=self._("duplicates"), command=self._open_duplicates
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Button(
-                row2, text=self._("clear_filters"), command=self._clear_filters
-            ).pack(side=tk.LEFT, padx=4)
             ttk.Checkbutton(
-                row2, text=self._("also_excel"), variable=self.excel_var
+                row3,
+                text=self._("minimize_to_tray"),
+                variable=self.minimize_to_tray_var,
+                command=self._on_desktop_pref_changed,
+            ).pack(side=tk.LEFT, padx=(8, 0))
+        if autostart_is_windows():
+            ttk.Checkbutton(
+                row3,
+                text=self._("autostart"),
+                variable=self.autostart_var,
+                command=self._on_autostart_toggled,
             ).pack(side=tk.LEFT, padx=(12, 0))
-            ttk.Checkbutton(
-                row2, text=self._("incremental"), variable=self.incremental_var
-            ).pack(side=tk.LEFT, padx=8)
-            ttk.Checkbutton(
-                row2,
-                text=self._("watch_folders"),
-                variable=self.watch_var,
-                command=self._on_watch_toggled,
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Label(
-                row2, textvariable=self.watch_status_var, style="Muted.TLabel"
-            ).pack(side=tk.LEFT, padx=(4, 0))
-            self._update_watch_status()
-
-            # Row 3 — autostart / tray prefs (Pełny only, Windows-oriented)
-            row3 = ttk.Frame(actions)
-            row3.pack(fill=tk.X, pady=(4, 0))
-            if tray_available():
-                ttk.Checkbutton(
-                    row3,
-                    text=self._("close_to_tray"),
-                    variable=self.close_to_tray_var,
-                    command=self._on_desktop_pref_changed,
-                ).pack(side=tk.LEFT)
-                ttk.Checkbutton(
-                    row3,
-                    text=self._("minimize_to_tray"),
-                    variable=self.minimize_to_tray_var,
-                    command=self._on_desktop_pref_changed,
-                ).pack(side=tk.LEFT, padx=(8, 0))
-            if autostart_is_windows():
-                ttk.Checkbutton(
-                    row3,
-                    text=self._("autostart"),
-                    variable=self.autostart_var,
-                    command=self._on_autostart_toggled,
-                ).pack(side=tk.LEFT, padx=(12, 0))
-                self.autostart_via_var.set(
-                    self._autostart_via_label(self._autostart_via_code())
-                )
-                via = ttk.Combobox(
-                    row3,
-                    textvariable=self.autostart_via_var,
-                    values=[
-                        self._("autostart_via_startup"),
-                        self._("autostart_via_task"),
-                    ],
-                    state="readonly",
-                    width=18,
-                )
-                via.pack(side=tk.LEFT, padx=(4, 0))
-                via.bind("<<ComboboxSelected>>", self._on_autostart_via_selected)
-
-            # Compact watch health strip
-            strip = ttk.Frame(actions)
-            strip.pack(fill=tk.X, pady=(2, 0))
-            ttk.Label(strip, text=self._("watch_strip") + ":", style="Muted.TLabel").pack(
-                side=tk.LEFT
+            self.autostart_via_var.set(
+                self._autostart_via_label(self._autostart_via_code())
             )
-            ttk.Label(
-                strip, textvariable=self.watch_strip_var, style="Muted.TLabel"
-            ).pack(side=tk.LEFT, padx=(4, 0))
-            self._refresh_watch_strip()
+            via = ttk.Combobox(
+                row3,
+                textvariable=self.autostart_via_var,
+                values=[
+                    self._("autostart_via_startup"),
+                    self._("autostart_via_task"),
+                ],
+                state="readonly",
+                width=18,
+            )
+            via.pack(side=tk.LEFT, padx=(4, 0))
+            via.bind("<<ComboboxSelected>>", self._on_autostart_via_selected)
 
-        # Progress — hidden until a scan runs
-        self.prog_frame = ttk.Frame(root)
+        # Compact watch health strip
+        strip = ttk.Frame(actions)
+        strip.pack(fill=tk.X, pady=(2, 0))
+        ttk.Label(strip, text=self._("watch_strip") + ":", style="Muted.TLabel").pack(
+            side=tk.LEFT
+        )
+        ttk.Label(
+            strip, textvariable=self.watch_strip_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=(4, 0))
+        self._refresh_watch_strip()
+
+
+    def _build_progress_bar(self, parent) -> None:
+        """Progress bar host (packed only while scanning)."""
+        self.prog_frame = ttk.Frame(parent)
         self.progress = ttk.Progressbar(
             self.prog_frame,
             mode="determinate",
@@ -1331,10 +1446,28 @@ class IndexerApp(tk.Tk):
             self.prog_frame, textvariable=self.progress_label_var, width=42
         ).pack(side=tk.LEFT, padx=(8, 0))
 
-        # --- Compact find bar ------------------------------------------------------
+
+    def _build_praca_path_line(self, parent, pad: dict) -> None:
+        """One-line path summary on Praca (no fat folder/remap chrome)."""
+        self._praca_path_var = tk.StringVar(value="")
+        line = ttk.Frame(parent)
+        line.pack(fill=tk.X, **pad)
+        ttk.Label(
+            line, textvariable=self._praca_path_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(
+            line,
+            text=self._("goto_indeks"),
+            command=self._open_indeks_folders,
+        ).pack(side=tk.RIGHT)
+        self._update_folders_summary()
+
+
+    def _build_find_section(self, parent, pad: dict, *, simple: bool) -> None:
+        """Search / filter bar with primary Wydobądź CTA."""
         find_title = self._("find_programs_step") if simple else self._("find_programs")
         self.filt_frame = ttk.LabelFrame(
-            root, text=find_title, padding=8, style="Primary.TLabelframe"
+            parent, text=find_title, padding=8, style="Primary.TLabelframe"
         )
         self.filt_frame.pack(fill=tk.X, **pad)
         filt = self.filt_frame
@@ -1378,6 +1511,9 @@ class IndexerApp(tk.Tk):
         ).pack(side=tk.LEFT)
         ttk.Button(
             row2, text=self._("copy_path"), command=self._copy_selected_path
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            row2, text=self._("clear_filters"), command=self._clear_filters
         ).pack(side=tk.LEFT, padx=4)
         if not simple:
             ttk.Button(
@@ -1514,7 +1650,9 @@ class IndexerApp(tk.Tk):
                 if hasattr(self, attr):
                     delattr(self, attr)
 
-        # --- Results: table | preview side-by-side (C) -----------------------------
+
+    def _build_results_preview(self, parent, pad: dict, *, simple: bool) -> None:
+        """Results table with full-height preview dock on the right."""
         cols = (
             "flag",
             "src",
@@ -1529,8 +1667,9 @@ class IndexerApp(tk.Tk):
             "path",
             "location",
         )
-        results_pane = ttk.Panedwindow(root, orient=tk.HORIZONTAL)
+        results_pane = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
         results_pane.pack(fill=tk.BOTH, expand=True, **pad)
+        self._results_pane = results_pane
 
         tree_frame = ttk.Frame(results_pane)
         results_pane.add(tree_frame, weight=3)
@@ -1593,7 +1732,7 @@ class IndexerApp(tk.Tk):
         self.preview_text = tk.Text(
             prev_inner,
             wrap=tk.NONE,
-            height=10,
+            height=1,
             font=("Consolas", 10),
             state=tk.DISABLED,
         )
@@ -1627,8 +1766,6 @@ class IndexerApp(tk.Tk):
             label=self._("ctx_copy"), command=self._copy_selected_path
         )
 
-        status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
-        status.pack(fill=tk.X, **pad)
 
     def _build_menubar(self) -> None:
         menubar = tk.Menu(self)

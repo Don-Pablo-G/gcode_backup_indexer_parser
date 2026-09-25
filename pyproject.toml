@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gcode-index"
-version = "0.2.47"
+version = "0.2.48"
 description = "Index CNC backup trees into a portable SQLite catalog of program instances"
 readme = "README.md"
 requires-python = ">=3.11"

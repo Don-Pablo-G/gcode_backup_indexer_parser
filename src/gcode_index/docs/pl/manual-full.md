@@ -18,6 +18,13 @@ Tryb Pełny pozwala:
 - Korzystać z filtrów zaawansowanych, presetów, porównania, raportu skanu, duplikatów
 - Opcjonalnie zapisać Excel po skanie
 
+Interfejs Pełny ma dwie zakładki:
+
+| Zakładka | Zawartość |
+|----------|-----------|
+| **Praca** | Szukanie / filtry / **tabela wyników** \| **podgląd na całą wysokość po prawej** — jak Prosty, bez tłustych pasków folderów. Jedna linia ścieżek + przycisk do Indeksu. Główny przycisk: **Wydobądź**. |
+| **Indeks** | Foldery kopii/bazy/wydobycia, zieleń/żółć, mapowanie ścieżek, **Indeksuj**, Mapuj, Maszyny i aliasy, przyrostowo, obserwacja, harmonogram, autostart/zasobnik, pasek obserwacji, raport/duplikaty/Excel |
+
 ---
 
 

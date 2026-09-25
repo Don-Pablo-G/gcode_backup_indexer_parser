@@ -32,7 +32,7 @@ Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder 
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
 5. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 
-Wyniki są w tabeli. **Podgląd** po prawej pokazuje treść zaznaczonego programu.
+Wyniki są w tabeli. **Podgląd** jest na stałe **po prawej** (pełna wysokość, rozciągany) — nie pod tabelą.
 
 ---
 

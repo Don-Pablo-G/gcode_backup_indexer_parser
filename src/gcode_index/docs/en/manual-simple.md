@@ -32,7 +32,7 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
 5. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 
-Results appear in the table. The **Preview** pane on the right shows the selected program body.
+Results appear in the table. **Preview** stays docked on the **right** (full height, resizable) — not under the table.
 
 ---
 

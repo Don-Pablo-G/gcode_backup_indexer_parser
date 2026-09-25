@@ -18,6 +18,13 @@ Full mode can:
 - Use advanced filters, presets, compare, scan report, duplicates
 - Optionally write Excel after a scan
 
+Full mode uses two tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Work** | Search / filters / **results table** \| **full-height preview on the right** — Prosty-like density, no fat folder strips. One-line path summary + button to Index. Primary CTA: **Extract**. |
+| **Index** | Backup/DB/extract folders, green/yellow extras, path remap, **Index/scan**, Map, Machines & aliases, incremental, watch, schedule, autostart/tray, watch status strip, report/duplicates/Excel |
+
 ---
 
 
