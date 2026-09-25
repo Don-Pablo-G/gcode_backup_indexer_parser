@@ -43,3 +43,9 @@ geometry = 1320x820
 
 [notes]
 text = Shop floor PC — edit paths above if drives change
+
+[security]
+; Hashed PIN for Full / Pełny (written by the GUI — do not put plaintext here)
+; full_pin_hash = pbkdf2_sha256$...
+full_pin_hash =
+

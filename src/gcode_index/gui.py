@@ -120,6 +120,12 @@ from gcode_index.scan_report import (
 )
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
 from gcode_index.folder_watch import FolderWatcher
+from gcode_index.full_pin import (
+    hash_pin,
+    pin_is_set,
+    validate_pin,
+    verify_pin,
+)
 from gcode_index.indexer_lock import (
     release_lock,
     try_acquire_lock,
@@ -221,9 +227,14 @@ class IndexerApp(tk.Tk):
         self._machines_btn_var = tk.StringVar(value="")
         self._instance_ini_path = default_instance_ini_path()
         self._ini_notes = ""
+        self._full_pin_hash = ""
 
         self._apply_instance_ini(load_instance_ini(self._instance_ini_path))
         self._configure_styles()
+        # Full / Pełny requires PIN before first paint of Full controls.
+        if self._ui_mode == "full" and not self._unlock_full_mode(reason="launch"):
+            self._ui_mode = "simple"
+            self._watch_enabled = False
         self._build()
         # Seed machine list from aliases before any scan
         self._refresh_filter_choices()
@@ -280,6 +291,7 @@ class IndexerApp(tk.Tk):
         self._watch_enabled = bool(cfg.watch_folders) and not self._is_simple()
         self._hidden_root_specs = list(cfg.root_specs())
         self._ini_notes = cfg.notes or ""
+        self._full_pin_hash = (cfg.full_pin_hash or "").strip()
         if cfg.geometry:
             try:
                 self.geometry(cfg.geometry)
@@ -323,6 +335,7 @@ class IndexerApp(tk.Tk):
             newest_only=bool(self.newest_only_var.get()),
             geometry=geom,
             notes=self._ini_notes,
+            full_pin_hash=self._full_pin_hash or "",
         )
 
     def _save_instance_ini(self) -> None:
@@ -492,6 +505,11 @@ class IndexerApp(tk.Tk):
         code = normalize_ui_mode(mode)
         if code == self._ui_mode and self._root_frame is not None:
             return
+        if code == "full" and self._ui_mode != "full":
+            if not self._unlock_full_mode(reason="switch"):
+                # Stay in Prosty — reset combobox label.
+                self.ui_mode_var.set(self._mode_label(self._ui_mode))
+                return
         preserved = self._snapshot_ui()
         self._ui_mode = code
         self.ui_mode_var.set(self._mode_label(code))
@@ -501,9 +519,212 @@ class IndexerApp(tk.Tk):
         # Prosty is retrieve-only — never run scheduled scans while in that mode.
         self._arm_schedule_timer()
         self._sync_folder_watch()
+        if persist:
+            self._save_instance_ini()
 
     def _on_ui_mode_selected(self, *_args) -> None:
         self._set_ui_mode(self._mode_from_label(self.ui_mode_var.get()))
+
+    def _unlock_full_mode(self, *, reason: str) -> bool:
+        """Require / create PIN before entering Full. False → stay in Simple."""
+        del reason  # reserved for future messaging nuance
+        if not pin_is_set(self._full_pin_hash):
+            created = self._prompt_create_full_pin(first_time=True)
+            if not created:
+                messagebox.showinfo(
+                    self._("pin_title"),
+                    self._("pin_cancelled"),
+                    parent=self,
+                )
+            return created
+        return self._prompt_verify_full_pin()
+
+    def _prompt_verify_full_pin(self) -> bool:
+        while True:
+            pin = self._ask_pin_dialog(
+                title=self._("pin_title"),
+                prompt=self._("pin_prompt"),
+                fields=[("enter", self._("pin_enter"))],
+            )
+            if pin is None:
+                messagebox.showinfo(
+                    self._("pin_title"),
+                    self._("pin_cancelled"),
+                    parent=self,
+                )
+                return False
+            value = pin.get("enter", "")
+            if verify_pin(value, self._full_pin_hash):
+                return True
+            messagebox.showerror(
+                self._("pin_title"),
+                self._("pin_wrong"),
+                parent=self,
+            )
+
+    def _prompt_create_full_pin(self, *, first_time: bool = False) -> bool:
+        title = self._("pin_create_title")
+        prompt = self._("pin_create_prompt") if first_time else ""
+        while True:
+            result = self._ask_pin_dialog(
+                title=title,
+                prompt=prompt,
+                fields=[
+                    ("new", self._("pin_new")),
+                    ("confirm", self._("pin_confirm")),
+                ],
+            )
+            if result is None:
+                return False
+            new_pin = result.get("new", "")
+            confirm = result.get("confirm", "")
+            if validate_pin(new_pin) is None:
+                messagebox.showerror(
+                    title, self._("pin_too_short"), parent=self
+                )
+                continue
+            if new_pin != confirm:
+                messagebox.showerror(
+                    title, self._("pin_mismatch"), parent=self
+                )
+                continue
+            try:
+                self._full_pin_hash = hash_pin(new_pin)
+            except ValueError:
+                messagebox.showerror(
+                    title, self._("pin_too_short"), parent=self
+                )
+                continue
+            self._save_instance_ini()
+            messagebox.showinfo(
+                title, self._("pin_created"), parent=self
+            )
+            return True
+
+    def _change_full_pin(self) -> None:
+        """Pełny-only: verify current PIN, then set a new one."""
+        if self._is_simple():
+            return
+        if not pin_is_set(self._full_pin_hash):
+            self._prompt_create_full_pin(first_time=True)
+            return
+        while True:
+            result = self._ask_pin_dialog(
+                title=self._("pin_change_title"),
+                prompt="",
+                fields=[
+                    ("current", self._("pin_current")),
+                    ("new", self._("pin_new")),
+                    ("confirm", self._("pin_confirm")),
+                ],
+            )
+            if result is None:
+                return
+            current = result.get("current", "")
+            new_pin = result.get("new", "")
+            confirm = result.get("confirm", "")
+            if not verify_pin(current, self._full_pin_hash):
+                messagebox.showerror(
+                    self._("pin_change_title"),
+                    self._("pin_wrong"),
+                    parent=self,
+                )
+                continue
+            if validate_pin(new_pin) is None:
+                messagebox.showerror(
+                    self._("pin_change_title"),
+                    self._("pin_too_short"),
+                    parent=self,
+                )
+                continue
+            if new_pin != confirm:
+                messagebox.showerror(
+                    self._("pin_change_title"),
+                    self._("pin_mismatch"),
+                    parent=self,
+                )
+                continue
+            try:
+                self._full_pin_hash = hash_pin(new_pin)
+            except ValueError:
+                messagebox.showerror(
+                    self._("pin_change_title"),
+                    self._("pin_too_short"),
+                    parent=self,
+                )
+                continue
+            self._save_instance_ini()
+            messagebox.showinfo(
+                self._("pin_change_title"),
+                self._("pin_changed"),
+                parent=self,
+            )
+            return
+
+    def _ask_pin_dialog(
+        self,
+        *,
+        title: str,
+        prompt: str,
+        fields: list[tuple[str, str]],
+    ) -> Optional[dict[str, str]]:
+        """Modal digit PIN form. Returns field map or ``None`` on cancel."""
+        dlg = tk.Toplevel(self)
+        dlg.title(title)
+        dlg.transient(self)
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        body = ttk.Frame(dlg, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        if prompt:
+            ttk.Label(body, text=prompt, wraplength=320).pack(
+                anchor=tk.W, pady=(0, 8)
+            )
+        vars_by_key: dict[str, tk.StringVar] = {}
+        first_entry: Optional[ttk.Entry] = None
+        for key, label in fields:
+            row = ttk.Frame(body)
+            row.pack(fill=tk.X, pady=2)
+            ttk.Label(row, text=label, width=16).pack(side=tk.LEFT)
+            var = tk.StringVar()
+            vars_by_key[key] = var
+            entry = ttk.Entry(row, textvariable=var, show="*", width=18)
+            entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            if first_entry is None:
+                first_entry = entry
+
+        result: dict[str, Optional[dict[str, str]]] = {"value": None}
+
+        def _submit() -> None:
+            result["value"] = {k: v.get() for k, v in vars_by_key.items()}
+            dlg.destroy()
+
+        def _cancel() -> None:
+            result["value"] = None
+            dlg.destroy()
+
+        btns = ttk.Frame(body)
+        btns.pack(fill=tk.X, pady=(12, 0))
+        ttk.Button(btns, text=self._("cancel"), command=_cancel).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(btns, text=self._("ok"), command=_submit).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+        dlg.bind("<Return>", lambda _e: _submit())
+        dlg.bind("<Escape>", lambda _e: _cancel())
+        dlg.protocol("WM_DELETE_WINDOW", _cancel)
+        try:
+            dlg.update_idletasks()
+            x = self.winfo_rootx() + max(40, (self.winfo_width() - 360) // 2)
+            y = self.winfo_rooty() + max(40, (self.winfo_height() - 200) // 2)
+            dlg.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+        if first_entry is not None:
+            first_entry.focus_set()
+        self.wait_window(dlg)
+        return result["value"]
 
     def _rebuild(self, preserved: Optional[dict] = None) -> None:
         if self._root_frame is not None:
@@ -982,6 +1203,12 @@ class IndexerApp(tk.Tk):
         )
         mode_combo.pack(side=tk.LEFT)
         mode_combo.bind("<<ComboboxSelected>>", self._on_ui_mode_selected)
+        if not simple:
+            ttk.Button(
+                settings,
+                text=self._("change_pin"),
+                command=self._change_full_pin,
+            ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(
             settings,
             text=self._("menu_help"),
@@ -1476,10 +1703,15 @@ class IndexerApp(tk.Tk):
                 preserved["folders_expanded"] = True
                 preserved["schedule"] = self._schedule
                 self._lang = lang
+                # Full mode from a DB's ui_settings still requires this PC's PIN.
+                if mode == "full" and self._ui_mode != "full":
+                    if not self._unlock_full_mode(reason="open_db"):
+                        mode = "simple"
                 self._ui_mode = mode
                 self.lang_var.set(lang)
                 self.ui_mode_var.set(self._mode_label(mode))
                 self._rebuild(preserved)
+                self._save_instance_ini()
             else:
                 self._persist_ui_settings(path)
                 self._sync_folder_watch()

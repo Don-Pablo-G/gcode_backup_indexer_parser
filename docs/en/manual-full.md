@@ -20,6 +20,16 @@ Full mode can:
 
 ---
 
+
+## Full mode PIN
+
+Switching **Mode → Full** (and launching already in Full) requires a **PIN** (4–12 digits). The hash is stored in `gcode-index.ini` under `[security]` — never plaintext.
+
+- First unlock: you **must create** a PIN (no factory default like 0000).
+- Wrong PIN: stay in **Simple**.
+- In Full: **Change PIN…** next to the mode selector.
+- Simple (search / extract) is **not** PIN-gated.
+
 ## Folders
 
 | Folder | Purpose |

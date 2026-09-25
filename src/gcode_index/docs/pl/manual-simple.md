@@ -61,6 +61,9 @@ Te wartości powstają przy budowie bazy (tryb Pełny). Prosty tylko je odczytuj
 
 ## Przejście do trybu Pełny
 
+Przejście do trybu **Pełny** wymaga PIN-u (4–12 cyfr) ustawionego na tym komputerze.
+
+
 **Tryb → Pełny**, gdy trzeba **indeksować / skanować**, mapować foldery, edytować aliasy albo włączyć auto-indeks.  
 Zobacz **Instrukcję indeksatora (Pełny)** w menu Pomoc.
 

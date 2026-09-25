@@ -61,6 +61,9 @@ These were assigned when the database was built (Full mode). Simple mode only re
 
 ## Switching to Full mode
 
+Switching to **Full** requires a PIN (4–12 digits) set on this PC.
+
+
 Use **Tryb / Mode → Pełny / Full** when you need to **index / scan**, map folders, edit aliases, or change auto-index.  
 See the **Indexer (Full mode) manual** from the Help menu.
 

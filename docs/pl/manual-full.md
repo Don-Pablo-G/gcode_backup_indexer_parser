@@ -20,6 +20,16 @@ Tryb Pełny pozwala:
 
 ---
 
+
+## PIN trybu Pełnego
+
+Przejście **Tryb → Pełny** (oraz start z zapisanym trybem Pełnym) wymaga **PIN-u** (4–12 cyfr). Hash PIN-u jest w `gcode-index.ini` sekcja `[security]` — nie zapisujemy PIN-u jawnym tekstem.
+
+- Pierwsze wejście: aplikacja **wymaga utworzenia** PIN-u (brak domyślnego typu 0000).
+- Błędny PIN: pozostajesz w **Prosty**.
+- W Pełnym: **Zmień PIN…** obok wyboru trybu.
+- Prosty (wyszukiwanie / wydobycie) **nie** jest chroniony PIN-em.
+
 ## Foldery
 
 | Folder | Znaczenie |
