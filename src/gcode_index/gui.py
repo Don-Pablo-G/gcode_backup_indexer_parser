@@ -165,11 +165,17 @@ class IndexerApp(tk.Tk):
         self._lang = DEFAULT_LANG
         self._ui_mode = DEFAULT_UI_MODE
         self._hidden_extras: list[str] = []
+        self._machine_sel: set[str] = set()
+        self._folders_expanded = True
+        self._more_filters_open = False
+        self._folders_summary_var = tk.StringVar(value="")
+        self._machines_btn_var = tk.StringVar(value="")
 
         self._configure_styles()
         self._build()
         # Seed machine list from aliases before any scan
         self._refresh_filter_choices()
+        self._maybe_auto_collapse_folders()
         self.search_var.trace_add("write", self._on_filter_changed)
         for var in (
             self.date_from_var,
@@ -281,8 +287,10 @@ class IndexerApp(tk.Tk):
             "newest": bool(self.newest_only_var.get()),
             "incremental": bool(self.incremental_var.get()),
             "excel": bool(self.excel_var.get()),
-            "machines": self._selected_machines() if hasattr(self, "machine_list") else [],
+            "machines": self._selected_machines(),
             "extras": self._extra_roots_from_list(),
+            "folders_expanded": bool(self._folders_expanded),
+            "more_filters": bool(self._more_filters_open),
         }
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
@@ -364,18 +372,190 @@ class IndexerApp(tk.Tk):
                 for root in extras:
                     self.extra_list.insert(tk.END, root)
         self._refresh_filter_choices()
-        if preserved and preserved.get("machines") and hasattr(self, "machine_list"):
-            wanted = set(preserved["machines"])
-            for i, name in enumerate(self._machine_names):
-                if name in wanted:
-                    self.machine_list.selection_set(i)
+        if preserved and preserved.get("machines"):
+            self._machine_sel = {
+                m for m in preserved["machines"] if m in set(self._machine_names)
+            }
+            self._update_machines_button()
+        if preserved is not None:
+            if "folders_expanded" in preserved:
+                self._set_folders_expanded(bool(preserved["folders_expanded"]), persist=False)
+            else:
+                self._maybe_auto_collapse_folders()
+            if "more_filters" in preserved:
+                self._more_filters_open = bool(preserved["more_filters"])
+                self._apply_more_filters_visibility()
         self._run_query_now()
+
+    def _short_path(self, path: str, *, maxlen: int = 42) -> str:
+        raw = (path or "").strip()
+        if not raw:
+            return self._("path_unset")
+        if len(raw) <= maxlen:
+            return raw
+        return "…" + raw[-(maxlen - 1) :]
+
+    def _folders_ready(self) -> bool:
+        return bool(self.backup_var.get().strip() and self.target_var.get().strip())
+
+    def _update_folders_summary(self) -> None:
+        if not hasattr(self, "_folders_summary_var"):
+            return
+        bak = self.backup_var.get().strip()
+        tgt = self.target_var.get().strip()
+        if not bak and not tgt:
+            self._folders_summary_var.set(self._("folders_summary_empty"))
+        else:
+            self._folders_summary_var.set(
+                self._(
+                    "folders_summary",
+                    backup=self._short_path(bak),
+                    target=self._short_path(tgt),
+                )
+            )
+
+    def _set_folders_expanded(self, expanded: bool, *, persist: bool = True) -> None:
+        self._folders_expanded = bool(expanded)
+        if not hasattr(self, "_folders_expanded_frame"):
+            return
+        before = getattr(self, "_actions_frame", None)
+        pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
+        if before is not None and before.winfo_exists():
+            pack_opts["before"] = before
+        if self._folders_expanded:
+            self._folders_summary_frame.pack_forget()
+            self._folders_expanded_frame.pack(**pack_opts)
+        else:
+            self._folders_expanded_frame.pack_forget()
+            self._update_folders_summary()
+            self._folders_summary_frame.pack(**pack_opts)
+
+    def _maybe_auto_collapse_folders(self) -> None:
+        if self._folders_ready() and self._folders_expanded:
+            self._set_folders_expanded(False)
+
+    def _expand_folders(self) -> None:
+        self._set_folders_expanded(True)
+
+    def _collapse_folders(self) -> None:
+        if not self._folders_ready():
+            messagebox.showinfo(
+                self._("folders"),
+                self._("folders_summary_empty"),
+            )
+            return
+        self._set_folders_expanded(False)
+
+    def _update_machines_button(self) -> None:
+        if not hasattr(self, "_machines_btn_var"):
+            return
+        selected = self._selected_machines()
+        if not selected:
+            self._machines_btn_var.set(self._("machines_all"))
+        else:
+            self._machines_btn_var.set(self._("machines_n", n=len(selected)))
+
+    def _open_machine_picker(self) -> None:
+        dlg = tk.Toplevel(self)
+        dlg.title(self._("machines_pick"))
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.geometry("420x360")
+        frame = ttk.Frame(dlg, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=self._("machines"), style="Key.TLabel").pack(anchor=tk.W)
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(6, 8))
+        lb = tk.Listbox(list_frame, selectmode=tk.EXTENDED, exportselection=False)
+        sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=lb.yview)
+        lb.configure(yscrollcommand=sb.set)
+        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        for name in self._machine_names:
+            lb.insert(tk.END, name)
+        current = set(self._selected_machines())
+        if not current:
+            # empty selection means "all" in the query — show all highlighted
+            lb.selection_set(0, tk.END)
+        else:
+            for i, name in enumerate(self._machine_names):
+                if name in current:
+                    lb.selection_set(i)
+        btns = ttk.Frame(frame)
+        btns.pack(fill=tk.X)
+        ttk.Button(
+            btns,
+            text=self._("all"),
+            command=lambda: lb.selection_set(0, tk.END),
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            btns,
+            text=self._("none"),
+            command=lambda: lb.selection_clear(0, tk.END),
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Label(btns, text=self._("multi_hint"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=8
+        )
+
+        def _apply() -> None:
+            sel = lb.curselection()
+            names = [lb.get(i) for i in sel]
+            if not names or (
+                self._machine_names and len(names) == len(self._machine_names)
+            ):
+                self._machine_sel = set()
+            else:
+                self._machine_sel = set(names)
+            self._update_machines_button()
+            self._on_filter_changed()
+            dlg.destroy()
+
+        bottom = ttk.Frame(frame)
+        bottom.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(bottom, text=self._("ok"), command=_apply).pack(side=tk.RIGHT)
+        ttk.Button(bottom, text=self._("cancel"), command=dlg.destroy).pack(
+            side=tk.RIGHT, padx=6
+        )
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+        dlg.wait_window()
+
+    def _toggle_more_filters(self) -> None:
+        self._more_filters_open = not self._more_filters_open
+        self._apply_more_filters_visibility()
+
+    def _apply_more_filters_visibility(self) -> None:
+        if not hasattr(self, "_more_filters_frame"):
+            return
+        if self._more_filters_open:
+            self._more_filters_frame.pack(fill=tk.X, pady=(6, 0))
+            if hasattr(self, "_more_filters_btn"):
+                self._more_filters_btn.configure(text=self._("fewer_filters"))
+        else:
+            self._more_filters_frame.pack_forget()
+            if hasattr(self, "_more_filters_btn"):
+                self._more_filters_btn.configure(text=self._("more_filters"))
+
+    def _show_progress(self, visible: bool) -> None:
+        if not hasattr(self, "prog_frame"):
+            return
+        if visible:
+            if not self.prog_frame.winfo_ismapped():
+                # Pack just above the find bar if possible
+                if hasattr(self, "filt_frame") and self.filt_frame.winfo_ismapped():
+                    self.prog_frame.pack(
+                        fill=tk.X, padx=8, pady=4, before=self.filt_frame
+                    )
+                else:
+                    self.prog_frame.pack(fill=tk.X, padx=8, pady=4)
+        else:
+            self.prog_frame.pack_forget()
 
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 4}
         simple = self._is_simple()
         self.title(self._("app_title"))
         self.ui_mode_var.set(self._mode_label(self._ui_mode))
+        self._update_machines_button()
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         self._root_frame = root
@@ -394,21 +574,36 @@ class IndexerApp(tk.Tk):
         if not self.preview_header_var.get():
             self.preview_header_var.set(self._("preview_idle"))
 
-        paths = ttk.LabelFrame(
+        # --- Folders: collapsed summary OR expanded editors -------------------------
+        self._folders_summary_frame = ttk.Frame(root)
+        self._update_folders_summary()
+        ttk.Label(
+            self._folders_summary_frame,
+            textvariable=self._folders_summary_var,
+            style="Key.TLabel",
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(
+            self._folders_summary_frame,
+            text=self._("change_folders"),
+            command=self._expand_folders,
+        ).pack(side=tk.RIGHT)
+
+        self._folders_expanded_frame = ttk.LabelFrame(
             root,
             text=(self._("folders_step") if simple else self._("folders")),
             padding=8,
             style="Primary.TLabelframe",
         )
-        paths.pack(fill=tk.X, **pad)
-
+        paths = self._folders_expanded_frame
         ttk.Label(paths, text=self._("backup_folder"), style="Key.TLabel").grid(
             row=0, column=0, sticky=tk.W
         )
         ttk.Entry(paths, textvariable=self.backup_var, style="Key.TEntry").grid(
             row=0, column=1, sticky=tk.EW, padx=4, ipady=2
         )
-        ttk.Button(paths, text=self._("browse"), command=self._pick_backup).grid(row=0, column=2)
+        ttk.Button(paths, text=self._("browse"), command=self._pick_backup).grid(
+            row=0, column=2
+        )
 
         ttk.Label(paths, text=self._("target_folder"), style="Key.TLabel").grid(
             row=1, column=0, sticky=tk.W
@@ -416,43 +611,58 @@ class IndexerApp(tk.Tk):
         ttk.Entry(paths, textvariable=self.target_var, style="Key.TEntry").grid(
             row=1, column=1, sticky=tk.EW, padx=4, ipady=2
         )
-        ttk.Button(paths, text=self._("browse"), command=self._pick_target).grid(row=1, column=2)
+        ttk.Button(paths, text=self._("browse"), command=self._pick_target).grid(
+            row=1, column=2
+        )
         paths.columnconfigure(1, weight=1)
 
         if not simple:
             extra = ttk.LabelFrame(
-                root,
+                paths,
                 text=self._("extra_folders"),
-                padding=8,
+                padding=6,
             )
-            extra.pack(fill=tk.X, **pad)
+            extra.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
             extra_row = ttk.Frame(extra)
             extra_row.pack(fill=tk.X)
-            self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
-            extra_sb = ttk.Scrollbar(extra_row, orient=tk.VERTICAL, command=self.extra_list.yview)
+            self.extra_list = tk.Listbox(extra_row, height=2, selectmode=tk.EXTENDED)
+            extra_sb = ttk.Scrollbar(
+                extra_row, orient=tk.VERTICAL, command=self.extra_list.yview
+            )
             self.extra_list.configure(yscrollcommand=extra_sb.set)
             self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
             extra_btns = ttk.Frame(extra)
-            extra_btns.pack(fill=tk.X, pady=(6, 0))
-            ttk.Button(extra_btns, text=self._("add_folder"), command=self._add_extra_root).pack(
-                side=tk.LEFT
-            )
+            extra_btns.pack(fill=tk.X, pady=(4, 0))
             ttk.Button(
-                extra_btns, text=self._("remove_selected"), command=self._remove_extra_roots
-            ).pack(side=tk.LEFT, padx=6)
-            ttk.Label(
+                extra_btns, text=self._("add_folder"), command=self._add_extra_root
+            ).pack(side=tk.LEFT)
+            ttk.Button(
                 extra_btns,
-                text=self._("extra_hint"),
-                style="Muted.TLabel",
-            ).pack(side=tk.LEFT, padx=8)
+                text=self._("remove_selected"),
+                command=self._remove_extra_roots,
+            ).pack(side=tk.LEFT, padx=6)
         elif hasattr(self, "extra_list"):
             delattr(self, "extra_list")
 
+        done_row = ttk.Frame(paths)
+        done_row.grid(row=3 if not simple else 2, column=0, columnspan=3, sticky=tk.E, pady=(8, 0))
+        ttk.Button(
+            done_row, text=self._("folders_done"), command=self._collapse_folders
+        ).pack(side=tk.RIGHT)
+
+        # Initial folders visibility
+        if self._folders_expanded or not self._folders_ready():
+            self._folders_expanded = True
+            self._folders_expanded_frame.pack(fill=tk.X, **pad)
+        else:
+            self._folders_summary_frame.pack(fill=tk.X, **pad)
+
+        # --- Actions ---------------------------------------------------------------
         actions = ttk.Frame(root)
+        self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
 
-        # Settings sit on the right so primary CTAs read left→right.
         settings = ttk.Frame(actions)
         settings.pack(side=tk.RIGHT)
         ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
@@ -466,7 +676,9 @@ class IndexerApp(tk.Tk):
             width=6,
         )
         lang_combo.pack(side=tk.LEFT)
-        lang_combo.bind("<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get()))
+        lang_combo.bind(
+            "<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get())
+        )
         ttk.Label(settings, text=self._("ui_mode"), style="Muted.TLabel").pack(
             side=tk.LEFT, padx=(12, 2)
         )
@@ -485,195 +697,190 @@ class IndexerApp(tk.Tk):
         )
         self.scan_btn.pack(side=tk.LEFT)
         if not simple:
-            ttk.Button(actions, text=self._("map_folders"), command=self._open_folder_map).pack(
-                side=tk.LEFT, padx=8
-            )
-            ttk.Button(actions, text=self._("aliases"), command=self._open_alias_editor).pack(
-                side=tk.LEFT, padx=4
-            )
-        ttk.Button(actions, text=self._("open_db"), command=self._pick_existing_db).pack(
-            side=tk.LEFT, padx=8
-        )
+            ttk.Button(
+                actions, text=self._("map_folders"), command=self._open_folder_map
+            ).pack(side=tk.LEFT, padx=8)
+            ttk.Button(
+                actions, text=self._("aliases"), command=self._open_alias_editor
+            ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            actions, text=self._("open_db"), command=self._pick_existing_db
+        ).pack(side=tk.LEFT, padx=8)
         if not simple:
-            ttk.Button(actions, text=self._("scan_report"), command=self._open_scan_report).pack(
-                side=tk.LEFT, padx=4
-            )
-            ttk.Button(actions, text=self._("duplicates"), command=self._open_duplicates).pack(
-                side=tk.LEFT, padx=4
-            )
-        ttk.Button(actions, text=self._("clear_filters"), command=self._clear_filters).pack(
-            side=tk.LEFT, padx=4
-        )
+            ttk.Button(
+                actions, text=self._("scan_report"), command=self._open_scan_report
+            ).pack(side=tk.LEFT, padx=4)
+            ttk.Button(
+                actions, text=self._("duplicates"), command=self._open_duplicates
+            ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            actions, text=self._("clear_filters"), command=self._clear_filters
+        ).pack(side=tk.LEFT, padx=4)
         if not simple:
-            ttk.Checkbutton(actions, text=self._("also_excel"), variable=self.excel_var).pack(
-                side=tk.LEFT
-            )
+            ttk.Checkbutton(
+                actions, text=self._("also_excel"), variable=self.excel_var
+            ).pack(side=tk.LEFT)
             ttk.Checkbutton(
                 actions, text=self._("incremental"), variable=self.incremental_var
             ).pack(side=tk.LEFT, padx=8)
 
-        prog_frame = ttk.Frame(root)
-        prog_frame.pack(fill=tk.X, **pad)
+        # Progress — hidden until a scan runs
+        self.prog_frame = ttk.Frame(root)
         self.progress = ttk.Progressbar(
-            prog_frame,
+            self.prog_frame,
             mode="determinate",
             maximum=100.0,
             variable=self.progress_var,
         )
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(prog_frame, textvariable=self.progress_label_var, width=42).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
+        ttk.Label(
+            self.prog_frame, textvariable=self.progress_label_var, width=42
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
+        # --- Compact find bar ------------------------------------------------------
         find_title = self._("find_programs_step") if simple else self._("find_programs")
-        filt = ttk.LabelFrame(root, text=find_title, padding=8, style="Primary.TLabelframe")
-        filt.pack(fill=tk.X, **pad)
+        self.filt_frame = ttk.LabelFrame(
+            root, text=find_title, padding=8, style="Primary.TLabelframe"
+        )
+        self.filt_frame.pack(fill=tk.X, **pad)
+        filt = self.filt_frame
 
-        ttk.Label(filt, text=self._("text"), style="Key.TLabel").grid(row=0, column=0, sticky=tk.W)
-        self.search_entry = ttk.Entry(filt, textvariable=self.search_var, style="Key.TEntry")
-        self.search_entry.grid(row=0, column=1, columnspan=4, sticky=tk.EW, padx=4, ipady=3)
+        ttk.Label(filt, text=self._("text"), style="Key.TLabel").grid(
+            row=0, column=0, sticky=tk.W
+        )
+        self.search_entry = ttk.Entry(
+            filt, textvariable=self.search_var, style="Key.TEntry"
+        )
+        self.search_entry.grid(
+            row=0, column=1, sticky=tk.EW, padx=4, ipady=3
+        )
+        ttk.Button(
+            filt,
+            textvariable=self._machines_btn_var,
+            command=self._open_machine_picker,
+            width=18,
+        ).grid(row=0, column=2, padx=4)
+        ttk.Label(filt, text=self._("date_from"), style="Key.TLabel").grid(
+            row=0, column=3, sticky=tk.W, padx=(8, 2)
+        )
+        ttk.Entry(filt, textvariable=self.date_from_var, width=11).grid(
+            row=0, column=4, sticky=tk.W
+        )
+        ttk.Label(filt, text=self._("date_to_sep")).grid(row=0, column=5, sticky=tk.W)
+        ttk.Entry(filt, textvariable=self.date_to_var, width=11).grid(
+            row=0, column=6, sticky=tk.W
+        )
         ttk.Checkbutton(
             filt,
             text=self._("newest_only"),
             variable=self.newest_only_var,
-        ).grid(row=0, column=5, sticky=tk.E, padx=4)
+        ).grid(row=0, column=7, sticky=tk.E, padx=4)
         self.extract_btn = self._make_primary_button(
             filt, self._("extract_selected"), self._extract_selected
         )
-        self.extract_btn.grid(row=0, column=6, padx=4)
+        self.extract_btn.grid(row=0, column=8, padx=4)
+        filt.columnconfigure(1, weight=1)
 
-        ttk.Label(filt, text=self._("machines"), style="Key.TLabel").grid(
-            row=1, column=0, sticky=tk.NW, pady=(6, 0)
-        )
-        mach_frame = ttk.Frame(filt)
-        mach_frame.grid(row=1, column=1, sticky=tk.NSEW, padx=4, pady=(6, 0))
-        self.machine_list = tk.Listbox(
-            mach_frame,
-            selectmode=tk.EXTENDED,
-            height=5,
-            exportselection=False,
-            width=36,
-        )
-        mach_sb = ttk.Scrollbar(mach_frame, orient=tk.VERTICAL, command=self.machine_list.yview)
-        self.machine_list.configure(yscrollcommand=mach_sb.set)
-        self.machine_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        mach_sb.pack(side=tk.LEFT, fill=tk.Y)
-        self.machine_list.bind("<<ListboxSelect>>", self._on_filter_changed)
-
-        mach_btns = ttk.Frame(filt)
-        mach_btns.grid(row=1, column=2, sticky=tk.NW, pady=(6, 0))
-        ttk.Button(mach_btns, text=self._("all"), width=10, command=self._select_all_machines).pack(
-            anchor=tk.W, pady=1
-        )
-        ttk.Button(mach_btns, text=self._("none"), width=10, command=self._clear_machine_selection).pack(
-            anchor=tk.W, pady=1
-        )
-        ttk.Label(mach_btns, text=self._("multi_hint"), style="Muted.TLabel").pack(
-            anchor=tk.W, pady=(4, 0)
-        )
-
-        ttk.Label(filt, text=self._("date_from"), style="Key.TLabel").grid(
-            row=1, column=3, sticky=tk.NW, pady=(6, 0)
-        )
-        date_box = ttk.Frame(filt)
-        date_box.grid(row=1, column=4, columnspan=3, sticky=tk.NW, padx=4, pady=(6, 0))
-        ttk.Entry(date_box, textvariable=self.date_from_var, width=11).grid(
-            row=0, column=0, sticky=tk.W
-        )
-        ttk.Label(date_box, text=self._("date_to_sep")).grid(row=0, column=1, sticky=tk.W)
-        ttk.Entry(date_box, textvariable=self.date_to_var, width=11).grid(
-            row=0, column=2, sticky=tk.W
-        )
-        ttk.Label(date_box, text=self._("date_format"), style="Muted.TLabel").grid(
-            row=1, column=0, columnspan=3, sticky=tk.W, pady=(2, 0)
-        )
-
+        row2 = ttk.Frame(filt)
+        row2.grid(row=1, column=0, columnspan=9, sticky=tk.EW, pady=(6, 0))
+        ttk.Button(
+            row2, text=self._("open_folder"), command=self._open_selected_folder
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            row2, text=self._("copy_path"), command=self._copy_selected_path
+        ).pack(side=tk.LEFT, padx=4)
         if not simple:
-            ttk.Label(filt, text=self._("source_type")).grid(
-                row=2, column=0, sticky=tk.W, pady=(6, 0)
+            ttk.Button(
+                row2, text=self._("compare"), command=self._compare_selected
+            ).pack(side=tk.LEFT, padx=4)
+            self._more_filters_btn = ttk.Button(
+                row2,
+                text=self._("more_filters"),
+                command=self._toggle_more_filters,
+            )
+            self._more_filters_btn.pack(side=tk.LEFT, padx=8)
+
+            self._more_filters_frame = ttk.Frame(filt)
+            adv = self._more_filters_frame
+            ttk.Label(adv, text=self._("source_type")).grid(
+                row=0, column=0, sticky=tk.W, pady=2
             )
             self.type_combo = ttk.Combobox(
-                filt,
+                adv,
                 textvariable=self.source_type_var,
                 values=[self._all_token()],
                 state="readonly",
                 width=22,
             )
-            self.type_combo.grid(row=2, column=1, sticky=tk.EW, padx=4, pady=(6, 0))
+            self.type_combo.grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(filt, text=self._("control")).grid(
-                row=2, column=3, sticky=tk.W, pady=(6, 0)
+            ttk.Label(adv, text=self._("control")).grid(
+                row=0, column=2, sticky=tk.W, padx=(12, 0), pady=2
             )
             self.control_combo = ttk.Combobox(
-                filt,
+                adv,
                 textvariable=self.control_var,
                 values=[self._all_token()],
                 state="readonly",
                 width=14,
             )
-            self.control_combo.grid(row=2, column=4, sticky=tk.W, padx=4, pady=(6, 0))
+            self.control_combo.grid(row=0, column=3, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(filt, text=self._("flag")).grid(row=2, column=5, sticky=tk.W, pady=(6, 0))
+            ttk.Label(adv, text=self._("flag")).grid(
+                row=0, column=4, sticky=tk.W, padx=(12, 0), pady=2
+            )
             self.provenance_combo = ttk.Combobox(
-                filt,
+                adv,
                 textvariable=self.provenance_var,
-                values=[self._all_token(), self._("flag_green"), self._("flag_yellow")],
+                values=[
+                    self._all_token(),
+                    self._("flag_green"),
+                    self._("flag_yellow"),
+                ],
                 state="readonly",
                 width=28,
             )
-            self.provenance_combo.grid(row=2, column=6, sticky=tk.W, padx=4, pady=(6, 0))
+            self.provenance_combo.grid(row=0, column=5, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(filt, text=self._("programmer")).grid(
-                row=3, column=0, sticky=tk.W, pady=(6, 0)
+            ttk.Label(adv, text=self._("programmer")).grid(
+                row=1, column=0, sticky=tk.W, pady=2
             )
             self.programmer_combo = ttk.Combobox(
-                filt,
+                adv,
                 textvariable=self.programmer_var,
                 values=[self._all_token()],
                 state="readonly",
                 width=14,
             )
-            self.programmer_combo.grid(row=3, column=1, sticky=tk.W, padx=4, pady=(6, 0))
+            self.programmer_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
 
-            row_actions = ttk.Frame(filt)
-            row_actions.grid(row=3, column=6, sticky=tk.E, pady=(6, 0))
-            ttk.Button(row_actions, text=self._("compare"), command=self._compare_selected).pack(
-                side=tk.LEFT, padx=2
+            ttk.Label(adv, text=self._("preset")).grid(
+                row=1, column=2, sticky=tk.W, padx=(12, 0), pady=2
             )
-            ttk.Button(
-                row_actions, text=self._("open_folder"), command=self._open_selected_folder
-            ).pack(side=tk.LEFT, padx=2)
-            ttk.Button(
-                row_actions, text=self._("copy_path"), command=self._copy_selected_path
-            ).pack(side=tk.LEFT, padx=2)
-
-            ttk.Label(filt, text=self._("preset")).grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
-            preset_row = ttk.Frame(filt)
-            preset_row.grid(row=4, column=1, columnspan=6, sticky=tk.EW, padx=4, pady=(6, 0))
+            preset_row = ttk.Frame(adv)
+            preset_row.grid(row=1, column=3, columnspan=3, sticky=tk.W, padx=4, pady=2)
             self.preset_combo = ttk.Combobox(
                 preset_row,
                 textvariable=self.preset_var,
                 values=[],
                 state="readonly",
-                width=28,
+                width=22,
             )
             self.preset_combo.pack(side=tk.LEFT)
-            ttk.Button(preset_row, text=self._("load"), command=self._load_selected_preset).pack(
-                side=tk.LEFT, padx=4
-            )
             ttk.Button(
-                preset_row, text=self._("save_current"), command=self._save_current_preset
-            ).pack(side=tk.LEFT, padx=2)
+                preset_row, text=self._("load"), command=self._load_selected_preset
+            ).pack(side=tk.LEFT, padx=4)
             ttk.Button(
-                preset_row, text=self._("delete"), command=self._delete_selected_preset
-            ).pack(side=tk.LEFT, padx=2)
-            ttk.Label(
                 preset_row,
-                text=self._("preset_hint", filename=PRESETS_FILENAME),
-                style="Muted.TLabel",
-            ).pack(side=tk.LEFT, padx=8)
-            hint_row = 5
-            hint_key = "hint"
+                text=self._("save_current"),
+                command=self._save_current_preset,
+            ).pack(side=tk.LEFT, padx=2)
+            ttk.Button(
+                preset_row,
+                text=self._("delete"),
+                command=self._delete_selected_preset,
+            ).pack(side=tk.LEFT, padx=2)
+            self._apply_more_filters_visibility()
         else:
             for attr in (
                 "type_combo",
@@ -681,30 +888,13 @@ class IndexerApp(tk.Tk):
                 "provenance_combo",
                 "programmer_combo",
                 "preset_combo",
+                "_more_filters_frame",
+                "_more_filters_btn",
             ):
                 if hasattr(self, attr):
                     delattr(self, attr)
-            row_actions = ttk.Frame(filt)
-            row_actions.grid(row=2, column=6, sticky=tk.E, pady=(6, 0))
-            ttk.Button(
-                row_actions, text=self._("open_folder"), command=self._open_selected_folder
-            ).pack(side=tk.LEFT, padx=2)
-            ttk.Button(
-                row_actions, text=self._("copy_path"), command=self._copy_selected_path
-            ).pack(side=tk.LEFT, padx=2)
-            hint_row = 3
-            hint_key = "hint_simple"
 
-        hint = ttk.Label(
-            filt,
-            text=self._(hint_key),
-            style="Muted.TLabel",
-            wraplength=1100,
-        )
-        hint.grid(row=hint_row, column=0, columnspan=7, sticky=tk.W, pady=(6, 0))
-
-        filt.columnconfigure(1, weight=1)
-
+        # --- Results: table | preview side-by-side (C) -----------------------------
         cols = (
             "flag",
             "program",
@@ -717,7 +907,7 @@ class IndexerApp(tk.Tk):
             "path",
             "location",
         )
-        results_pane = ttk.Panedwindow(root, orient=tk.VERTICAL)
+        results_pane = ttk.Panedwindow(root, orient=tk.HORIZONTAL)
         results_pane.pack(fill=tk.BOTH, expand=True, **pad)
 
         tree_frame = ttk.Frame(results_pane)
@@ -759,7 +949,10 @@ class IndexerApp(tk.Tk):
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
 
         preview_frame = ttk.LabelFrame(
-            results_pane, text=self._("preview"), padding=4, style="Primary.TLabelframe"
+            results_pane,
+            text=self._("preview"),
+            padding=4,
+            style="Primary.TLabelframe",
         )
         results_pane.add(preview_frame, weight=2)
         ttk.Label(preview_frame, textvariable=self.preview_header_var).pack(
@@ -790,11 +983,19 @@ class IndexerApp(tk.Tk):
         prev_inner.columnconfigure(0, weight=1)
 
         self._ctx_menu = tk.Menu(self, tearoff=0)
-        self._ctx_menu.add_command(label=self._("ctx_extract"), command=self._extract_selected)
+        self._ctx_menu.add_command(
+            label=self._("ctx_extract"), command=self._extract_selected
+        )
         if not simple:
-            self._ctx_menu.add_command(label=self._("ctx_compare"), command=self._compare_selected)
-        self._ctx_menu.add_command(label=self._("ctx_open"), command=self._open_selected_folder)
-        self._ctx_menu.add_command(label=self._("ctx_copy"), command=self._copy_selected_path)
+            self._ctx_menu.add_command(
+                label=self._("ctx_compare"), command=self._compare_selected
+            )
+        self._ctx_menu.add_command(
+            label=self._("ctx_open"), command=self._open_selected_folder
+        )
+        self._ctx_menu.add_command(
+            label=self._("ctx_copy"), command=self._copy_selected_path
+        )
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
         status.pack(fill=tk.X, **pad)
@@ -805,6 +1006,8 @@ class IndexerApp(tk.Tk):
         path = filedialog.askdirectory(title="Select CNC backup folder")
         if path:
             self.backup_var.set(path)
+            self._update_folders_summary()
+            self._maybe_auto_collapse_folders()
 
     def _pick_target(self) -> None:
         path = filedialog.askdirectory(title="Select target folder for database / extracts")
@@ -812,12 +1015,14 @@ class IndexerApp(tk.Tk):
             self.target_var.set(path)
             self._load_extra_roots_into_list()
             self._refresh_preset_combo()
+            self._update_folders_summary()
             settings = load_ui_settings(ui_settings_path_for_target(path))
             lang = settings["language"]
             mode = settings["ui_mode"]
             if lang != self._lang or mode != self._ui_mode:
                 preserved = self._snapshot_ui()
                 preserved["target"] = path
+                preserved["folders_expanded"] = False
                 self._lang = lang
                 self._ui_mode = mode
                 self.lang_var.set(lang)
@@ -825,6 +1030,7 @@ class IndexerApp(tk.Tk):
                 self._rebuild(preserved)
             else:
                 self._persist_ui_settings(path)
+                self._maybe_auto_collapse_folders()
 
     def _pick_existing_db(self) -> None:
         path = filedialog.askopenfilename(
@@ -1061,6 +1267,8 @@ class IndexerApp(tk.Tk):
         self.progress_var.set(0.0)
         self.progress_label_var.set("Starting…")
         self.status_var.set("Scanning…")
+        self._show_progress(True)
+        self._maybe_auto_collapse_folders()
         # Simple mode: quiet defaults (no Excel popup clutter; still incremental)
         if self._is_simple():
             write_excel = False
@@ -1228,6 +1436,8 @@ class IndexerApp(tk.Tk):
             self.progress_var.set(0.0)
             self.progress_label_var.set("")
         self.status_var.set(message)
+        # Hide progress bar shortly after finish to free vertical space
+        self.after(1200, lambda: self._show_progress(False) if not self._scan_busy else None)
         if not ok:
             messagebox.showerror("Scan failed", message)
             return
@@ -1301,21 +1511,21 @@ class IndexerApp(tk.Tk):
     # --- filters / search -------------------------------------------------------
 
     def _selected_machines(self) -> list[str]:
-        sel = self.machine_list.curselection()
-        if not sel:
+        if not self._machine_sel:
             return []
-        names = [self.machine_list.get(i) for i in sel]
-        # Treating "all selected" the same as none keeps the query unfiltered
+        names = [n for n in self._machine_names if n in self._machine_sel]
         if self._machine_names and len(names) == len(self._machine_names):
             return []
         return names
 
     def _select_all_machines(self) -> None:
-        self.machine_list.selection_set(0, tk.END)
+        self._machine_sel = set()
+        self._update_machines_button()
         self._on_filter_changed()
 
     def _clear_machine_selection(self) -> None:
-        self.machine_list.selection_clear(0, tk.END)
+        self._machine_sel = set()
+        self._update_machines_button()
         self._on_filter_changed()
 
     def _refresh_filter_choices(self) -> None:
@@ -1347,12 +1557,11 @@ class IndexerApp(tk.Tk):
 
         prev = set(self._selected_machines())
         self._machine_names = list(vals["machines"])
-        self.machine_list.delete(0, tk.END)
-        for name in self._machine_names:
-            self.machine_list.insert(tk.END, name)
-        for i, name in enumerate(self._machine_names):
-            if name in prev:
-                self.machine_list.selection_set(i)
+        if prev:
+            self._machine_sel = {n for n in prev if n in set(self._machine_names)}
+        else:
+            self._machine_sel = set()
+        self._update_machines_button()
         if hasattr(self, "type_combo"):
             self.type_combo["values"] = [self._all_token(), *vals["source_types"]]
         if hasattr(self, "control_combo"):
@@ -1424,11 +1633,10 @@ class IndexerApp(tk.Tk):
             self.programmer_var.set(preset.programmer or ALL)
             self.newest_only_var.set(bool(preset.newest_only))
             wanted = {m.strip() for m in (preset.machines or []) if m.strip()}
-            self.machine_list.selection_clear(0, tk.END)
-            if wanted:
-                for i, name in enumerate(self._machine_names):
-                    if name in wanted:
-                        self.machine_list.selection_set(i)
+            self._machine_sel = {
+                n for n in self._machine_names if n in wanted
+            } if wanted else set()
+            self._update_machines_button()
             self.preset_var.set(preset.name)
         finally:
             self._filter_trace_lock = False
@@ -1514,7 +1722,8 @@ class IndexerApp(tk.Tk):
         self._filter_trace_lock = True
         try:
             self.search_var.set("")
-            self.machine_list.selection_clear(0, tk.END)
+            self._machine_sel = set()
+            self._update_machines_button()
             self.date_from_var.set("")
             self.date_to_var.set("")
             self.source_type_var.set(self._all_token())

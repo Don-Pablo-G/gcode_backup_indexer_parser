@@ -48,6 +48,9 @@ def test_ui_mode_defaults():
     assert t("pl", "folders_step").startswith("1")
     assert t("pl", "find_programs_step").startswith("2")
     assert "zielony" in t("pl", "hint_simple")
+    assert "Zmień" in t("pl", "change_folders")
+    assert "wszystkie" in t("pl", "machines_all")
+    assert "More filters" in t("en", "more_filters")
 
 
 def test_ui_accent_constants():
@@ -56,6 +59,16 @@ def test_ui_accent_constants():
     assert UI_ACCENT.startswith("#")
     assert UI_KEY_FG.startswith("#")
     assert UI_ACCENT != UI_KEY_FG
+
+
+def test_short_path_helper_logic():
+    # Mirrors IndexerApp._short_path truncation used by the collapsed folder strip
+    long = "D:\\very\\long\\path\\to\\cnc\\backups\\folder\\tree"
+    maxlen = 42
+    short = long if len(long) <= maxlen else "…" + long[-(maxlen - 1) :]
+    assert short.startswith("…")
+    assert len(short) == maxlen
+    assert short.endswith("tree")
 
 
 def test_ui_language_persist(tmp_path: Path):
