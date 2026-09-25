@@ -35,6 +35,28 @@ def resolve_source_abspath(
     return Path(raw).resolve()
 
 
+def source_exists_on_disk(
+    source_path: str,
+    backup_root: Optional[str] = None,
+    scan_root: Optional[str] = None,
+    path_remaps: Optional[Sequence[RemapInput]] = None,
+) -> bool:
+    """True when the indexed source path resolves to an existing file on disk."""
+    raw = str(source_path or "").strip()
+    if not raw:
+        return False
+    try:
+        path = resolve_source_abspath(
+            raw,
+            backup_root,
+            scan_root,
+            path_remaps=path_remaps,
+        )
+        return path.is_file()
+    except OSError:
+        return False
+
+
 def open_path_in_file_manager(path: Path) -> None:
     """Reveal ``path`` in the OS file manager (select file when possible)."""
     path = path.resolve()

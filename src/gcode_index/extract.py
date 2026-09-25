@@ -69,7 +69,9 @@ def _row_get(row: RowLike, key: str):
 def verify_source_integrity(row: RowLike, src: Path) -> None:
     """Refuse extract/copy when the on-disk file no longer matches the index stamp."""
     if not src.is_file():
-        raise ExtractError(f"source file missing: {src}")
+        raise ExtractError(
+            f"source file missing on disk (removed or moved since last scan): {src}"
+        )
 
     expected_size = _row_get(row, "source_size")
     expected_sha = _row_get(row, "content_sha256")
@@ -167,7 +169,9 @@ def extract_text(
     if not skip_integrity:
         verify_source_integrity(row, src)
     elif not src.is_file():
-        raise ExtractError(f"source file missing: {src}")
+        raise ExtractError(
+            f"source file missing on disk (removed or moved since last scan): {src}"
+        )
 
     glued = source_type in GLUED_SOURCE_TYPES
     byte_start = row["byte_start"]

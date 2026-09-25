@@ -71,6 +71,7 @@ from gcode_index.path_util import (
     format_eta,
     open_path_in_file_manager,
     resolve_source_abspath,
+    source_exists_on_disk,
 )
 from gcode_index.path_remap import PathRemap, normalize_remaps
 from gcode_index.instance_ini import (
@@ -220,6 +221,7 @@ class IndexerApp(tk.Tk):
         self._search_after_id: Optional[str] = None
         self._schedule_after_id: Optional[str] = None
         self._result_rows: list = []
+        self._missing_source_count: int = 0
         self._sort_col: Optional[str] = None
         self._sort_reverse: bool = False
         self._heading_labels: dict[str, str] = {}
@@ -1515,6 +1517,7 @@ class IndexerApp(tk.Tk):
         # --- Results: table | preview side-by-side (C) -----------------------------
         cols = (
             "flag",
+            "src",
             "program",
             "part",
             "programmer",
@@ -1536,6 +1539,7 @@ class IndexerApp(tk.Tk):
         )
         headings = {
             "flag": (self._("col_flag"), 56),
+            "src": (self._("col_src"), 64),
             "program": (self._("col_program"), 90),
             "part": (self._("col_part"), 130),
             "programmer": (self._("col_programmer"), 56),
@@ -1557,6 +1561,8 @@ class IndexerApp(tk.Tk):
         self._refresh_heading_labels()
         self.tree.tag_configure("flag_backup", foreground="#1a7f37")
         self.tree.tag_configure("flag_extra", foreground="#b58900")
+        # Missing source: dim grey + distinct from green/yellow provenance
+        self.tree.tag_configure("source_missing", foreground="#8a1f1f")
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -2951,9 +2957,12 @@ class IndexerApp(tk.Tk):
             return
 
         self._fill_tree(rows)
+        missing_n = int(getattr(self, "_missing_source_count", 0) or 0)
         bits = [f"{len(rows)} shown"]
         if total > len(rows):
             bits.append(f"of {total} in DB")
+        if missing_n:
+            bits.append(self._("status_missing_sources", n=missing_n))
         if text:
             bits.append(f"text={text!r}")
         if machines:
@@ -3006,6 +3015,10 @@ class IndexerApp(tk.Tk):
 
     def _redraw_tree(self) -> None:
         self.tree.delete(*self.tree.get_children())
+        badge_missing = self._("badge_missing")
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        remaps = self._active_path_remaps()
+        missing_n = 0
         for i, r in enumerate(self._result_rows):
             date = format_display_date(r["backup_date"])
             machine = r["machine_label"] or r["machine_id"] or ""
@@ -3026,12 +3039,20 @@ class IndexerApp(tk.Tk):
             else:
                 flag = "🟢"
                 tag = "flag_backup"
+            missing = self._row_source_missing(
+                r, backup_root=backup or None, path_remaps=remaps
+            )
+            if missing:
+                missing_n += 1
+            src_badge = badge_missing if missing else ""
+            tags = ("source_missing",) if missing else (tag,)
             self.tree.insert(
                 "",
                 tk.END,
                 iid=str(i),
                 values=(
                     flag,
+                    src_badge,
                     r["program_number"] or "",
                     r["part_number"] or "",
                     prog_flag,
@@ -3043,10 +3064,45 @@ class IndexerApp(tk.Tk):
                     r["source_path"] or "",
                     format_location(r),
                 ),
-                tags=(tag,),
+                tags=tags,
             )
+        self._missing_source_count = missing_n
         self._refresh_heading_labels()
         self._refresh_preview()
+
+    def _row_source_missing(
+        self,
+        row,
+        *,
+        backup_root: Optional[str] = None,
+        path_remaps=None,
+    ) -> bool:
+        """True when the indexed source file is not present on disk."""
+        try:
+            sp = str(row["source_path"] or "").strip()
+        except (KeyError, IndexError, TypeError):
+            return True
+        if not sp:
+            return True
+        if backup_root is None:
+            backup_root = self.backup_var.get().strip() or (
+                self._backup_root_from_db() or ""
+            )
+        keys = row.keys() if hasattr(row, "keys") else ()
+        scan_root = None
+        if "scan_root" in keys and row["scan_root"]:
+            scan_root = str(row["scan_root"])
+        remaps = (
+            path_remaps
+            if path_remaps is not None
+            else self._active_path_remaps()
+        )
+        return not source_exists_on_disk(
+            sp,
+            backup_root or None,
+            scan_root,
+            path_remaps=remaps,
+        )
 
     def _refresh_heading_labels(self) -> None:
         if not hasattr(self, "tree") or not self._heading_labels:
@@ -3065,13 +3121,22 @@ class IndexerApp(tk.Tk):
         else:
             self._sort_col = column
             # Dates/sizes: newest/largest first on first click feels natural
+            # Source badge: missing (BRAK) first on first click (reverse=False)
             self._sort_reverse = column in {"date", "size", "mtime"}
         if not self._result_rows:
             self._refresh_heading_labels()
             return
-        self._result_rows = sort_instances(
-            self._result_rows, column, reverse=self._sort_reverse
-        )
+        if column == "src":
+            # key 0 = missing; reverse=False → missing first
+            self._result_rows = sorted(
+                self._result_rows,
+                key=lambda r: (0 if self._row_source_missing(r) else 1),
+                reverse=self._sort_reverse,
+            )
+        else:
+            self._result_rows = sort_instances(
+                self._result_rows, column, reverse=self._sort_reverse
+            )
         self._redraw_tree()
 
     def _set_preview_body(self, header: str, body: str, *, is_error: bool = False) -> None:
@@ -3193,9 +3258,8 @@ class IndexerApp(tk.Tk):
             return
         if not path.exists():
             messagebox.showerror(
-                "Open folder",
-                f"Path not found on disk:\n{path}\n\n"
-                "Check that the backup folder is set correctly.",
+                self._("ctx_open"),
+                self._("open_source_missing", path=str(path)),
             )
             return
         try:
@@ -3255,6 +3319,13 @@ class IndexerApp(tk.Tk):
 
         if len(rows) == 1:
             row = rows[0]
+            missing_path = self._missing_source_path(row)
+            if missing_path is not None:
+                messagebox.showerror(
+                    self._("extract_failed"),
+                    self._("extract_source_missing", path=str(missing_path)),
+                )
+                return
             suggested = default_extract_filename(row)
             out = filedialog.asksaveasfilename(
                 title="Save extracted program",
@@ -3273,7 +3344,10 @@ class IndexerApp(tk.Tk):
                     path_remaps=self._active_path_remaps(),
                 )
             except ExtractError as exc:
-                messagebox.showerror("Extract failed", str(exc))
+                messagebox.showerror(
+                    self._("extract_failed"),
+                    self._format_extract_error(exc, row),
+                )
                 return
             self.status_var.set(f"Extracted → {path}")
             messagebox.showinfo("Extracted", f"Wrote:\n{path}")
@@ -3293,6 +3367,13 @@ class IndexerApp(tk.Tk):
         for row in rows:
             name = batch_extract_filename(row, used=used)
             dest = Path(out_dir) / name
+            missing_path = self._missing_source_path(row)
+            if missing_path is not None:
+                prog = row["program_number"] if "program_number" in row.keys() else "?"
+                errors.append(
+                    f"{prog}: {self._('badge_missing')} — {missing_path}"
+                )
+                continue
             try:
                 extract_to_path(
                     row, dest, backup_root=backup or None, path_remaps=remaps
@@ -3300,7 +3381,7 @@ class IndexerApp(tk.Tk):
                 ok += 1
             except ExtractError as exc:
                 prog = row["program_number"] if "program_number" in row.keys() else "?"
-                errors.append(f"{prog}: {exc}")
+                errors.append(f"{prog}: {self._format_extract_error(exc, row)}")
         msg = f"Extracted {ok} / {len(rows)} → {out_dir}"
         if errors:
             msg += f"\n\n{len(errors)} failed:\n" + "\n".join(errors[:8])
@@ -3310,6 +3391,46 @@ class IndexerApp(tk.Tk):
         else:
             messagebox.showinfo("Batch extract", msg)
         self.status_var.set(f"Extracted {ok} / {len(rows)} programs")
+
+    def _missing_source_path(self, row) -> Optional[Path]:
+        """Return resolved path when source is missing; else None."""
+        if not self._row_source_missing(row):
+            return None
+        try:
+            sp = str(row["source_path"] or "").strip()
+        except (KeyError, IndexError, TypeError):
+            return Path("(no source_path)")
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        keys = row.keys() if hasattr(row, "keys") else ()
+        scan_root = None
+        if "scan_root" in keys and row["scan_root"]:
+            scan_root = str(row["scan_root"])
+        return resolve_source_abspath(
+            sp or "(empty)",
+            backup or None,
+            scan_root,
+            path_remaps=self._active_path_remaps(),
+        )
+
+    def _format_extract_error(self, exc: ExtractError, row=None) -> str:
+        msg = str(exc)
+        if "missing" in msg.casefold():
+            path = self._missing_source_path(row) if row is not None else None
+            if path is None and row is not None:
+                # Error says missing but our check disagreed — still localize
+                try:
+                    path = resolve_source_abspath(
+                        str(row["source_path"] or ""),
+                        self.backup_var.get().strip() or None,
+                        path_remaps=self._active_path_remaps(),
+                    )
+                except Exception:  # noqa: BLE001
+                    path = Path("?")
+            return self._(
+                "extract_source_missing",
+                path=str(path) if path is not None else msg,
+            )
+        return msg
 
     def _backup_root_from_db(self) -> Optional[str]:
         db_path = self._db_path()

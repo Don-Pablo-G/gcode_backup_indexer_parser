@@ -43,7 +43,7 @@ Results appear in the table. The **Preview** pane on the right shows the selecte
    Right-click also offers extract / open folder / copy path.
 3. Choose the save location (defaults to the extract folder).
 
-If the source file changed since the last index, extract may be refused — ask someone with **Full** mode to re-scan.
+If the source file is **missing on disk** (column **Source = MISSING**) or changed since the last index, extract is **refused** with a clear message — ask someone with **Full** mode to re-scan (or check path remap).
 
 ---
 
@@ -53,9 +53,10 @@ If the source file changed since the last index, extract may be refused — ask 
 |-----------------|--------|
 | **Green** machine flag (provenance) | From the main backup / on-machine catch |
 | **Yellow** | From an extra (non-backup) folder |
+| **Source = MISSING** (red row) | Source file gone from disk since the last scan — still in the DB, but extract / preview will fail |
 | **MACHINE UNKNOWN** | Path did not match a known machine name or alias |
 
-These were assigned when the database was built (Full mode). Simple mode only reads them.
+These were assigned when the database was built (Full mode). Simple mode only reads them. The **Source** column with **MISSING** is visible in Simple too.
 
 ---
 

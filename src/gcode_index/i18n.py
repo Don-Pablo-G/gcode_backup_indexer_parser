@@ -133,6 +133,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "Tylko najnowsze = jedna pozycja na program+maszynę."
         ),
         "col_flag": "Flaga",
+        "col_src": "Źródło",
         "col_program": "Nr programu",
         "col_part": "Nr części",
         "col_programmer": "Prog.",
@@ -143,6 +144,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_control": "Sterowanie",
         "col_path": "Ścieżka źródła",
         "col_location": "Lokalizacja w pliku",
+        "badge_missing": "BRAK",
+        "extract_failed": "Wydobycie nieudane",
+        "extract_source_missing": (
+            "Plik źródłowy nie istnieje na dysku (usunięty lub przeniesiony od ostatniego skanu):\n"
+            "{path}\n\n"
+            "Poproś o ponowny skan w trybie Pełny albo sprawdź mapowanie ścieżek / folder kopii."
+        ),
+        "status_missing_sources": "{n} bez pliku źródłowego",
+        "open_source_missing": (
+            "Ścieżka nie istnieje na dysku:\n{path}\n\n"
+            "Sprawdź folder kopii, mapowanie ścieżek albo czy plik nie został usunięty."
+        ),
         "size_from": "Rozmiar od",
         "size_to_sep": " do ",
         "size_hint": "bajty lub 10k / 1.5M",
@@ -327,6 +340,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "Newest only = one row per program+machine."
         ),
         "col_flag": "Flag",
+        "col_src": "Source",
         "col_program": "Program #",
         "col_part": "Part number",
         "col_programmer": "Prog.",
@@ -337,6 +351,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_control": "Control",
         "col_path": "Source path",
         "col_location": "In-file location",
+        "badge_missing": "MISSING",
+        "extract_failed": "Extract failed",
+        "extract_source_missing": (
+            "Source file is missing on disk (removed or moved since the last scan):\n"
+            "{path}\n\n"
+            "Ask for a Full-mode re-scan, or check path remap / backup folder."
+        ),
+        "status_missing_sources": "{n} missing source file(s)",
+        "open_source_missing": (
+            "Path not found on disk:\n{path}\n\n"
+            "Check the backup folder, path remap, or whether the file was deleted."
+        ),
         "size_from": "Size from",
         "size_to_sep": " to ",
         "size_hint": "bytes or 10k / 1.5M",

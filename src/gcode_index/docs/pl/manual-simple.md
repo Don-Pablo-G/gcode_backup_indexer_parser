@@ -43,7 +43,7 @@ Wyniki są w tabeli. **Podgląd** po prawej pokazuje treść zaznaczonego progra
    Prawy przycisk myszy: wydobycie / otwórz folder / kopiuj ścieżkę.
 3. Wybierz miejsce zapisu (domyślnie folder wydobycia).
 
-Jeśli plik źródłowy zmienił się od ostatniego indeksu, wydobycie może zostać odmówione — poproś osobę z trybem **Pełny** o ponowny skan.
+Jeśli plik źródłowy **nie istnieje** na dysku (kolumna **Źródło = BRAK**) albo zmienił się od ostatniego indeksu, wydobycie jest **odmówione** z jasnym komunikatem — poproś osobę z trybem **Pełny** o ponowny skan (albo sprawdź mapowanie ścieżek).
 
 ---
 
@@ -53,9 +53,10 @@ Jeśli plik źródłowy zmienił się od ostatniego indeksu, wydobycie może zos
 |-----------------|-----------|
 | **Zielona** flaga pochodzenia | Z głównej kopii / złapania z maszyny |
 | **Żółta** | Z dodatkowego folderu (nie z kopii) |
+| **Źródło = BRAK** (czerwony wiersz) | Plik źródłowy zniknął z dysku od ostatniego skanu — jest w bazie, ale wydobycie / podgląd się nie uda |
 | **MACHINE UNKNOWN** | Ścieżka nie pasowała do znanej nazwy maszyny ani aliasu |
 
-Te wartości powstają przy budowie bazy (tryb Pełny). Prosty tylko je odczytuje.
+Te wartości powstają przy budowie bazy (tryb Pełny). Prosty tylko je odczytuje. Kolumna **Źródło** z **BRAK** jest widoczna także w Prostym.
 
 ---
 
