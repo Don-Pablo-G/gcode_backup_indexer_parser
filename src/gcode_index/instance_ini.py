@@ -649,7 +649,7 @@ source_type = {data.filter_source_type}
 control = {data.filter_control}
 ; Status: blank = all | backup = on-machine 🟢 | extra = not-run 🟡
 status = {data.filter_status}
-; Role catalogue id (production / wip / fixture / …) or blank = all
+; Role catalogue id (prototype / personal / system_programs / fixture / …) or blank = all
 role = {data.filter_role}
 ; Programmer flag (LP1 / MS1) or blank = all
 programmer = {data.filter_programmer}

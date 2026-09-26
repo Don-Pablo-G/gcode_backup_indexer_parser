@@ -56,7 +56,7 @@ Browsing for backup / database / extract keeps the folder panel **open** so you 
 ### Extra roots
 
 - **Green** — treat like on-machine / catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
-- **Yellow** — extra trees not from the machine backup. Programs get a **yellow** flag.
+- **Yellow** — extra trees not from the machine backup. Programs get a **yellow** status-unknown flag.
 
 Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-index.ini`).
 
@@ -69,16 +69,16 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 | Badge | Meaning | Source |
 |-------|---------|--------|
 | 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch roots |
-| 🟡 | Not run (`extra`) | Yellow extra roots |
+| 🟡 | Status unknown (`extra`) | Yellow extra roots |
 
 **Role folderów…** / **Folder roles…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
 
-1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning). Seeded: production, fixture, WIP, test, personal. Built-ins cannot be deleted. Legacy green/yellow colour ids migrate to status; red/customs become roles.
+1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning). Seeded: **prototype** (blue), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
 2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases never change status. A folder may later receive **multiple** roles via the tree map.
 
 **Mapuj drzewo…** / **Map tree…** (indexer) edits `folder_tree_map.yaml` next to the database: lazy folder tree from the backup + green/yellow roots. Per node: machine (optional), **multiple role tags**, exclude, or clear. ★ = explicit path rule, · = inherited. **Longest path prefix wins** over name-wide aliases. Reindex reapplies the saved rules without reopening the dialog.
 
-Results Flag column shows **status + role badge(s)** (e.g. 🟢🔧🔴 for fixture+wip). Use separate **Status** and **Role** filters (role filter matches any tag). Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
+Results Flag column shows **status + role badge(s)**. Use separate **Status** and **Role** filters (role filter matches any tag). Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
 
 ---
 

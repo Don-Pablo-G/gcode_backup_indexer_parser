@@ -58,8 +58,8 @@ Select a result row to load G-code in the right-hand **Preview**. Use **In previ
 
 | Column / colour | Meaning |
 |-----------------|--------|
-| **Green** machine flag (provenance) | From the main backup / on-machine catch |
-| **Yellow** | From an extra (non-backup) folder |
+| **Green** machine flag (provenance) | On machine — main backup / on-machine catch |
+| **Yellow** | Status unknown — extra (non-backup) folder |
 | **Source = MISSING** (red row) | Source file gone from disk since the last scan — still in the DB, but extract / preview will fail |
 | **MACHINE UNKNOWN** | Path did not match a known machine name or alias |
 

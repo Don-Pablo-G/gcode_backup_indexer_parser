@@ -56,7 +56,7 @@ Wybór folderów **nie zwija** sekcji — dokończ ścieżki, potem **Gotowe**.
 ### Dodatkowe katalogi
 
 - **Zielone** — złapania z maszyny / luźne `.nc`. Flaga zielona.
-- **Żółte** — dodatkowe drzewa nie z kopii. Flaga żółta.
+- **Żółte** — dodatkowe drzewa nie z kopii. Flaga żółta = status nieznany.
 
 Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
@@ -69,16 +69,16 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 | Odznaka | Znaczenie | Źródło |
 |---------|-----------|--------|
 | 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch |
-| 🟡 | Nie uruchomiony (`extra`) | Żółte foldery dodatkowe |
+| 🟡 | Status nieznany (`extra`) | Żółte foldery dodatkowe |
 
 **Role folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
 
-1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: produkcja, przyrząd, WIP, test, osobisty. Wbudowanych nie usuniesz. Stare zielony/żółty w katalogu → status; czerwony/własne → role.
+1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: **prototyp** (niebieski), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku.
 2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy nigdy nie zmieniają statusu. Wiele ról na folderze ustawisz w mapie drzewa.
 
 **Mapuj drzewo…** (indeksator) edytuje `folder_tree_map.yaml` obok bazy: leniwe drzewo z kopii + zielonych/żółtych korzeni. Per węzeł: maszyna (opcjonalnie), **wiele ról**, wyklucz lub wyczyść. ★ = reguła jawna, · = dziedziczona. **Najdłuższy prefiks ścieżki wygrywa** nad aliasami nazw. Reindeks stosuje zapisane reguły bez ponownego klikania.
 
-Kolumna Flaga pokazuje **status + odznaki ról** (np. 🟢🔧🔴). Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
+Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
 
 ---
 

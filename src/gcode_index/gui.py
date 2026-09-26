@@ -92,6 +92,7 @@ from gcode_index.models import (
     PROVENANCE_BACKUP,
     PROVENANCE_EXTRA,
     ROLE_FIXTURE,
+    ROLE_PERSONAL,
     ROLE_WIP,
 )
 from gcode_index.folder_colour_aliases import (
@@ -103,6 +104,7 @@ from gcode_index.folder_colour_aliases import (
     FolderColourRule,
     default_colours,
     folder_colour_aliases_path_for_target,
+    is_status_colour_id,
     load_colour_catalog,
     normalize_colour_id,
     normalize_hex_colour,
@@ -488,8 +490,17 @@ class IndexerApp(tk.Tk):
             st = (cfg.filter_status or "").strip().casefold()
             if st in ("backup", "green", "on_machine"):
                 self.provenance_var.set(self._("status_on_machine"))
-            elif st in ("extra", "yellow", "not_run"):
-                self.provenance_var.set(self._("status_not_run"))
+            elif st in (
+                "extra",
+                "yellow",
+                "not_run",
+                "unknown",
+                "status_unknown",
+                "status nieznany",
+                "nie uruchomiony",
+                "not run",
+            ):
+                self.provenance_var.set(self._("status_unknown"))
             else:
                 self.provenance_var.set(self._all_token())
             # Role — prefer catalogue label for current language
@@ -1044,10 +1055,14 @@ class IndexerApp(tk.Tk):
                 "status_on_machine"
             ):
                 self.provenance_var.set(self._("status_on_machine"))
-            elif prov in (PROVENANCE_EXTRA, "yellow", "not_run") or prov == self._(
-                "status_not_run"
-            ):
-                self.provenance_var.set(self._("status_not_run"))
+            elif prov in (
+                PROVENANCE_EXTRA,
+                "yellow",
+                "not_run",
+                "unknown",
+                "status_unknown",
+            ) or prov in (self._("status_not_run"), self._("status_unknown")):
+                self.provenance_var.set(self._("status_unknown"))
             else:
                 self.provenance_var.set(self._all_token())
             role_raw = str(preserved.get("role") or "")
@@ -4094,7 +4109,7 @@ class IndexerApp(tk.Tk):
         return [
             self._all_token(),
             self._("status_on_machine"),
-            self._("status_not_run"),
+            self._("status_unknown"),
         ]
 
     def _role_filter_labels(self) -> list[str]:
@@ -4117,14 +4132,29 @@ class IndexerApp(tk.Tk):
             if raw.casefold() == c.id:
                 return c.id
         low = raw.casefold()
-        if raw in (self._("status_not_run"),) or any(
-            x in low for x in ("yellow", "żółt", "extra", "not_run", "nie uruch")
+        if raw in (
+            self._("status_not_run"),
+            self._("status_unknown"),
+        ) or any(
+            x in low
+            for x in (
+                "yellow",
+                "żółt",
+                "extra",
+                "not_run",
+                "nie uruch",
+                "nieznan",
+                "unknown",
+            )
         ):
             return PROVENANCE_EXTRA
         if raw in (self._("status_on_machine"),) or any(
             x in low for x in ("green", "zielon", "backup", "on_machine", "maszyn")
         ):
             return PROVENANCE_BACKUP
+        # Never treat status spellings as role ids (yellow ≠ fixture)
+        if is_status_colour_id(raw):
+            return PROVENANCE_EXTRA if "yellow" in low or "extra" in low or "nieznan" in low or "unknown" in low else PROVENANCE_BACKUP
         cid = normalize_colour_id(raw, known_ids=catalog.colour_ids)
         return cid if cid in catalog.colour_ids else None
 
@@ -4147,7 +4177,7 @@ class IndexerApp(tk.Tk):
             return None
         if raw == self._("status_on_machine"):
             return PROVENANCE_BACKUP
-        if raw == self._("status_not_run"):
+        if raw in (self._("status_not_run"), self._("status_unknown")):
             return PROVENANCE_EXTRA
         return self._colour_id_from_filter_label(raw)
 
@@ -5723,7 +5753,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         pack_status_legend(
             explain,
             on_machine_text=_tr(self.master, "status_on_machine"),
-            not_run_text=_tr(self.master, "status_not_run"),
+            not_run_text=_tr(self.master, "status_unknown"),
             explain_text=_tr(self.master, "folder_colour_status_explain"),
             wraplength=720,
         ).pack(fill=tk.X)
@@ -6028,9 +6058,9 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._alias_colour_ids = [p[1] for p in pairs]
         self._alias_colour_combo["values"] = self._alias_colour_labels
         if not self._alias_colour_var.get() and self._alias_colour_labels:
-            # default to red/wip if present
+            # default to red/personal seed if present
             for lab, cid in pairs:
-                if cid == ROLE_WIP:
+                if cid == ROLE_PERSONAL:
                     self._alias_colour_var.set(lab)
                     break
             else:

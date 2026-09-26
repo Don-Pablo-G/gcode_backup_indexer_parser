@@ -17,32 +17,38 @@ SOURCE_TYPES = (
 # ---------------------------------------------------------------------------
 # Status = ran on machine? Derived from scan roots only (never folder aliases).
 # Internal ids stay ``backup`` / ``extra`` for DB / root YAML compatibility.
+# UI: green = on machine; yellow = status unknown (never a role / never "fixture").
 # ---------------------------------------------------------------------------
 STATUS_ON_MACHINE = "backup"  # 🟢 on_machine
-STATUS_NOT_RUN = "extra"  # 🟡 not_run
-STATUS_VALUES = (STATUS_ON_MACHINE, STATUS_NOT_RUN)
+STATUS_UNKNOWN = "extra"  # 🟡 status unknown (legacy name: not_run)
+STATUS_NOT_RUN = STATUS_UNKNOWN  # back-compat alias
+STATUS_VALUES = (STATUS_ON_MACHINE, STATUS_UNKNOWN)
 
 # Legacy aliases (pre-0.2.64 single-flag era)
 PROVENANCE_BACKUP = STATUS_ON_MACHINE
-PROVENANCE_EXTRA = STATUS_NOT_RUN
+PROVENANCE_EXTRA = STATUS_UNKNOWN
 PROVENANCE_WIP = "wip"  # now a *role* id, not a status
 PROVENANCE_VALUES = (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP)
 
 # ---------------------------------------------------------------------------
-# Role = production / WIP / fixture / … Editable catalogue + folder aliases.
+# Role = editable catalogue + folder aliases (never green/yellow status).
+# Seed colours: blue=prototype, red=personal, orange=system, purple=fixture.
 # ---------------------------------------------------------------------------
-ROLE_PRODUCTION = "production"
+ROLE_PROTOTYPE = "prototype"
+ROLE_PERSONAL = "personal"
+ROLE_SYSTEM_PROGRAMS = "system_programs"
 ROLE_FIXTURE = "fixture"
+# Legacy role ids (kept for DB / YAML rows; no longer auto-seeded as builtins)
+ROLE_PRODUCTION = "production"
 ROLE_WIP = "wip"
 ROLE_TEST = "test"
-ROLE_PERSONAL = "personal"
 ROLE_SEED_IDS = (
-    ROLE_PRODUCTION,
-    ROLE_FIXTURE,
-    ROLE_WIP,
-    ROLE_TEST,
+    ROLE_PROTOTYPE,
     ROLE_PERSONAL,
+    ROLE_SYSTEM_PROGRAMS,
+    ROLE_FIXTURE,
 )
+ROLE_LEGACY_IDS = (ROLE_PRODUCTION, ROLE_WIP, ROLE_TEST)
 
 # Path-role rule that skips indexing a folder branch (not stored on rows)
 COLOUR_EXCLUDE = "exclude"
@@ -87,10 +93,10 @@ class ProgramInstance:
     parse_status: str = "ok"
     error_message: Optional[str] = None
     header_kind: Optional[str] = None
-    # Status (ran on machine?): backup=on_machine 🟢, extra=not_run 🟡 — from roots only
+    # Status (ran on machine?): backup=on_machine 🟢, extra=status_unknown 🟡 — from roots only
     provenance: str = STATUS_ON_MACHINE
-    # Role tags (production / wip / …) — CSV of catalogue ids; None = unset.
-    # Multiple tags allowed (e.g. "fixture,wip"). Path tree map + name aliases.
+    # Role tags (prototype / personal / …) — CSV of catalogue ids; None = unset.
+    # Multiple tags allowed (e.g. "fixture,personal"). Path tree map + name aliases.
     role: Optional[str] = None
     scan_root: Optional[str] = None
     # Next-line comment (LP1) / (MS1); null if absent or non-matching

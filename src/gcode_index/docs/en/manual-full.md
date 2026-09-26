@@ -48,7 +48,7 @@ Applies to the main backup and green/yellow roots under that prefix. Search work
 | Folder | Purpose |
 |--------|---------|
 | **Backup folder** | Main CNC backup tree (`DATE\MACHINE\…`) |
-| **Database folder** (`target`) | `gcode_index.sqlite` + sidecar files (`machine_folders.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
+| **Database folder** (`target`) | `gcode_index.sqlite` + sidecar files (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, `ui_settings.yaml`, …) |
 | **Extract folder** | Default output for Wydobądź (blank = same as database folder) |
 
 Browsing for backup / database / extract keeps the folder panel **open** so you can finish all paths. Collapse with **Done** / **Gotowe** when finished (or when a scan starts).
@@ -56,7 +56,7 @@ Browsing for backup / database / extract keeps the folder panel **open** so you 
 ### Extra roots
 
 - **Green** — treat like on-machine / catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
-- **Yellow** — extra trees not from the machine backup. Programs get a **yellow** flag.
+- **Yellow** — extra trees not from the machine backup. Programs get a **yellow** status-unknown flag.
 
 Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-index.ini`).
 
@@ -69,22 +69,25 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 | Badge | Meaning | Source |
 |-------|---------|--------|
 | 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch roots |
-| 🟡 | Not run (`extra`) | Yellow extra roots |
+| 🟡 | Status unknown (`extra`) | Yellow extra roots |
 
 **Role folderów…** / **Folder roles…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
 
-1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning). Seeded: production, fixture, WIP, test, personal. Built-ins cannot be deleted. Legacy green/yellow colour ids migrate to status; red/customs become roles.
-2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases never change status.
+1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning). Seeded: **prototype** (blue), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
+2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases never change status. A folder may later receive **multiple** roles via the tree map.
 
-Results Flag column shows **status + role** badges (e.g. 🟢🔴). Use separate **Status** and **Role** filters. Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
+**Mapuj drzewo…** / **Map tree…** (indexer) edits `folder_tree_map.yaml` next to the database: lazy folder tree from the backup + green/yellow roots. Per node: machine (optional), **multiple role tags**, exclude, or clear. ★ = explicit path rule, · = inherited. **Longest path prefix wins** over name-wide aliases. Reindex reapplies the saved rules without reopening the dialog.
+
+Results Flag column shows **status + role badge(s)**. Use separate **Status** and **Role** filters (role filter matches any tag). Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
 
 ---
 
 ## Map folders and aliases
 
 1. **Map folders…** — discovers `<date>/<machine>` folders, auto-matches known aliases, and lists only unmatched names for manual assign. Map is saved as `machine_folders.yaml` (wins over aliases).
-2. Optional: save assignments as **local aliases** (`aliases.local.yaml`) for later scans.
-3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
+2. **Map tree…** — lazy path tree for machine + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins).
+3. Optional: save assignments as **local aliases** (`aliases.local.yaml`) for later scans.
+4. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
 
 ### Loose `.nc` machine assignment
 
@@ -174,7 +177,10 @@ Tick **Auto-refresh results** / **Odświeżaj wyniki** to **re-run the current s
 
 ## Instance settings
 
-`gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, and window size.  
+**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, window size, scan toggles (incremental / Excel / watch), path remap, **last find-bar filters** (text, machines, dates, size, status, role, …), sort column, and Praca/Indeks layout.  
+
+Sidecars next to the database (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, …) auto-load with the DB folder — tree/role/machine assignments are never lost on restart.  
+
 Every available key is commented in `gcode-index.ini.example`. Override path with env `GCODE_INDEX_INI=…`.
 
 Deploy:

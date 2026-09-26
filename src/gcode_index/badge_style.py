@@ -19,7 +19,7 @@ DOT = "●"
 
 STATUS_SWATCH = {
     PROVENANCE_BACKUP: "#1A7F37",  # on machine / green
-    PROVENANCE_EXTRA: "#B58900",  # not run / yellow
+    PROVENANCE_EXTRA: "#B58900",  # status unknown / yellow (never a role)
 }
 
 

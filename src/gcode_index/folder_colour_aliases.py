@@ -3,31 +3,31 @@
 Sidecar next to the database: ``folder_colour_aliases.yaml`` (filename kept for
 compat; content is roles, not green/yellow status).
 
-**Status** (🟢 on-machine / 🟡 not-run) comes from scan roots only and is stored
-on ``program_instances.provenance`` (``backup`` / ``extra``). Folder aliases
-never override status.
+**Status** (🟢 on-machine / 🟡 status unknown) comes from scan roots only and is
+stored on ``program_instances.provenance`` (``backup`` / ``extra``). Folder
+aliases never override status. Yellow status must never be labelled as a role
+(e.g. fixture).
 
-**Role** is the editable catalogue (production, fixture, wip, …) plus path
-aliases. Schema (v3)::
+**Role** is the editable catalogue (prototype, personal, system_programs,
+fixture, …) plus path aliases. Schema (v3)::
 
     colours:   # role definitions (id kept as ``colours`` key for YAML compat)
-      - id: production
-        label_pl: Produkcja
+      - id: prototype
+        label_pl: Prototyp
         …
-      - id: wip
+      - id: personal
         …
     rules:
       - alias: Pawel
-        colour: wip          # role id, or ``exclude``
+        colour: personal     # role id, or ``exclude``
       - alias: scrap
         colour: exclude
 
 Legacy files that still list green/yellow (``backup``/``extra``) as colours are
-migrated on load: those ids become status-only; rules pointing at them map to
-role seeds (backup→production, extra→fixture); ``wip`` and customs stay as roles.
-
-Matching walks path segments under the owning scan root (folders only).
-The **deepest** matching segment wins.
+migrated on load: those ids are stripped from the role catalogue; rules that
+pointed at status colours are **dropped** (status is not a role — never remap
+yellow→fixture). Old seeds (production / wip / test) are kept as non-builtin
+customs when present; new seeds are ensured.
 """
 
 from __future__ import annotations
@@ -46,9 +46,12 @@ from gcode_index.models import (
     PROVENANCE_EXTRA,
     PROVENANCE_WIP,
     ROLE_FIXTURE,
+    ROLE_LEGACY_IDS,
     ROLE_PERSONAL,
     ROLE_PRODUCTION,
+    ROLE_PROTOTYPE,
     ROLE_SEED_IDS,
+    ROLE_SYSTEM_PROGRAMS,
     ROLE_TEST,
     ROLE_WIP,
     STATUS_VALUES,
@@ -61,24 +64,40 @@ _MIN_PREFIX_ALIAS_LEN = 3
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
-# Legacy name → role id (status names remap to roles when used in *rules*)
+# Status colour spellings → status ids (NOT roles). Rules using these are dropped.
+_STATUS_LEGACY_NAMES = {
+    "green": PROVENANCE_BACKUP,
+    "backup": PROVENANCE_BACKUP,
+    "machine": PROVENANCE_BACKUP,
+    "ran": PROVENANCE_BACKUP,
+    "on_machine": PROVENANCE_BACKUP,
+    "yellow": PROVENANCE_EXTRA,
+    "extra": PROVENANCE_EXTRA,
+    "other": PROVENANCE_EXTRA,
+    "not_run": PROVENANCE_EXTRA,
+    "unknown": PROVENANCE_EXTRA,
+    "status_unknown": PROVENANCE_EXTRA,
+}
+
+# Colour-name shortcuts → role ids (never map green/yellow here)
 _LEGACY_COLOUR_NAMES = {
-    "green": ROLE_PRODUCTION,
-    "backup": ROLE_PRODUCTION,
-    "machine": ROLE_PRODUCTION,
-    "ran": ROLE_PRODUCTION,
-    "on_machine": ROLE_PRODUCTION,
-    "production": ROLE_PRODUCTION,
-    "yellow": ROLE_FIXTURE,
-    "extra": ROLE_FIXTURE,
-    "other": ROLE_FIXTURE,
-    "not_run": ROLE_FIXTURE,
+    "blue": ROLE_PROTOTYPE,
+    "prototype": ROLE_PROTOTYPE,
+    "proto": ROLE_PROTOTYPE,
+    "red": ROLE_PERSONAL,
+    "personal": ROLE_PERSONAL,
+    "orange": ROLE_SYSTEM_PROGRAMS,
+    "system": ROLE_SYSTEM_PROGRAMS,
+    "system_programs": ROLE_SYSTEM_PROGRAMS,
+    "system_program": ROLE_SYSTEM_PROGRAMS,
+    "purple": ROLE_FIXTURE,
+    "violet": ROLE_FIXTURE,
     "fixture": ROLE_FIXTURE,
-    "red": ROLE_WIP,
+    # Legacy role ids still resolve (optional customs, not auto-seeded)
+    "production": ROLE_PRODUCTION,
     "wip": ROLE_WIP,
     "work": ROLE_WIP,
     "test": ROLE_TEST,
-    "personal": ROLE_PERSONAL,
     "exclude": COLOUR_EXCLUDE,
     "skip": COLOUR_EXCLUDE,
     "ignore": COLOUR_EXCLUDE,
@@ -86,24 +105,32 @@ _LEGACY_COLOUR_NAMES = {
 
 # Old catalogue colour ids that are now status-only (strip from role catalog)
 _STATUS_COLOUR_IDS = frozenset(STATUS_VALUES)
-_STATUS_RULE_TO_ROLE = {
-    PROVENANCE_BACKUP: ROLE_PRODUCTION,
-    PROVENANCE_EXTRA: ROLE_FIXTURE,
-}
+
+
+def is_status_colour_id(raw: str | None) -> bool:
+    """True when ``raw`` names a scan-root status, not a folder role."""
+    key = (raw or "").strip().casefold().replace(" ", "_").replace("-", "_")
+    if not key:
+        return False
+    if key in _STATUS_COLOUR_IDS:
+        return True
+    return key in _STATUS_LEGACY_NAMES
 
 
 def normalize_colour_id(raw: str | None, *, known_ids: Optional[set[str]] = None) -> str:
     """Map a role label/id to a stable id, or ``exclude``.
 
     Unknown free-form ids are kept if they look like ids (or are in ``known_ids``);
-    otherwise fall back to ``production``. Status ids (``backup``/``extra``) used in
-    rules are remapped to role seeds.
+    otherwise fall back to ``prototype``. Status spellings (green/yellow/…) resolve
+    to status ids — callers must not store those as roles.
     """
     key = (raw or "").strip().casefold().replace(" ", "_").replace("-", "_")
     if not key:
-        return ROLE_PRODUCTION
-    if key in _STATUS_RULE_TO_ROLE:
-        return _STATUS_RULE_TO_ROLE[key]
+        return ROLE_PROTOTYPE
+    if key in _STATUS_LEGACY_NAMES:
+        return _STATUS_LEGACY_NAMES[key]
+    if key in _STATUS_COLOUR_IDS:
+        return key
     if key in _LEGACY_COLOUR_NAMES:
         return _LEGACY_COLOUR_NAMES[key]
     if known_ids is not None and key in known_ids:
@@ -112,7 +139,7 @@ def normalize_colour_id(raw: str | None, *, known_ids: Optional[set[str]] = None
         return COLOUR_EXCLUDE
     if _ID_RE.match(key):
         return key
-    return ROLE_PRODUCTION
+    return ROLE_PROTOTYPE
 
 
 # Back-compat alias used by older imports / GUI
@@ -120,13 +147,12 @@ def normalize_colour(raw: str | None) -> str:
     return normalize_colour_id(raw)
 
 
-# Preset chips for the folder-colour editor (swatch is primary; hex is optional).
+# Preset chips for the folder-role editor — exclude green/yellow (status only).
 COLOUR_PRESET_SWATCHES: tuple[str, ...] = (
-    "#1A7F37",  # green
-    "#B58900",  # yellow
-    "#C0392B",  # red
-    "#E67E22",  # orange
-    "#2980B9",  # blue
+    "#2980B9",  # blue — prototype
+    "#C0392B",  # red — personal
+    "#E67E22",  # orange — system programs
+    "#8E44AD",  # purple — fixture
     "#16A085",  # teal
     "#7F8C8D",  # grey
     "#2C3E50",  # dark
@@ -201,45 +227,15 @@ class ColourDef:
 
 
 def default_colours() -> list[ColourDef]:
-    """Seed roles (not status). Ids are stable for DB / YAML compat."""
+    """Seed roles (not status). Blue / red / orange / purple — never yellow."""
     return [
         ColourDef(
-            id=ROLE_PRODUCTION,
-            label_pl="Produkcja",
-            label_en="Production",
-            swatch="#1A7F37",
-            meaning_pl="Program produkcyjny / docelowy",
-            meaning_en="Production / release-ready program",
-            badge="●",
-            builtin=True,
-        ),
-        ColourDef(
-            id=ROLE_FIXTURE,
-            label_pl="Przyrząd",
-            label_en="Fixture",
+            id=ROLE_PROTOTYPE,
+            label_pl="Prototyp",
+            label_en="Prototype",
             swatch="#2980B9",
-            meaning_pl="Przyrząd / uchwyt / pomocniczy",
-            meaning_en="Fixture / workholding / helper",
-            badge="●",
-            builtin=True,
-        ),
-        ColourDef(
-            id=ROLE_WIP,
-            label_pl="WIP",
-            label_en="WIP",
-            swatch="#C0392B",
-            meaning_pl="WIP / nie produkcja",
-            meaning_en="WIP / not production-ready",
-            badge="●",
-            builtin=True,
-        ),
-        ColourDef(
-            id=ROLE_TEST,
-            label_pl="Test",
-            label_en="Test",
-            swatch="#8E44AD",
-            meaning_pl="Test / próba",
-            meaning_en="Test / trial",
+            meaning_pl="Prototyp / program roboczy",
+            meaning_en="Prototype / work-in-progress program",
             badge="●",
             builtin=True,
         ),
@@ -247,9 +243,29 @@ def default_colours() -> list[ColourDef]:
             id=ROLE_PERSONAL,
             label_pl="Osobisty",
             label_en="Personal",
-            swatch="#7F8C8D",
+            swatch="#C0392B",
             meaning_pl="Folder osobisty operatora",
             meaning_en="Operator personal folder",
+            badge="●",
+            builtin=True,
+        ),
+        ColourDef(
+            id=ROLE_SYSTEM_PROGRAMS,
+            label_pl="Programy systemowe",
+            label_en="System programs",
+            swatch="#E67E22",
+            meaning_pl="Programy systemowe / sterowania",
+            meaning_en="System / control programs",
+            badge="●",
+            builtin=True,
+        ),
+        ColourDef(
+            id=ROLE_FIXTURE,
+            label_pl="Przyrząd",
+            label_en="Fixture",
+            swatch="#8E44AD",
+            meaning_pl="Przyrząd / uchwyt / pomocniczy",
+            meaning_en="Fixture / workholding / helper",
             badge="●",
             builtin=True,
         ),
@@ -264,7 +280,7 @@ class FolderColourRule:
     """One folder-name alias → role id or exclude."""
 
     alias: str
-    colour: str = ROLE_PRODUCTION
+    colour: str = ROLE_PROTOTYPE
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "alias", (self.alias or "").strip())
@@ -295,6 +311,10 @@ class ColourCatalog:
                 continue
             seen.add(rule.key)
             colour = normalize_colour_id(rule.colour, known_ids=known)
+            # Status ids are never roles — drop legacy green/yellow rules
+            # (previously yellow was wrongly remapped to fixture).
+            if colour in _STATUS_COLOUR_IDS or is_status_colour_id(rule.colour):
+                continue
             cleaned.append(FolderColourRule(alias=rule.alias, colour=colour))
         self.rules = cleaned
 
@@ -304,6 +324,8 @@ class ColourCatalog:
 
     def get(self, colour_id: str) -> Optional[ColourDef]:
         cid = normalize_colour_id(colour_id, known_ids=self.colour_ids)
+        if cid in _STATUS_COLOUR_IDS:
+            return None
         for c in self.colours:
             if c.id == cid:
                 return c
@@ -315,7 +337,7 @@ class ColourCatalog:
             return c.label(lang)
         if colour_id == COLOUR_EXCLUDE:
             return "exclude"
-        return colour_id or ROLE_PRODUCTION
+        return colour_id or ROLE_PROTOTYPE
 
     def badge_for(self, colour_id: str) -> str:
         c = self.get(colour_id)
@@ -334,7 +356,15 @@ class ColourCatalog:
 
 
 def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]:
-    """Ensure role seeds exist; strip legacy status ids from the role catalogue."""
+    """Ensure role seeds exist; strip status ids; demote old seeds to customs.
+
+    - New seeds (prototype / personal / system_programs / fixture) are builtins
+      with the canonical swatches (blue / red / orange / purple).
+    - User label/meaning edits on seeds are preserved; seed swatches are refreshed
+      so yellow never remains a role colour and fixture is purple.
+    - Legacy seeds (production / wip / test) are kept when present but not
+      auto-added and not builtin — user customs are never wiped.
+    """
     defaults = {c.id: c for c in default_colours()}
     by_id: dict[str, ColourDef] = {}
     order: list[str] = []
@@ -342,7 +372,7 @@ def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]
         if not c.id or c.id == COLOUR_EXCLUDE or c.id in by_id:
             continue
         # green/yellow were status — do not keep them as roles
-        if c.id in _STATUS_COLOUR_IDS:
+        if c.id in _STATUS_COLOUR_IDS or is_status_colour_id(c.id):
             continue
         if c.id in defaults:
             d = defaults[c.id]
@@ -350,11 +380,24 @@ def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]
                 id=c.id,
                 label_pl=c.label_pl or d.label_pl,
                 label_en=c.label_en or d.label_en,
-                swatch=c.swatch or d.swatch,
-                meaning_pl=c.meaning_pl,
-                meaning_en=c.meaning_en,
+                # Canonical seed swatch (blue/red/orange/purple)
+                swatch=d.swatch,
+                meaning_pl=c.meaning_pl if c.meaning_pl else d.meaning_pl,
+                meaning_en=c.meaning_en if c.meaning_en else d.meaning_en,
                 badge=c.badge or d.badge,
                 builtin=True,
+            )
+        elif c.id in ROLE_LEGACY_IDS:
+            # Former builtins — keep data, no longer locked seeds
+            by_id[c.id] = ColourDef(
+                id=c.id,
+                label_pl=c.label_pl,
+                label_en=c.label_en,
+                swatch=c.swatch,
+                meaning_pl=c.meaning_pl,
+                meaning_en=c.meaning_en,
+                badge=c.badge,
+                builtin=False,
             )
         else:
             by_id[c.id] = ColourDef(
@@ -409,10 +452,14 @@ def _parse_colour_def(item: Any) -> Optional[ColourDef]:
 
 def _parse_rule(item: Any, *, known_ids: Optional[set[str]] = None) -> Optional[FolderColourRule]:
     if isinstance(item, FolderColourRule):
-        return item if item.alias else None
+        if not item.alias:
+            return None
+        if item.colour in _STATUS_COLOUR_IDS or is_status_colour_id(item.colour):
+            return None
+        return item
     if isinstance(item, str):
         alias = item.strip()
-        return FolderColourRule(alias=alias, colour=ROLE_PRODUCTION) if alias else None
+        return FolderColourRule(alias=alias, colour=ROLE_PROTOTYPE) if alias else None
     if isinstance(item, dict):
         alias = str(item.get("alias") or item.get("name") or item.get("folder") or "").strip()
         if not alias:
@@ -424,10 +471,10 @@ def _parse_rule(item: Any, *, known_ids: Optional[set[str]] = None) -> Optional[
             or item.get("provenance")
             or item.get("flag")
         )
-        return FolderColourRule(
-            alias=alias,
-            colour=normalize_colour_id(str(colour or ROLE_PRODUCTION), known_ids=known_ids),
-        )
+        cid = normalize_colour_id(str(colour or ROLE_PROTOTYPE), known_ids=known_ids)
+        if cid in _STATUS_COLOUR_IDS:
+            return None
+        return FolderColourRule(alias=alias, colour=cid)
     return None
 
 
@@ -475,10 +522,10 @@ def save_colour_catalog(path: Path | str, catalog: ColourCatalog) -> Path:
     payload = {
         "_comment": (
             "Folder roles + path aliases (v3). "
-            "Status (🟢 on-machine / 🟡 not-run) comes from scan roots, not these rules. "
-            "colours: role id, labels, swatch, meaning, badge. "
-            "rules: folder-name alias → role id or exclude; deepest segment wins. "
-            "Legacy green/yellow colour ids are migrated to roles on load."
+            "Status (🟢 on-machine / 🟡 status unknown) comes from scan roots, not these rules. "
+            "Seed roles: prototype (blue), personal (red), system_programs (orange), fixture (purple). "
+            "Yellow/green are status only — never role labels (yellow ≠ fixture). "
+            "rules: folder-name alias → role id or exclude; deepest segment wins."
         ),
         "colours": [c.to_dict() for c in cat.colours],
         "rules": [r.to_dict() for r in cat.rules],
@@ -515,7 +562,7 @@ class FolderColourAliasMap:
         *,
         known_ids: Optional[set[str]] = None,
     ) -> None:
-        self._known = set(known_ids or ()) | set(ROLE_SEED_IDS) | {
+        self._known = set(known_ids or ()) | set(ROLE_SEED_IDS) | set(ROLE_LEGACY_IDS) | {
             COLOUR_EXCLUDE,
             PROVENANCE_WIP,  # legacy role id still accepted
         }
@@ -525,6 +572,8 @@ class FolderColourAliasMap:
             if not rule.alias or not rule.key:
                 continue
             colour = normalize_colour_id(rule.colour, known_ids=self._known)
+            if colour in _STATUS_COLOUR_IDS or is_status_colour_id(rule.colour):
+                continue
             r = FolderColourRule(alias=rule.alias, colour=colour)
             self._rules.append(r)
             self._by_key[r.key] = r

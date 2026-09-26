@@ -58,8 +58,8 @@ Zaznacz wiersz wyniku, żeby załadować G-code w **Podglądzie** po prawej. Pol
 
 | Kolumna / kolor | Znaczenie |
 |-----------------|-----------|
-| **Zielona** flaga pochodzenia | Z głównej kopii / złapania z maszyny |
-| **Żółta** | Z dodatkowego folderu (nie z kopii) |
+| **Zielona** flaga pochodzenia | Na maszynie — główna kopia / złapanie z maszyny |
+| **Żółta** | Status nieznany — dodatkowy folder (nie z kopii) |
 | **Źródło = BRAK** (czerwony wiersz) | Plik źródłowy zniknął z dysku od ostatniego skanu — jest w bazie, ale wydobycie / podgląd się nie uda |
 | **MACHINE UNKNOWN** | Ścieżka nie pasowała do znanej nazwy maszyny ani aliasu |
 
