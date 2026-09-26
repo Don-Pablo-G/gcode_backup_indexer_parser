@@ -60,6 +60,8 @@ Wybór folderów **nie zwija** sekcji — dokończ ścieżki, potem **Gotowe**.
 
 Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
+**Zagnieżdżone katalogi:** **najgłębszy** skonfigurowany root (główna kopia lub zielony/żółty), który zawiera plik, go „posiada” — jego kolor i `scan_root`. Przykład: żółty rodzic + zielone dziecko → pliki w dziecku tylko **zielone** (bez duplikatu żółtego). Przy dodaniu rootu wewnątrz innego pojawia się krótka informacja, że dziecko nadpisuje kolor rodzica.
+
 ---
 
 ## Mapowanie folderów i aliasy

@@ -123,7 +123,7 @@ from gcode_index.scan_report import (
     load_scan_report,
     scan_report_from_result,
 )
-from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
+from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots, roots_nest
 from gcode_index.folder_watch import (
     DEFAULT_WATCH_MODE,
     METHOD_EVENTS,
@@ -2192,6 +2192,15 @@ class IndexerApp(tk.Tk):
                 self._("extra_folders"), self._("extra_already_listed")
             )
             return
+        nest_against: list[str] = []
+        if backup:
+            nest_against.append(backup)
+        nest_against.extend(s.path for s in self._scan_root_specs())
+        if any(roots_nest(resolved, other) for other in nest_against):
+            messagebox.showinfo(
+                self._("extra_folders"),
+                self._("nested_root_overrides"),
+            )
         specs = self._scan_root_specs()
         specs.append(ScanRootSpec(path=resolved, provenance=provenance))
         self._fill_extra_list(specs)

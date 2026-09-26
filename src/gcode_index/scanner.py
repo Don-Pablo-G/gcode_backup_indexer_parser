@@ -27,7 +27,9 @@ from gcode_index.models import (
     ScanResult,
     UnknownFolder,
 )
+from gcode_index.folder_watch import path_under
 from gcode_index.scan_cache import ScanCache
+
 log = logging.getLogger("gcode_index.scanner")
 
 _HAAS_BACKUP_DIR = re.compile(r"^HaasBackup\(.*\)$", re.IGNORECASE)
@@ -87,6 +89,74 @@ def rel_path(path: Path, root: Path) -> str:
         return path.as_posix()
 
 
+def deeper_roots_under(current: Path, all_roots: list[Path]) -> list[Path]:
+    """Configured roots that sit strictly inside ``current`` (nested children)."""
+    try:
+        cur = current.resolve()
+    except OSError:
+        cur = current
+    out: list[Path] = []
+    for r in all_roots:
+        try:
+            rr = r.resolve()
+        except OSError:
+            rr = r
+        if rr == cur:
+            continue
+        if path_under(rr, cur):
+            out.append(rr)
+    return out
+
+
+def owning_scan_root(
+    abs_path: Path,
+    roots: list[tuple[Path, str]],
+) -> Optional[tuple[Path, str]]:
+    """Deepest configured root that contains ``abs_path`` (longest path prefix).
+
+    Returns ``(resolved_root, provenance)`` or ``None`` if no root contains the path.
+    """
+    try:
+        target = abs_path.resolve()
+    except OSError:
+        target = abs_path
+    best: Optional[tuple[Path, str]] = None
+    best_parts = -1
+    for root, prov in roots:
+        try:
+            rr = root.resolve()
+        except OSError:
+            rr = root
+        if not path_under(target, rr):
+            continue
+        n = len(rr.parts)
+        if n > best_parts:
+            best = (rr, prov)
+            best_parts = n
+    return best
+
+
+def _under_skip(path: Path, skip_under: Optional[list[Path]]) -> bool:
+    if not skip_under:
+        return False
+    return any(path_under(path, s) for s in skip_under)
+
+
+def roots_nest(a: Path | str, b: Path | str) -> bool:
+    """True when one path is a strict ancestor of the other (nested roots)."""
+    try:
+        pa = Path(a).resolve()
+    except OSError:
+        pa = Path(a)
+    try:
+        pb = Path(b).resolve()
+    except OSError:
+        pb = Path(b)
+    if pa == pb:
+        return False
+    return path_under(pa, pb) or path_under(pb, pa)
+
+
 def _is_nc(path: Path) -> bool:
     return path.suffix.lower() == ".nc"
 
@@ -108,11 +178,17 @@ def _basename_is(path: Path, name: str) -> bool:
     return path.name.upper() == name.upper()
 
 
-def _count_indexable_files(root: Path) -> int:
+def _count_indexable_files(
+    root: Path,
+    *,
+    skip_under: Optional[list[Path]] = None,
+) -> int:
     """Count dump + .nc / .nc.copy files we expect to touch (for progress denominator)."""
     n = 0
     for path in root.rglob("*"):
         if not path.is_file():
+            continue
+        if _under_skip(path, skip_under):
             continue
         if (
             _is_nc_like(path)
@@ -145,11 +221,14 @@ def scan_backup_tree(
     folder_map: Optional[FolderMachineMap] = None,
     provenance: str = PROVENANCE_BACKUP,
     cache: Optional[ScanCache] = None,
+    skip_under: Optional[list[Path]] = None,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
     if not root.is_dir():
         raise NotADirectoryError(f"backup root is not a directory: {root}")
+
+    skip = list(skip_under or [])
 
     if progress:
         progress(
@@ -163,7 +242,7 @@ def scan_backup_tree(
                 "eta_s": None,
             }
         )
-    total = _count_indexable_files(root)
+    total = _count_indexable_files(root, skip_under=skip)
     prog = _ScanProgress(progress, total)
     prog.emit(
         phase="scanning",
@@ -175,8 +254,12 @@ def scan_backup_tree(
 
     # date → machine: glued dumps (.pgm / ALL-FLDR / ALL-PROG) + unknown-folder log
     for date_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        if _under_skip(date_dir, skip):
+            continue
         date_folder_raw = date_dir.name
         for machine_dir in sorted(p for p in date_dir.iterdir() if p.is_dir()):
+            if _under_skip(machine_dir, skip):
+                continue
             _scan_machine_folder_dumps(
                 machine_dir=machine_dir,
                 root=root,
@@ -187,6 +270,7 @@ def scan_backup_tree(
                 folder_map=folder_map,
                 cache=cache,
                 scan_root=scan_root_s,
+                skip_under=skip,
             )
 
     # Individual .nc / .nc.copy: whole tree from backup root (any depth)
@@ -198,6 +282,7 @@ def scan_backup_tree(
         folder_map=folder_map,
         cache=cache,
         scan_root=scan_root_s,
+        skip_under=skip,
     )
 
     _stamp_provenance(result, provenance=provenance, scan_root=root)
@@ -226,6 +311,11 @@ def scan_with_extra_roots(
     ``extra_roots`` are tagged yellow (``provenance=extra``) for backward compatibility.
     ``root_specs`` is a list of ``(path, provenance)`` or objects with ``.path`` / ``.provenance``
     (e.g. ``ScanRootSpec``) so catch folders can be green (``backup``).
+
+    Nested roots use **longest-prefix ownership**: each file is indexed only under the
+    deepest configured root that contains it (that root's colour / ``scan_root``).
+    A green child inside a yellow parent therefore yields green rows only for the child
+    tree — no duplicate rows from the parent pass.
     """
     roots: list[tuple[Path, str]] = [(Path(backup_root), PROVENANCE_BACKUP)]
     seen: set[str] = {str(Path(backup_root).resolve())}
@@ -260,6 +350,14 @@ def scan_with_extra_roots(
     for raw in extra_roots or []:
         _add(raw, PROVENANCE_EXTRA)
 
+    all_root_paths = [p for p, _ in roots]
+    resolved_roots: list[tuple[Path, str]] = []
+    for p, prov in roots:
+        try:
+            resolved_roots.append((p.resolve(), prov))
+        except OSError:
+            resolved_roots.append((p, prov))
+
     merged = ScanResult()
     for i, (root_path, prov) in enumerate(roots):
         if prov == PROVENANCE_BACKUP and i == 0:
@@ -268,6 +366,7 @@ def scan_with_extra_roots(
             label = f"green {i}"
         else:
             label = f"extra {i}"
+        skip = deeper_roots_under(root_path, all_root_paths)
         if progress:
             progress(
                 {
@@ -288,10 +387,13 @@ def scan_with_extra_roots(
             folder_map=folder_map,
             provenance=prov,
             cache=cache,
+            skip_under=skip,
         )
         merged.instances.extend(part.instances)
         merged.files_seen.extend(part.files_seen)
         merged.unknowns.extend(part.unknowns)
+
+    merged = _filter_longest_prefix_instances(merged, resolved_roots)
 
     if progress:
         n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
@@ -319,6 +421,38 @@ def scan_with_extra_roots(
     return merged
 
 
+def _filter_longest_prefix_instances(
+    result: ScanResult,
+    roots: list[tuple[Path, str]],
+) -> ScanResult:
+    """Keep only instances whose ``scan_root`` is the deepest owner of the source file."""
+    if len(roots) <= 1:
+        return result
+    kept = ScanResult()
+    kept.files_seen = list(result.files_seen)
+    kept.unknowns = list(result.unknowns)
+    for inst in result.instances:
+        scan_root = Path(inst.scan_root or "")
+        try:
+            abs_src = (scan_root / inst.source_path).resolve()
+        except OSError:
+            abs_src = scan_root / inst.source_path
+        owner = owning_scan_root(abs_src, roots)
+        if owner is None:
+            continue
+        owner_root, owner_prov = owner
+        try:
+            inst_root = scan_root.resolve()
+        except OSError:
+            inst_root = scan_root
+        if inst_root != owner_root:
+            continue
+        if inst.provenance != owner_prov:
+            inst.provenance = owner_prov
+        kept.instances.append(inst)
+    return kept
+
+
 def _stamp_provenance(
     result: ScanResult,
     *,
@@ -342,6 +476,7 @@ def _scan_machine_folder_dumps(
     folder_map: Optional[FolderMachineMap] = None,
     cache: Optional[ScanCache] = None,
     scan_root: str = "",
+    skip_under: Optional[list[Path]] = None,
 ) -> None:
     """Index glued dumps (.pgm / ALL-FLDR / ALL-PROG).
 
@@ -378,6 +513,8 @@ def _scan_machine_folder_dumps(
     indexed_any = False
     for path in sorted(machine_dir.rglob("*")):
         if not path.is_file():
+            continue
+        if _under_skip(path, skip_under):
             continue
         if _is_pgm(path):
             _index_pgm(
@@ -548,6 +685,7 @@ def _index_all_nc_files(
     folder_map: Optional[FolderMachineMap] = None,
     cache: Optional[ScanCache] = None,
     scan_root: str = "",
+    skip_under: Optional[list[Path]] = None,
 ) -> None:
     """Walk entire backup tree for *.nc / *.nc.copy.
 
@@ -557,6 +695,8 @@ def _index_all_nc_files(
     seen: set[Path] = set()
     for path in sorted(root.rglob("*")):
         if not path.is_file() or not _is_nc_like(path):
+            continue
+        if _under_skip(path, skip_under):
             continue
         rp = path.resolve()
         if rp in seen:

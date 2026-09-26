@@ -60,6 +60,8 @@ Browsing for backup / database / extract keeps the folder panel **open** so you 
 
 Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-index.ini`).
 
+**Nested roots:** the **deepest** configured root (main backup or green/yellow) that contains a file owns it — that root’s colour and `scan_root` apply. Example: yellow parent + green child → files under the child are **green only** (no duplicate yellow row). Adding a root inside another shows a short note that the child overrides the parent colour.
+
 ---
 
 ## Map folders and aliases
