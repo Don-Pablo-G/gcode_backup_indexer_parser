@@ -76,6 +76,17 @@ from gcode_index.folder_tree_map import (
     save_folder_tree_map,
     tree_map_path_for_target,
 )
+from gcode_index.badge_style import (
+    DOT,
+    STATUS_SWATCH,
+    flag_tag,
+    flag_text,
+    make_swatch,
+    pack_status_legend,
+    role_dot,
+    status_dot,
+    status_swatch,
+)
 from gcode_index.models import (
     COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
@@ -2106,8 +2117,8 @@ class IndexerApp(tk.Tk):
             stretch = key in ("path", "part")
             self.tree.column(key, width=width, stretch=stretch, minwidth=40)
         self._refresh_heading_labels()
-        self.tree.tag_configure("flag_backup", foreground="#1a7f37")
-        self.tree.tag_configure("flag_extra", foreground="#b58900")
+        self.tree.tag_configure("flag_backup", foreground=STATUS_SWATCH[PROVENANCE_BACKUP])
+        self.tree.tag_configure("flag_extra", foreground=STATUS_SWATCH[PROVENANCE_EXTRA])
         self.tree.tag_configure("flag_wip", foreground="#c0392b")
         self._configure_colour_tags()
         # Missing source: dim grey + distinct from provenance colours
@@ -4066,8 +4077,12 @@ class IndexerApp(tk.Tk):
     def _configure_colour_tags(self) -> None:
         if not hasattr(self, "tree"):
             return
-        self.tree.tag_configure("flag_backup", foreground="#1a7f37")
-        self.tree.tag_configure("flag_extra", foreground="#b58900")
+        self.tree.tag_configure(
+            "flag_backup", foreground=STATUS_SWATCH[PROVENANCE_BACKUP]
+        )
+        self.tree.tag_configure(
+            "flag_extra", foreground=STATUS_SWATCH[PROVENANCE_EXTRA]
+        )
         for c in self._colour_catalog.colours:
             tag = f"flag_{c.id}"
             try:
@@ -4114,23 +4129,14 @@ class IndexerApp(tk.Tk):
         return cid if cid in catalog.colour_ids else None
 
     def _status_badge(self, prov: str) -> str:
-        if (prov or PROVENANCE_BACKUP) == PROVENANCE_EXTRA:
-            return "🟡"
-        return "🟢"
+        """Status disc (colour via Treeview tag foreground — Windows-safe)."""
+        return status_dot(prov)
 
     def _flag_badge_and_tag(self, prov: str, role: Optional[str] = None) -> tuple[str, str]:
-        """Return combined status+role badges and a tree tag (first role swatch preferred)."""
+        """Return Flag-column text + tree tag (swatch colour, not emoji)."""
         status = prov or PROVENANCE_BACKUP
-        status_badge = self._status_badge(status)
-        catalog = getattr(self, "_colour_catalog", ColourCatalog())
         tags = roles_from_db(role)
-        if tags:
-            badges: list[str] = []
-            for rid in tags:
-                c = catalog.get(rid)
-                badges.append(c.badge if c is not None else "●")
-            return f"{status_badge}{''.join(badges)}", f"flag_{tags[0]}"
-        return status_badge, f"flag_{status}"
+        return flag_text(status, tags), flag_tag(status, tags)
 
     def _provenance_filter_value(self) -> Optional[str]:
         return self._status_filter_value()
@@ -5023,8 +5029,12 @@ class DuplicatesDialog(tk.Toplevel):
             self.member_tree.column(
                 key, width=width, stretch=(key == "path"), minwidth=40
             )
-        self.member_tree.tag_configure("flag_backup", foreground="#1a7f37")
-        self.member_tree.tag_configure("flag_extra", foreground="#b58900")
+        self.member_tree.tag_configure(
+            "flag_backup", foreground=STATUS_SWATCH[PROVENANCE_BACKUP]
+        )
+        self.member_tree.tag_configure(
+            "flag_extra", foreground=STATUS_SWATCH[PROVENANCE_EXTRA]
+        )
         for c in self._catalog.colours:
             self.member_tree.tag_configure(f"flag_{c.id}", foreground=c.swatch)
         msb = ttk.Scrollbar(bottom, orient=tk.VERTICAL, command=self.member_tree.yview)
@@ -5044,23 +5054,16 @@ class DuplicatesDialog(tk.Toplevel):
         self._rebuild_group_list()
 
     def _colour_badges(self, colour_ids: frozenset[str] | set[str]) -> str:
+        """Colourable discs (not emoji) for conflict banners / lists."""
         bits: list[str] = []
         for cid in sorted(colour_ids):
-            c = self._catalog.get(cid)
-            bits.append(c.badge if c is not None else "●")
-        return "".join(bits)
+            bits.append(role_dot())
+        return "".join(bits) if bits else role_dot()
 
     def _flag_for(self, prov: str, role: str | None = None) -> tuple[str, str]:
         status = prov or PROVENANCE_BACKUP
-        status_badge = "🟡" if status == PROVENANCE_EXTRA else "🟢"
         tags = roles_from_db(role)
-        if tags:
-            badges: list[str] = []
-            for rid in tags:
-                c = self._catalog.get(rid)
-                badges.append(c.badge if c is not None else "●")
-            return f"{status_badge}{''.join(badges)}", f"flag_{tags[0]}"
-        return status_badge, f"flag_{status}"
+        return flag_text(status, tags), flag_tag(status, tags)
 
     def _rebuild_group_list(self) -> None:
         only = bool(self._conflicts_only.get())
@@ -5140,7 +5143,7 @@ class DuplicatesDialog(tk.Toplevel):
             )
             if getattr(group, "status_conflict", False):
                 status_badges = "".join(
-                    "🟡" if s == PROVENANCE_EXTRA else "🟢"
+                    status_dot(s)
                     for s in sorted(getattr(group, "status_ids", ()) or ())
                 )
                 banner = (
@@ -5305,11 +5308,16 @@ class FolderTreeMapDialog(tk.Toplevel):
         for c in catalog.colours:
             var = tk.BooleanVar(value=False)
             self._tag_vars[c.id] = var
+            row = ttk.Frame(tags_frame)
+            row.pack(anchor=tk.W, fill=tk.X)
+            make_swatch(row, c.swatch, width=2, padx=2, pady=0).pack(
+                side=tk.LEFT, padx=(0, 4)
+            )
             ttk.Checkbutton(
-                tags_frame,
-                text=f"{c.badge} {c.label(_lang_of(master))}",
+                row,
+                text=c.label(_lang_of(master)),
                 variable=var,
-            ).pack(anchor=tk.W)
+            ).pack(side=tk.LEFT)
 
         self._exclude_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -5712,9 +5720,11 @@ class FolderColourAliasDialog(tk.Toplevel):
             body, text=_tr(self.master, "filter_status"), padding=6
         )
         explain.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        ttk.Label(
+        pack_status_legend(
             explain,
-            text=_tr(self.master, "folder_colour_status_explain"),
+            on_machine_text=_tr(self.master, "status_on_machine"),
+            not_run_text=_tr(self.master, "status_not_run"),
+            explain_text=_tr(self.master, "folder_colour_status_explain"),
             wraplength=720,
         ).pack(fill=tk.X)
 
@@ -5859,12 +5869,18 @@ class FolderColourAliasDialog(tk.Toplevel):
             self._swatch_preview.configure(background="#888888")
 
     def _colour_row_label(self, c: ColourDef) -> str:
-        return f"{c.badge}  {c.label(self._lang)}  ({c.id})"
+        # Disc takes Listbox item foreground (swatch); avoid emoji glyphs.
+        return f"{DOT}  {c.label(self._lang)}  ({c.id})"
 
     def _refresh_colour_list(self) -> None:
         self._colour_list.delete(0, tk.END)
         for c in self._catalog.colours:
             self._colour_list.insert(tk.END, self._colour_row_label(c))
+            idx = self._colour_list.size() - 1
+            try:
+                self._colour_list.itemconfig(idx, foreground=c.swatch)
+            except tk.TclError:
+                pass
 
     def _on_colour_select(self, _evt=None) -> None:
         sel = self._colour_list.curselection()
@@ -5918,7 +5934,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             swatch="#e67e22",
             meaning_pl="",
             meaning_en="",
-            badge="🟠",
+            badge="●",
             builtin=False,
         )
         colours = list(self._catalog.colours) + [new]

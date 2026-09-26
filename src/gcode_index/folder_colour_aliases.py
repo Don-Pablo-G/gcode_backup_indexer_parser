@@ -210,7 +210,7 @@ def default_colours() -> list[ColourDef]:
             swatch="#1A7F37",
             meaning_pl="Program produkcyjny / docelowy",
             meaning_en="Production / release-ready program",
-            badge="🏭",
+            badge="●",
             builtin=True,
         ),
         ColourDef(
@@ -220,7 +220,7 @@ def default_colours() -> list[ColourDef]:
             swatch="#2980B9",
             meaning_pl="Przyrząd / uchwyt / pomocniczy",
             meaning_en="Fixture / workholding / helper",
-            badge="🔧",
+            badge="●",
             builtin=True,
         ),
         ColourDef(
@@ -230,7 +230,7 @@ def default_colours() -> list[ColourDef]:
             swatch="#C0392B",
             meaning_pl="WIP / nie produkcja",
             meaning_en="WIP / not production-ready",
-            badge="🔴",
+            badge="●",
             builtin=True,
         ),
         ColourDef(
@@ -240,7 +240,7 @@ def default_colours() -> list[ColourDef]:
             swatch="#8E44AD",
             meaning_pl="Test / próba",
             meaning_en="Test / trial",
-            badge="🧪",
+            badge="●",
             builtin=True,
         ),
         ColourDef(
@@ -250,7 +250,7 @@ def default_colours() -> list[ColourDef]:
             swatch="#7F8C8D",
             meaning_pl="Folder osobisty operatora",
             meaning_en="Operator personal folder",
-            badge="👤",
+            badge="●",
             builtin=True,
         ),
     ]

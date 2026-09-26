@@ -99,7 +99,7 @@ def test_custom_role_roundtrip(tmp_path: Path):
                 swatch="#e67e22",
                 meaning_pl="Do sprawdzenia",
                 meaning_en="Needs review",
-                badge="🟠",
+                badge="●",
             )
         ],
         rules=[FolderColourRule(alias="Q", colour="quarantine")],

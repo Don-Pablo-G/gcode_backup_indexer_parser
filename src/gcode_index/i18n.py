@@ -92,7 +92,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "aliases_dialog_title": "Maszyny i aliasy",
         "folder_colours": "Role folderów…",
         "folder_colours_dialog_title": "Role i aliasy folderów",
-        "folder_colours_intro": "Zdefiniuj role (nazwa, barwa, znaczenie) oraz aliasy nazw folderów → rola lub wyklucz. Najgłębszy pasujący segment wygrywa (także wewnątrz kopii). Status 🟢/🟡 pochodzi wyłącznie z korzeni skanu.",
+        "folder_colours_intro": "Zdefiniuj role (nazwa, barwa, znaczenie) oraz aliasy nazw folderów → rola lub wyklucz. Najgłębszy pasujący segment wygrywa (także wewnątrz kopii). Status (zielony/żółty) pochodzi wyłącznie z korzeni skanu.",
         "folder_colours_tab_colours": "Role",
         "folder_colours_tab_aliases": "Aliasy folderów",
         "folder_colour_edit": "Edycja roli",
@@ -109,7 +109,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "folder_colour_meaning_en": "Znaczenie (EN)",
         "folder_colour_new_label": "Nowa rola",
         "folder_colour_builtin_locked": "Ról wbudowanych (produkcja / przyrząd / WIP / test / osobisty) nie można usunąć — możesz zmienić nazwę, barwę i znaczenie.",
-        "folder_colour_status_explain": "Status 🟢 (na maszynie) i 🟡 (nie uruchomiony) pochodzi wyłącznie z korzeni skanu — zielony = folder kopii, żółty = dodatkowy. Aliasy folderów ustawiają tylko rolę i nigdy nie zmieniają statusu.",
+        "folder_colour_status_explain": "Kolorowe znaczniki powyżej = status z korzeni skanu (zielony = folder kopii / na maszynie, żółty = dodatkowy / nie uruchomiony). Aliasy folderów ustawiają tylko rolę i nigdy nie zmieniają statusu.",
         "folder_colour_alias": "Alias folderu",
         "folder_colour_value": "Rola / akcja",
         "folder_colour_add": "Dodaj",
@@ -187,8 +187,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "delete": "Usuń",
         "preset_hint": "Zapisane jako {filename} obok bazy",
         "hint": (
-            "Status 🟢 = z głównej kopii (na maszynie); 🟡 = z dodatkowego folderu (nie uruchomiony). "
-            "Rola (🏭/🔴/…) z aliasów folderów — osobno od statusu. "
+            "Status (zielony = główna kopia / na maszynie; żółty = dodatkowy / nie uruchomiony). "
+            "Rola z aliasów folderów — osobno od statusu. "
             "Programista = następna linia (LP1)/(MS1) gdy obecna. "
             "Tylko najnowsze = jedna pozycja na program+maszynę. "
             "Ctrl/Shift+klik = wielokrotny wybór do wydobycia. "
@@ -247,9 +247,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_pick": "Wybierz folder kopii i folder bazy.",
         "status_pick_simple": "Otwórz istniejącą bazę (zielony przycisk).",
         "status_loaded_ini": "Wczytano ustawienia z {filename}",
-        "flag_green": "🟢 na maszynie (kopia)",
-        "flag_yellow": "🟡 nie uruchomiony (dodatkowy)",
-        "flag_red": "🔴 rola WIP",
+        "flag_green": "● na maszynie (kopia)",
+        "flag_yellow": "● nie uruchomiony (dodatkowy)",
+        "flag_red": "● rola WIP",
         "all_paren": "(wszystkie)",
         "ctx_extract": "Wydobądź zaznaczone…",
         "ctx_compare": "Porównaj…",
@@ -555,7 +555,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "aliases_dialog_title": "Machines & aliases",
         "folder_colours": "Folder roles…",
         "folder_colours_dialog_title": "Roles and folder aliases",
-        "folder_colours_intro": "Define roles (name, swatch, meaning) and folder-name aliases → role or exclude. Deepest matching path segment wins (also inside the backup). Status 🟢/🟡 comes only from scan roots.",
+        "folder_colours_intro": "Define roles (name, swatch, meaning) and folder-name aliases → role or exclude. Deepest matching path segment wins (also inside the backup). Status (green/yellow) comes only from scan roots.",
         "folder_colours_tab_colours": "Roles",
         "folder_colours_tab_aliases": "Folder aliases",
         "folder_colour_edit": "Edit role",
@@ -572,7 +572,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "folder_colour_meaning_en": "Meaning (EN)",
         "folder_colour_new_label": "New role",
         "folder_colour_builtin_locked": "Seed roles (production / fixture / WIP / test / personal) cannot be removed — you can still rename them and edit swatch and meaning.",
-        "folder_colour_status_explain": "Status 🟢 (on machine) and 🟡 (not run) come only from scan roots — green = backup folder, yellow = extra. Folder aliases set role only and never change status.",
+        "folder_colour_status_explain": "Coloured markers above = status from scan roots (green = backup / on machine, yellow = extra / not run). Folder aliases set role only and never change status.",
         "folder_colour_alias": "Folder alias",
         "folder_colour_value": "Role / action",
         "folder_colour_add": "Add",
@@ -650,8 +650,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "delete": "Delete",
         "preset_hint": "Stored as {filename} next to the DB",
         "hint": (
-            "Status 🟢 = from main backup (on machine); 🟡 = from an extra folder (not run). "
-            "Role (🏭/🔴/…) from folder aliases — separate from status. "
+            "Status (green = main backup / on machine; yellow = extra folder / not run). "
+            "Role from folder aliases — separate from status. "
             "Programmer = next-line (LP1)/(MS1) when present. "
             "Newest only keeps the latest date per program+machine. "
             "Ctrl/Shift+click rows to multi-select for batch extract. "
@@ -710,9 +710,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_pick": "Pick a backup folder and a database folder.",
         "status_pick_simple": "Open an existing database (green button).",
         "status_loaded_ini": "Loaded settings from {filename}",
-        "flag_green": "🟢 on machine (backup)",
-        "flag_yellow": "🟡 not run (extra)",
-        "flag_red": "🔴 role WIP",
+        "flag_green": "● on machine (backup)",
+        "flag_yellow": "● not run (extra)",
+        "flag_red": "● role WIP",
         "all_paren": "(all)",
         "ctx_extract": "Extract selected…",
         "ctx_compare": "Compare…",
