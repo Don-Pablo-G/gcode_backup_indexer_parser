@@ -1446,14 +1446,14 @@ class IndexerApp(tk.Tk):
     def _set_language(self, lang: str, *, persist: bool = True) -> None:
         """Switch UI language and rebuild widgets.
 
-        Rebuild is deferred with ``after_idle`` so ``<<ComboboxSelected>>`` can
-        finish before the language Combobox is destroyed — destroying it from
-        inside its own event handler freezes / corrupts Tk packing (empty Indeks
-        pane with only Praca/Indeks buttons left).
+        Rebuild is deferred with ``after(1, …)`` so ``<<ComboboxSelected>>``
+        (and any pending ButtonRelease) can finish before the language Combobox
+        is destroyed — destroying it from inside its own event handler freezes /
+        corrupts Tk packing (empty Indeks pane with only Praca/Indeks buttons).
 
-        Snapshot + nav lock freeze Praca/Indeks across the idle gap and the
-        brief post-rebuild window so Combobox click-through / ButtonRelease
-        cannot synthesize a phantom Indeks activation.
+        Snapshot + nav lock freeze Praca/Indeks across the deferral and the
+        post-rebuild quarantine so Combobox click-through cannot synthesize a
+        phantom Indeks activation.
         """
         code = normalize_lang(lang)
         if code == self._lang and self._root_frame is not None:
@@ -1465,6 +1465,7 @@ class IndexerApp(tk.Tk):
         # Freeze chrome state now — before dropdown close can ghost-click nav.
         self._lang_switch_snapshot = self._snapshot_ui()
         self._lang_switching = True
+        self._arm_nav_ignore(500)
         self._lang = code
         self._pending_lang_persist = bool(persist)
         if getattr(self, "_rebuild_after_id", None):
@@ -1472,7 +1473,8 @@ class IndexerApp(tk.Tk):
                 self.after_cancel(self._rebuild_after_id)
             except tk.TclError:
                 pass
-        self._rebuild_after_id = self.after_idle(self._rebuild_after_language_change)
+        # after(1) — not sync, not only after_idle — clears Combobox handler stack
+        self._rebuild_after_id = self.after(1, self._rebuild_after_language_change)
 
     def _rebuild_after_language_change(self) -> None:
         self._rebuild_after_id = None
@@ -1491,9 +1493,9 @@ class IndexerApp(tk.Tk):
             self._rebuild(preserved)
         finally:
             self._lang_switching = False
-            self._arm_nav_ignore(350)
+            self._arm_nav_ignore(500)
 
-    def _arm_nav_ignore(self, ms: int = 350) -> None:
+    def _arm_nav_ignore(self, ms: int = 500) -> None:
         """Ignore Praca/Indeks button activations briefly (absorb click-through)."""
         self._nav_ignore_until = time.monotonic() + max(0, ms) / 1000.0
         aid = getattr(self, "_nav_unlock_after_id", None)
@@ -1537,6 +1539,7 @@ class IndexerApp(tk.Tk):
             setattr(self, attr, None)
 
     def _rebuild(self, preserved: Optional[dict] = None) -> None:
+        """Single gate for full UI rebuilds (language / capability / mode)."""
         if getattr(self, "_rebuilding", False):
             return
         self._rebuilding = True
@@ -1947,21 +1950,23 @@ class IndexerApp(tk.Tk):
     def _show_pelny_view(self, which: str, *, force: bool = False) -> None:
         """Switch indexer primary nav between Praca and Indeks.
 
-        Always remounts the active pane (pack_forget both, then pack one).
-        Relying on ``winfo_ismapped()`` can leave ``_pelny_content`` empty under
-        the nav strip after a language rebuild or corrupted pack state — Indeks
-        then shows only the Praca/Indeks buttons with no toolbar/panels.
+        Always remounts the active pane (pack_forget both, then pack one) and
+        re-packs the content host. Relying on ``winfo_ismapped()`` early-outs
+        can leave ``_pelny_content`` empty under the nav strip after a language
+        rebuild or corrupted pack state — Indeks then shows only the
+        Praca/Indeks buttons with no toolbar/panels.
 
         ``force=True`` is for internal remount during rebuild. User/nav clicks
-        are ignored while a language switch is in flight and briefly afterward
-        so Combobox click-through cannot synthesize a phantom Indeks activation.
+        are ignored while rebuilding, while a language switch is in flight, and
+        briefly afterward so Combobox click-through cannot synthesize a phantom
+        Indeks activation.
         """
         if self._is_simple():
             return
         if not force:
-            if getattr(self, "_lang_switching", False) and not getattr(
-                self, "_rebuilding", False
-            ):
+            if getattr(self, "_rebuilding", False):
+                return
+            if getattr(self, "_lang_switching", False):
                 return
             if time.monotonic() < float(getattr(self, "_nav_ignore_until", 0.0) or 0.0):
                 return
@@ -1973,6 +1978,15 @@ class IndexerApp(tk.Tk):
         self._pelny_view = view
         active = indeks if view == "indeks" else praca
         try:
+            # Always remount content host so it cannot stay unmapped under nav.
+            content = getattr(self, "_pelny_content", None)
+            if content is not None:
+                try:
+                    if content.winfo_manager():
+                        content.pack_forget()
+                    content.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+                except tk.TclError:
+                    pass
             for pane in (praca, indeks):
                 try:
                     if pane.winfo_manager():
@@ -1980,14 +1994,6 @@ class IndexerApp(tk.Tk):
                 except tk.TclError:
                     pass
             active.pack(fill=tk.BOTH, expand=True)
-            # Content host can lose its packer after a mid-event destroy/rebuild.
-            content = getattr(self, "_pelny_content", None)
-            if content is not None:
-                try:
-                    if not content.winfo_manager():
-                        content.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-                except tk.TclError:
-                    pass
         except tk.TclError:
             return
         self._refresh_pelny_nav_styles()
@@ -2083,7 +2089,9 @@ class IndexerApp(tk.Tk):
         self._nav_praca_btn = None
         self._nav_indeks_btn = None
         # Keep prior view when rebuilding; only reset to Praca on first build.
-        if initial_view not in ("praca", "indeks"):
+        if initial_view in ("praca", "indeks"):
+            self._pelny_view = initial_view
+        else:
             self._pelny_view = "praca"
 
         # Ensure filter "all" token matches current language
