@@ -453,6 +453,106 @@ def find_colour_conflict_groups(
     )
 
 
+@dataclass
+class QualityMetrics:
+    """Click-through scan-quality dashboard counts for the current DB."""
+
+    total_instances: int = 0
+    unknown_machines: int = 0
+    missing_odbiorca: int = 0
+    system_programs: int = 0
+    colour_conflict_groups: int = 0
+    colour_conflict_instances: int = 0
+    run_id: Optional[str] = None
+
+
+def load_quality_metrics(
+    conn: sqlite3.Connection,
+    *,
+    conflict_limit_groups: int = 500,
+) -> QualityMetrics:
+    """Summarize current DB hygiene for the quality dashboard.
+
+    Counts are over all ``program_instances`` (not limited to the last run),
+    except ``run_id`` which is the latest completed scan when present.
+    """
+    from gcode_index.models import ROLE_SYSTEM_PROGRAMS
+
+    conn.row_factory = sqlite3.Row
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
+    has_odbiorca = "odbiorca_id" in cols
+    has_role = "role" in cols
+
+    total = int(
+        conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0] or 0
+    )
+    unknown = int(
+        conn.execute(
+            """
+            SELECT COUNT(*) FROM program_instances
+            WHERE LOWER(IFNULL(machine_id,'')) = ?
+               OR LOWER(IFNULL(machine_label,'')) = ?
+            """,
+            (UNKNOWN_MACHINE_ID, UNKNOWN_MACHINE_LABEL.casefold()),
+        ).fetchone()[0]
+        or 0
+    )
+
+    missing_odb = 0
+    if has_odbiorca:
+        missing_odb = int(
+            conn.execute(
+                """
+                SELECT COUNT(*) FROM program_instances
+                WHERE odbiorca_id IS NULL OR TRIM(odbiorca_id) = ''
+                """
+            ).fetchone()[0]
+            or 0
+        )
+    else:
+        missing_odb = total
+
+    system_n = 0
+    if has_role and total:
+        tag = ROLE_SYSTEM_PROGRAMS
+        system_n = int(
+            conn.execute(
+                """
+                SELECT COUNT(*) FROM program_instances
+                WHERE IFNULL(role,'') = ?
+                   OR IFNULL(role,'') LIKE ?
+                   OR IFNULL(role,'') LIKE ?
+                   OR IFNULL(role,'') LIKE ?
+                """,
+                (tag, f"{tag},%", f"%,{tag},%", f"%,{tag}"),
+            ).fetchone()[0]
+            or 0
+        )
+
+    conflicts = find_colour_conflict_groups(conn, limit_groups=conflict_limit_groups)
+    conflict_members = sum(len(g.members) for g in conflicts)
+
+    run_id: Optional[str] = None
+    try:
+        run = conn.execute(
+            "SELECT run_id FROM index_runs ORDER BY started_at DESC LIMIT 1"
+        ).fetchone()
+        if run is not None:
+            run_id = str(run["run_id"] or "") or None
+    except sqlite3.Error:
+        run_id = None
+
+    return QualityMetrics(
+        total_instances=total,
+        unknown_machines=unknown,
+        missing_odbiorca=missing_odb,
+        system_programs=system_n,
+        colour_conflict_groups=len(conflicts),
+        colour_conflict_instances=conflict_members,
+        run_id=run_id,
+    )
+
+
 def find_near_duplicate_groups(
     conn: sqlite3.Connection,
     *,

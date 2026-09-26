@@ -95,6 +95,7 @@ from gcode_index.models import (
     PROVENANCE_EXTRA,
     ROLE_FIXTURE,
     ROLE_PERSONAL,
+    ROLE_SYSTEM_PROGRAMS,
     ROLE_WIP,
 )
 from gcode_index.folder_colour_aliases import (
@@ -158,11 +159,12 @@ from gcode_index.i18n import (
     ui_settings_path_for_target,
 )
 from gcode_index.presets import (
-    PRESETS_FILENAME,
+    VIEWS_FILENAME,
     FilterPreset,
     delete_preset,
     get_preset,
     load_presets,
+    load_presets_for_target,
     presets_path_for_target,
     upsert_preset,
 )
@@ -185,9 +187,11 @@ from gcode_index.schedule import (
 from gcode_index.scan_cache import load_scan_cache
 from gcode_index.scan_report import (
     DuplicateGroup,
+    QualityMetrics,
     ScanReport,
     find_duplicate_groups,
     format_scan_report,
+    load_quality_metrics,
     load_scan_report,
     scan_report_from_result,
 )
@@ -401,6 +405,8 @@ class IndexerApp(tk.Tk):
         self._instance_ini_path = default_instance_ini_path()
         self._ini_notes = ""
         self._path_remaps: list[PathRemap] = []
+        self._extract_recent: list[str] = []
+        self._remap_listbox: Optional[tk.Listbox] = None
 
         self._apply_instance_ini(load_instance_ini(self._instance_ini_path))
         self._configure_styles()
@@ -509,7 +515,11 @@ class IndexerApp(tk.Tk):
         self._hidden_root_specs = list(cfg.root_specs())
         self._ini_notes = cfg.notes or ""
         self._path_remaps = normalize_remaps(cfg.path_remaps)
+        self._extract_recent = [
+            p.strip() for p in (cfg.extract_recent or []) if str(p).strip()
+        ][:8]
         self._sync_remap_vars_from_list()
+        self._refresh_remap_listbox()
         if cfg.geometry:
             try:
                 self.geometry(cfg.geometry)
@@ -657,6 +667,7 @@ class IndexerApp(tk.Tk):
             backup=self.backup_var.get().strip(),
             target=self.target_var.get().strip(),
             extract=self.extract_var.get().strip(),
+            extract_recent=list(getattr(self, "_extract_recent", []) or [])[:8],
             green_roots=greens,
             yellow_roots=yellows,
             language=self._lang,
@@ -730,19 +741,145 @@ class IndexerApp(tk.Tk):
             self.remap_to_var.set("")
 
     def _collect_path_remaps(self) -> list[PathRemap]:
-        """Primary from/to fields + any extra rules kept from the INI."""
-        fr = self.remap_from_var.get().strip()
-        to = self.remap_to_var.get().strip()
-        extras = list(self._path_remaps[1:]) if len(self._path_remaps) > 1 else []
-        if fr and to:
-            return normalize_remaps([PathRemap(fr, to), *extras])
-        return normalize_remaps(extras)
+        """Return the multi-rule remap list (longest-prefix wins at apply time)."""
+        return normalize_remaps(list(self._path_remaps or []))
 
     def _active_path_remaps(self) -> list[PathRemap]:
         return self._collect_path_remaps()
 
     def _on_remap_changed(self, *_args) -> None:
-        self._path_remaps = self._collect_path_remaps()
+        # Keep list in sync when PrepareIndexer / legacy vars write the first pair
+        fr = self.remap_from_var.get().strip()
+        to = self.remap_to_var.get().strip()
+        extras = list(self._path_remaps[1:]) if len(self._path_remaps) > 1 else []
+        if fr and to:
+            self._path_remaps = normalize_remaps([PathRemap(fr, to), *extras])
+        else:
+            self._path_remaps = normalize_remaps(extras)
+        self._refresh_remap_listbox()
+        self._on_folder_path_changed()
+
+    def _refresh_remap_listbox(self) -> None:
+        lb = getattr(self, "_remap_listbox", None)
+        if lb is None:
+            return
+        try:
+            lb.delete(0, tk.END)
+        except tk.TclError:
+            return
+        rules = self._collect_path_remaps()
+        if not rules:
+            lb.insert(tk.END, self._("path_remap_empty"))
+            return
+        for rule in rules:
+            lb.insert(
+                tk.END,
+                self._("path_remap_arrow", fr=rule.from_prefix, to=rule.to_prefix),
+            )
+
+    def _selected_remap_index(self) -> Optional[int]:
+        lb = getattr(self, "_remap_listbox", None)
+        if lb is None:
+            return None
+        sel = lb.curselection()
+        if not sel:
+            return None
+        idx = int(sel[0])
+        if not self._path_remaps:
+            return None
+        if idx < 0 or idx >= len(self._path_remaps):
+            return None
+        return idx
+
+    def _edit_remap_rule_dialog(
+        self, *, initial: Optional[PathRemap] = None
+    ) -> Optional[PathRemap]:
+        dlg = tk.Toplevel(self)
+        dlg.title(self._("path_remap_edit_title"))
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.minsize(420, 140)
+        fr_var = tk.StringVar(value=(initial.from_prefix if initial else ""))
+        to_var = tk.StringVar(value=(initial.to_prefix if initial else ""))
+        body = ttk.Frame(dlg, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        body.columnconfigure(1, weight=1)
+        ttk.Label(body, text=self._("path_remap_from")).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(body, textvariable=fr_var).grid(
+            row=0, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        ttk.Label(body, text=self._("path_remap_to")).grid(
+            row=1, column=0, sticky=tk.W, pady=(4, 0)
+        )
+        ttk.Entry(body, textvariable=to_var).grid(
+            row=1, column=1, sticky=tk.EW, padx=4, pady=(4, 0)
+        )
+
+        def _browse() -> None:
+            path = filedialog.askdirectory(title=self._("path_remap_to"), parent=dlg)
+            if path:
+                to_var.set(path)
+
+        ttk.Button(body, text=self._("browse"), command=_browse).grid(
+            row=1, column=2, pady=(4, 0)
+        )
+        result: dict[str, Optional[PathRemap]] = {"rule": None}
+
+        def _ok() -> None:
+            fr = fr_var.get().strip()
+            to = to_var.get().strip()
+            if not fr or not to:
+                messagebox.showinfo(
+                    self._("path_remap"),
+                    self._("path_remap_need_pair"),
+                    parent=dlg,
+                )
+                return
+            result["rule"] = PathRemap(fr, to)
+            dlg.destroy()
+
+        btns = ttk.Frame(body)
+        btns.grid(row=2, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
+        ttk.Button(btns, text=self._("cancel"), command=dlg.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=self._("ok"), command=_ok).pack(side=tk.RIGHT, padx=6)
+        dlg.bind("<Return>", lambda _e: _ok())
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+        self.wait_window(dlg)
+        return result["rule"]
+
+    def _add_remap_rule(self) -> None:
+        rule = self._edit_remap_rule_dialog()
+        if rule is None:
+            return
+        self._path_remaps = normalize_remaps([*self._path_remaps, rule])
+        self._sync_remap_vars_from_list()
+        self._refresh_remap_listbox()
+        self._on_folder_path_changed()
+
+    def _edit_selected_remap_rule(self) -> None:
+        idx = self._selected_remap_index()
+        if idx is None:
+            return
+        current = self._path_remaps[idx]
+        rule = self._edit_remap_rule_dialog(initial=current)
+        if rule is None:
+            return
+        updated = list(self._path_remaps)
+        updated[idx] = rule
+        self._path_remaps = normalize_remaps(updated)
+        self._sync_remap_vars_from_list()
+        self._refresh_remap_listbox()
+        self._on_folder_path_changed()
+
+    def _remove_selected_remap_rule(self) -> None:
+        idx = self._selected_remap_index()
+        if idx is None:
+            return
+        updated = list(self._path_remaps)
+        del updated[idx]
+        self._path_remaps = normalize_remaps(updated)
+        self._sync_remap_vars_from_list()
+        self._refresh_remap_listbox()
         self._on_folder_path_changed()
 
     def _pick_remap_to(self) -> None:
@@ -752,35 +889,40 @@ class IndexerApp(tk.Tk):
             self._on_remap_changed()
 
     def _add_path_remap_fields(self, parent: ttk.Frame, start_row: int) -> int:
-        """Render client path-prefix remap (C:→Z:) fields; return next free row."""
-        box = ttk.LabelFrame(
-            parent, text=self._("path_remap"), padding=6
-        )
+        """Render multi-rule path-prefix remaps; return next free row."""
+        box = ttk.LabelFrame(parent, text=self._("path_remap"), padding=6)
         box.grid(
             row=start_row, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0)
         )
-        ttk.Label(box, text=self._("path_remap_from")).grid(
-            row=0, column=0, sticky=tk.W
-        )
-        ttk.Entry(box, textvariable=self.remap_from_var).grid(
-            row=0, column=1, sticky=tk.EW, padx=4
-        )
-        ttk.Label(box, text="→").grid(row=0, column=2, padx=2)
-        ttk.Label(box, text=self._("path_remap_to")).grid(
-            row=1, column=0, sticky=tk.W, pady=(4, 0)
-        )
-        ttk.Entry(box, textvariable=self.remap_to_var).grid(
-            row=1, column=1, sticky=tk.EW, padx=4, pady=(4, 0)
-        )
+        box.columnconfigure(0, weight=1)
+        list_frame = ttk.Frame(box)
+        list_frame.grid(row=0, column=0, sticky=tk.EW)
+        list_frame.columnconfigure(0, weight=1)
+        lb = tk.Listbox(list_frame, height=4, exportselection=False)
+        sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=lb.yview)
+        lb.configure(yscrollcommand=sb.set)
+        lb.grid(row=0, column=0, sticky=tk.EW)
+        sb.grid(row=0, column=1, sticky=tk.NS)
+        self._remap_listbox = lb
+        lb.bind("<Double-1>", lambda _e: self._edit_selected_remap_rule())
+        btns = ttk.Frame(box)
+        btns.grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
         ttk.Button(
-            box, text=self._("browse"), command=self._pick_remap_to
-        ).grid(row=1, column=2, pady=(4, 0))
+            btns, text=self._("path_remap_add"), command=self._add_remap_rule
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            btns, text=self._("path_remap_edit"), command=self._edit_selected_remap_rule
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            btns,
+            text=self._("path_remap_remove"),
+            command=self._remove_selected_remap_rule,
+        ).pack(side=tk.LEFT)
         ttk.Label(
             box, text=self._("path_remap_hint"), style="Muted.TLabel", wraplength=520
-        ).grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(4, 0))
-        box.columnconfigure(1, weight=1)
+        ).grid(row=2, column=0, sticky=tk.W, pady=(4, 0))
+        self._refresh_remap_listbox()
         return start_row + 1
-
 
     # --- indexer_settings.yaml (shop pack defaults) ---------------------------
 
@@ -895,6 +1037,7 @@ class IndexerApp(tk.Tk):
         if remaps is not None:
             self._path_remaps = normalize_remaps(remaps)
             self._sync_remap_vars_from_list()
+            self._refresh_remap_listbox()
         if result.get("apply_pack_defaults"):
             applied = self._apply_indexer_settings_from_target(
                 self.target_var.get().strip(), persist_local=False
@@ -2218,8 +2361,11 @@ class IndexerApp(tk.Tk):
         self._update_schedule_status()
 
         ttk.Button(
-            row2, text=self._("scan_report"), command=self._open_scan_report
+            row2, text=self._("quality_dashboard"), command=self._open_quality_dashboard
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            row2, text=self._("scan_report"), command=self._open_scan_report
+        ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
             row2, text=self._("scan_history"), command=self._open_scan_history
         ).pack(side=tk.LEFT, padx=4)
@@ -2640,6 +2786,9 @@ class IndexerApp(tk.Tk):
         self._ctx_menu = tk.Menu(self, tearoff=0)
         self._ctx_menu.add_command(
             label=self._("ctx_extract"), command=self._extract_selected
+        )
+        self._ctx_menu.add_command(
+            label=self._("ctx_extract_to"), command=self._extract_to_folder
         )
         if not simple:
             self._ctx_menu.add_command(
@@ -4302,6 +4451,115 @@ class IndexerApp(tk.Tk):
     def _show_scan_report(self, report: ScanReport) -> None:
         ScanReportDialog(self, report=report)
 
+    def _open_quality_dashboard(self) -> None:
+        db_path = self._db_path()
+        if db_path is None or not db_path.is_file():
+            messagebox.showinfo(
+                self._("quality_dashboard_title"),
+                self._("quality_need_db"),
+            )
+            return
+        try:
+            conn = open_db(db_path)
+            try:
+                metrics = load_quality_metrics(conn)
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(self._("quality_dashboard_title"), str(exc))
+            return
+        QualityDashboardDialog(self, metrics=metrics)
+
+    def _apply_quality_metric(self, kind: str) -> None:
+        """Click-through from quality dashboard → filtered search / duplicates."""
+        label = kind
+        if kind == "unknown":
+            self._clear_filters(status_prefix=None)
+            self._filter_trace_lock = True
+            try:
+                self.include_unknown_var.set(True)
+                unknown_names = [
+                    n
+                    for n in self._machine_names
+                    if "unknown" in n.casefold() or "niezmap" in n.casefold()
+                ]
+                if unknown_names:
+                    self._machine_sel = set(unknown_names)
+                else:
+                    # Fall back: free-text machine label match
+                    self.search_var.set("MACHINE UNKNOWN")
+                    self._machine_sel = set()
+                self._update_machines_button()
+            finally:
+                self._filter_trace_lock = False
+            label = self._("quality_metric_unknown")
+            self._run_query_now(status_prefix=self._("quality_applied", label=label))
+            return
+        if kind == "missing_odbiorca":
+            self._clear_filters(status_prefix=None)
+            self._filter_trace_lock = True
+            try:
+                if hasattr(self, "odbiorca_var"):
+                    self.odbiorca_var.set(self._("odbiorca_missing"))
+            finally:
+                self._filter_trace_lock = False
+            label = self._("quality_metric_missing_odbiorca")
+            self._run_query_now(status_prefix=self._("quality_applied", label=label))
+            return
+        if kind == "system_programs":
+            self._clear_filters(status_prefix=None)
+            self._filter_trace_lock = True
+            try:
+                catalog = getattr(self, "_colour_catalog", ColourCatalog())
+                role_label = ROLE_SYSTEM_PROGRAMS
+                for c in catalog.colours:
+                    if c.id == ROLE_SYSTEM_PROGRAMS:
+                        role_label = c.label(self._lang)
+                        break
+                if hasattr(self, "role_var"):
+                    self.role_var.set(role_label)
+            finally:
+                self._filter_trace_lock = False
+            label = self._("quality_metric_system_programs")
+            self._run_query_now(status_prefix=self._("quality_applied", label=label))
+            return
+        if kind == "colour_conflicts":
+            self._open_duplicates_conflicts_only()
+            return
+        if kind == "total":
+            self._clear_filters(status_prefix=self._("quality_applied", label=self._("quality_metric_total")))
+            return
+
+    def _open_duplicates_conflicts_only(self) -> None:
+        db_path = self._db_path()
+        if db_path is None or not db_path.is_file():
+            messagebox.showinfo(
+                self._("duplicates_title"),
+                self._("duplicates_need_db"),
+            )
+            return
+        try:
+            conn = open_db(db_path)
+            try:
+                groups = find_duplicate_groups(conn, colour_conflicts_only=True)
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(self._("duplicates_title"), str(exc))
+            return
+        if not groups:
+            messagebox.showinfo(
+                self._("duplicates_title"),
+                self._("dup_colour_conflicts_none"),
+            )
+            return
+        dlg = DuplicatesDialog(self, groups=groups)
+        self.wait_window(dlg)
+        if dlg.selected_members:
+            self.tree.delete(*self.tree.get_children())
+            self._fill_tree(dlg.selected_members)
+            self.status_var.set(self._("duplicates_showing", n=len(dlg.selected_members)))
+
     def _open_duplicates(self) -> None:
         db_path = self._db_path()
         if db_path is None or not db_path.is_file():
@@ -4418,7 +4676,14 @@ class IndexerApp(tk.Tk):
             return
         path = self._presets_path()
         names: list[str] = []
-        if path is not None:
+        target = self.target_var.get().strip()
+        if target:
+            try:
+                names = [p.name for p in load_presets_for_target(target)]
+            except Exception:  # noqa: BLE001
+                log.exception("load presets failed")
+                names = []
+        elif path is not None:
             try:
                 names = [p.name for p in load_presets(path)]
             except Exception:  # noqa: BLE001
@@ -4429,7 +4694,6 @@ class IndexerApp(tk.Tk):
         if prev and prev in names:
             self.preset_var.set(prev)
         elif names:
-            # Keep empty selection until user picks / loads
             if prev not in names:
                 self.preset_var.set("")
         else:
@@ -4451,6 +4715,11 @@ class IndexerApp(tk.Tk):
             provenance=self.provenance_var.get().strip() or ALL,
             programmer=self.programmer_var.get().strip() or ALL,
             role=self.role_var.get().strip() or ALL,
+            odbiorca=(
+                (self.odbiorca_var.get().strip() or ALL)
+                if hasattr(self, "odbiorca_var")
+                else ALL
+            ),
             newest_only=bool(self.newest_only_var.get()),
         )
 
@@ -4470,6 +4739,9 @@ class IndexerApp(tk.Tk):
             self.programmer_var.set(preset.programmer or ALL)
             role_raw = getattr(preset, "role", "") or ALL
             self.role_var.set(role_raw if role_raw else ALL)
+            if hasattr(self, "odbiorca_var"):
+                odb_raw = getattr(preset, "odbiorca", "") or ALL
+                self.odbiorca_var.set(odb_raw if odb_raw else ALL)
             self.newest_only_var.set(bool(preset.newest_only))
             wanted = {m.strip() for m in (preset.machines or []) if m.strip()}
             self._machine_sel = {
@@ -4520,7 +4792,7 @@ class IndexerApp(tk.Tk):
         self._refresh_preset_combo()
         self.preset_var.set(name)
         self.status_var.set(
-            self._("preset_saved", name=name, filename=PRESETS_FILENAME)
+            self._("preset_saved", name=name, filename=VIEWS_FILENAME)
         )
 
     def _load_selected_preset(self) -> None:
@@ -4953,7 +5225,7 @@ class IndexerApp(tk.Tk):
 
     def _odbiorca_filter_labels(self, db_ids: list[str] | None = None) -> list[str]:
         cat = self._odbiorca_catalog()
-        labels = [self._all_token()]
+        labels = [self._all_token(), self._("odbiorca_missing")]
         seen: set[str] = set()
         for o in cat.odbiorcy:
             lab = o.label(self._lang)
@@ -4970,6 +5242,14 @@ class IndexerApp(tk.Tk):
         raw = (self.odbiorca_var.get() or "").strip()
         if not raw or self._is_all_token(raw):
             return None
+        if raw == self._("odbiorca_missing") or raw.casefold() in {
+            "(brak odbiorcy)",
+            "(no recipient)",
+            "(missing)",
+            "(brak)",
+            "__missing__",
+        }:
+            return "__missing__"
         cat = self._odbiorca_catalog()
         for o in cat.odbiorcy:
             if o.label(self._lang) == raw or o.id == normalize_odbiorca_id(raw):
@@ -5425,6 +5705,7 @@ class IndexerApp(tk.Tk):
                     self._format_extract_error(exc, row),
                 )
                 return
+            self._remember_extract_dir(str(Path(out).parent))
             self.status_var.set(self._("status_extracted", path=path))
             messagebox.showinfo(self._("extract_wrote_title"), self._("extract_wrote", path=path))
             return
@@ -5436,10 +5717,38 @@ class IndexerApp(tk.Tk):
         )
         if not out_dir:
             return
+        self._remember_extract_dir(out_dir)
+        self._extract_rows_to_dir(rows, out_dir, backup=backup)
+
+    def _recent_extract_initialdir(self) -> str:
+        for path in getattr(self, "_extract_recent", []) or []:
+            if path and Path(path).is_dir():
+                return path
+        return self._extract_dir()
+
+    def _remember_extract_dir(self, folder: str) -> None:
+        folder = (folder or "").strip()
+        if not folder:
+            return
+        recent = [
+            p
+            for p in (getattr(self, "_extract_recent", []) or [])
+            if p.strip() and p.casefold() != folder.casefold()
+        ]
+        recent.insert(0, folder)
+        self._extract_recent = recent[:8]
+        if not self.extract_var.get().strip():
+            self.extract_var.set(folder)
+        self._save_instance_ini()
+
+    def _extract_rows_to_dir(
+        self, rows: list, out_dir: str, *, backup: str = ""
+    ) -> None:
         used: set[str] = set()
         ok = 0
         errors: list[str] = []
         remaps = self._active_path_remaps()
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
         for row in rows:
             name = batch_extract_filename(row, used=used)
             dest = Path(out_dir) / name
@@ -5479,6 +5788,35 @@ class IndexerApp(tk.Tk):
         self.status_var.set(
             self._("extract_batch_ok", ok=ok, total=len(rows), folder=out_dir).split("\n")[0]
         )
+
+    def _extract_to_folder(self) -> None:
+        """Context-menu Extract to… — pick a folder and extract selection there."""
+        rows = self._selected_rows()
+        if not rows:
+            messagebox.showinfo(self._("extract_title"), self._("extract_need_selection"))
+            return
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        needs_backup = False
+        for row in rows:
+            keys = row.keys() if hasattr(row, "keys") else ()
+            scan_root = str(row["scan_root"]) if "scan_root" in keys and row["scan_root"] else ""
+            if not scan_root:
+                needs_backup = True
+                break
+        if needs_backup and (not backup or not Path(backup).is_dir()):
+            messagebox.showerror(
+                self._("backup_folder"),
+                self._("extract_need_backup"),
+            )
+            return
+        out_dir = filedialog.askdirectory(
+            title=self._("extract_to_pick"),
+            initialdir=self._recent_extract_initialdir() or None,
+        )
+        if not out_dir:
+            return
+        self._remember_extract_dir(out_dir)
+        self._extract_rows_to_dir(rows, out_dir, backup=backup)
 
     def _missing_source_path(self, row) -> Optional[Path]:
         """Return resolved path when source is missing; else None."""
@@ -5703,9 +6041,14 @@ class PrepareIndexerDialog(tk.Toplevel):
             return
         fr = self.remap_from_var.get().strip()
         to = self.remap_to_var.get().strip()
+        extras = (
+            list(self._app._path_remaps[1:])
+            if len(getattr(self._app, "_path_remaps", []) or []) > 1
+            else []
+        )
         remaps: list[PathRemap] = []
         if fr and to:
-            remaps = normalize_remaps([PathRemap(fr, to)])
+            remaps = normalize_remaps([PathRemap(fr, to), *extras])
         elif fr or to:
             messagebox.showinfo(
                 _tr(self.master, "prepare_indexer"),
@@ -5713,6 +6056,8 @@ class PrepareIndexerDialog(tk.Toplevel):
                 parent=self,
             )
             return
+        else:
+            remaps = normalize_remaps(extras)
         self.result = {
             "backup": backup,
             "extract": self.extract_var.get().strip(),
@@ -5906,6 +6251,89 @@ class ScanHistoryDialog(tk.Toplevel):
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
         ttk.Button(btns, text=close_label, command=self.destroy).pack(side=tk.RIGHT)
+
+
+class QualityDashboardDialog(tk.Toplevel):
+    """Click-through summary of index hygiene (UNKNOWN, odbiorca, O9, conflicts)."""
+
+    def __init__(self, master: "IndexerApp", *, metrics: QualityMetrics) -> None:
+        super().__init__(master)
+        self.title(_tr(master, "quality_dashboard_title"))
+        self.minsize(480, 320)
+        self.geometry("560x360")
+        self.transient(master)
+        self.grab_set()
+        self._master = master
+        self._metrics = metrics
+        self._rows: list[tuple[str, str, str]] = []
+
+        ttk.Label(
+            self,
+            text=_tr(master, "quality_dashboard_intro"),
+            wraplength=520,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ttk.Label(
+            self,
+            text=_tr(master, "quality_click_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        ).pack(fill=tk.X, padx=12, pady=(0, 4))
+
+        frame = ttk.Frame(self)
+        frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        self.listbox = tk.Listbox(frame, exportselection=False, height=10)
+        sb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=sb.set)
+        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.listbox.bind("<Double-1>", lambda _e: self._show_selected())
+        self.listbox.bind("<Return>", lambda _e: self._show_selected())
+
+        m = metrics
+        conflict_detail = _tr(
+            master,
+            "quality_metric_colour_conflicts_detail",
+            groups=m.colour_conflict_groups,
+            instances=m.colour_conflict_instances,
+        )
+        self._rows = [
+            ("total", _tr(master, "quality_metric_total"), str(m.total_instances)),
+            ("unknown", _tr(master, "quality_metric_unknown"), str(m.unknown_machines)),
+            (
+                "missing_odbiorca",
+                _tr(master, "quality_metric_missing_odbiorca"),
+                str(m.missing_odbiorca),
+            ),
+            (
+                "system_programs",
+                _tr(master, "quality_metric_system_programs"),
+                str(m.system_programs),
+            ),
+            (
+                "colour_conflicts",
+                _tr(master, "quality_metric_colour_conflicts"),
+                conflict_detail,
+            ),
+        ]
+        for _kind, label, value in self._rows:
+            self.listbox.insert(tk.END, f"{label}:  {value}")
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text=_tr(master, "close"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(
+            btns, text=_tr(master, "quality_show"), command=self._show_selected
+        ).pack(side=tk.RIGHT, padx=8)
+
+    def _show_selected(self) -> None:
+        sel = self.listbox.curselection()
+        if not sel:
+            return
+        kind = self._rows[int(sel[0])][0]
+        self.destroy()
+        self._master._apply_quality_metric(kind)
 
 
 class ScanReportDialog(tk.Toplevel):

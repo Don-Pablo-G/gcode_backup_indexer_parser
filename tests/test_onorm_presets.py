@@ -90,7 +90,7 @@ def test_search_o_prefix_and_padding(tmp_path: Path):
 
 def test_filter_presets_roundtrip(tmp_path: Path):
     path = presets_path_for_target(tmp_path)
-    assert path.name == "filter_presets.yaml"
+    assert path.name == "views.yaml"
     assert load_presets(path) == []
 
     a = FilterPreset(
@@ -103,6 +103,7 @@ def test_filter_presets_roundtrip(tmp_path: Path):
         control="haas",
         provenance="green — backup (ran)",
         programmer="PG1",
+        odbiorca="Acme",
         newest_only=True,
     )
     upsert_preset(path, a)
@@ -111,6 +112,7 @@ def test_filter_presets_roundtrip(tmp_path: Path):
     assert loaded[0].name == "UMC week"
     assert loaded[0].newest_only is True
     assert loaded[0].machines == ["HAAS UMC750 (haas-umc750)"]
+    assert loaded[0].odbiorca == "Acme"
 
     # Replace same name (case-insensitive)
     b = FilterPreset(name="umc week", text="9999", newest_only=False)
@@ -129,7 +131,7 @@ def test_filter_presets_roundtrip(tmp_path: Path):
 
 
 def test_preset_keeps_size_mtime_role(tmp_path: Path):
-    path = tmp_path / "filter_presets.yaml"
+    path = tmp_path / "views.yaml"
     a = FilterPreset(
         name="sized",
         text="1",
@@ -138,6 +140,7 @@ def test_preset_keeps_size_mtime_role(tmp_path: Path):
         mtime_from="01.01.2026",
         mtime_to="02.01.2026",
         role="fixture",
+        odbiorca="(brak odbiorcy)",
         newest_only=True,
     )
     save_presets(path, [a])
@@ -148,3 +151,4 @@ def test_preset_keeps_size_mtime_role(tmp_path: Path):
     assert pr.size_max == "1M"
     assert pr.mtime_from == "01.01.2026"
     assert pr.role == "fixture"
+    assert pr.odbiorca == "(brak odbiorcy)"

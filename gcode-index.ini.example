@@ -30,11 +30,13 @@ settings_locked = no
 ; Required on the indexer; optional on floor clients that only open a shared DB.
 backup = D:\CNC\Backups
 ; Database folder — gcode_index.sqlite + sidecar yaml (machine_folders,
-; folder_tree_map, folder_colour_aliases, aliases.local, filter_presets, …)
+; folder_tree_map, folder_colour_aliases, aliases.local, views.yaml, …)
 target = D:\CNC\Index
 ; Extract / Wydobądź output folder. Leave blank to use the database folder.
 ; Legacy key extract_folder= is still accepted when loading.
 extract = D:\CNC\Extracted
+; Recent Extract to… destinations (newest first). One path per indented line.
+extract_recent =
 
 [green_roots]
 ; ON-MACHINE catch folders (green flag). One full path per indented line.
@@ -102,11 +104,14 @@ text = Shop floor PC — set can_index=no; indexer PC uses can_index=yes
 ; Client extract remaps when the indexer and this PC use different drive letters
 ; for the same share (e.g. indexer C:\CNC\Share → client Z:\CNC\Share).
 ; Applies to scan_root for main backup AND green/yellow roots on that prefix.
-; Shorthand single pair:
+; Several rules allowed — longest matching from-prefix wins at extract/preview.
+; Shorthand single pair (also counted as the first rule):
 from_prefix = C:\CNC\Share
 to_prefix = Z:\CNC\Share
-; Extra rules (optional), one indented line each: FROM => TO
+; All rules (optional), one indented line each: FROM => TO
 rules =
+;     C:\Extra => Z:\Extra
+;     \\server\share => Z:\Share
 
 [desktop]
 ; Windows logon autostart (indexer helper). yes/no
@@ -161,7 +166,8 @@ preview_find =
 ;   folder_colour_aliases.yaml — Folder roles… (catalogue + name→role/exclude)
 ;   folder_tree_map.yaml       — Map tree… (path machine + multi-tags + exclude)
 ;   extra_scan_roots.yaml      — mirror of green/yellow (INI [green_roots]/[yellow_roots] wins)
-;   filter_presets.yaml        — named presets (Save preset…)
+;   views.yaml                 — named find-bar views (Save current…)
+;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
 ;   ui_settings.yaml           — optional schedule_last_run mirror
 ;   scan_history.json          — scan run history
 ; ------------------------------------------------------------

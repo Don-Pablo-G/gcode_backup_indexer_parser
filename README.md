@@ -112,7 +112,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Flag** — all / green (backup) / yellow (extra)
    - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)
    - **Newest only** — one row per program + machine (latest backup date)
-   - **Preset** — **Save current…** / **Load** / **Delete** named filter sets (`filter_presets.yaml` next to the DB)
+   - **View** — **Save current…** / **Load** / **Delete** named filter sets (`views.yaml` next to the DB; legacy `filter_presets.yaml` still loads)
    - Click any **results column header** to sort asc/desc (also on floor clients)
    - **More filters** (indexer): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges
    - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)
@@ -120,13 +120,17 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    Program-number search is **O / zero-padding aware**: `O03232`, `03232`, and `3232` find the same program.
    Empty text + filters still works.
 9. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser (defaults into the **extract folder**).
+   Right-click → **Extract to…** / **Wydobądź do…** picks a destination folder (recent folders remembered in `gcode-index.ini`).
    **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).
    Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.
    Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).
    The **Preview** pane beside the results shows the selected program body (**In preview** find with next/prev + highlight). Large programs are truncated in the pane only.
    Select **exactly two** rows → **Compare…** for a unified diff (also on right-click).
 10. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.
+    **Index quality…** summarizes UNKNOWN machines, missing odbiorca, `system_programs` (O9…), and colour conflicts — click a row to filter results.
 11. **Duplicates…** finds **exact** copies by **program-body** SHA-256 (`program_sha256` — normalized extract form, so a glued ALL-FLDR / `.pgm` slice can match a loose `.nc` with the same body) and **near**-duplicates (same program # + similar size, different body hash). Groups show each member’s **colour badge**; when the same body appears under ≥2 colours you get a **colour conflict** banner (**Konflikt kolorów**) and a **Colour conflicts only** filter. Whole-file `content_sha256` stays for extract integrity. After upgrading, **re-scan** so older rows get `program_sha256`. **Show in results** loads a group into the main table.
+
+Path remaps: several `FROM => TO` rules in `[path_remap]` (UI add/edit/remove); **longest prefix wins** for extract/preview.
 
 While **Run index / scan** is running, a progress bar shows file count and ETA. You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar. Floor clients with **Auto-refresh results** re-query when this PC’s incremental scan updates the shared sqlite.
 

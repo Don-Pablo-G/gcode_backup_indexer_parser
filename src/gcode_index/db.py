@@ -774,8 +774,19 @@ def query_instances(
         "(all)",
         "(wszystkie)",
     }:
-        clauses.append("IFNULL(odbiorca_id,'') = ?")
-        params.append(str(odbiorca).strip())
+        odb = str(odbiorca).strip()
+        # Sentinel for quality-dashboard / filter: rows with no odbiorca assigned
+        if odb.casefold() in {
+            "__missing__",
+            "(missing)",
+            "(brak)",
+            "(brak odbiorcy)",
+            "(no recipient)",
+        }:
+            clauses.append("(odbiorca_id IS NULL OR TRIM(odbiorca_id) = '')")
+        else:
+            clauses.append("IFNULL(odbiorca_id,'') = ?")
+            params.append(odb)
 
     if programmer is not None and str(programmer).strip() and str(programmer).strip() not in {
         "(all)",

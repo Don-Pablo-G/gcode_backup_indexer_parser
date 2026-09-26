@@ -74,12 +74,14 @@ Zobacz **Instrukcję indeksatora** w menu Pomoc.
 
 ## Mapowanie ścieżek (klient)
 
-Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:**, ustaw w **Zmień…** sekcję **Mapowanie ścieżek (klient)**:
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), w **Zmień…** → **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
 
 - **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
-Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+
+Prawy przycisk na wyniku → **Wydobądź do…** — wybierz folder docelowy (ostatnie foldery są zapamiętywane).
 
 ---
 

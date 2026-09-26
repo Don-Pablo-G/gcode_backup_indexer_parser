@@ -40,6 +40,8 @@ class InstanceConfig:
     backup: str = ""
     target: str = ""  # database folder (gcode_index.sqlite + sidecar yaml)
     extract: str = ""  # Wydobądź / extract output folder (falls back to target if empty)
+    # Recent Extract to… destinations (newest first, capped on save)
+    extract_recent: list[str] = field(default_factory=list)
     green_roots: list[str] = field(default_factory=list)
     yellow_roots: list[str] = field(default_factory=list)
     language: str = "pl"
@@ -208,6 +210,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.extract = parser.get("folders", "extract", fallback="").strip()
         if not cfg.extract:
             cfg.extract = parser.get("folders", "extract_folder", fallback="").strip()
+        cfg.extract_recent = _split_paths(
+            parser.get("folders", "extract_recent", fallback="")
+        )
 
     if parser.has_section("green_roots"):
         cfg.green_roots = _split_paths(parser.get("green_roots", "paths", fallback=""))
@@ -470,6 +475,9 @@ def save_instance_ini(
         backup=str(kwargs.get("backup", base.backup) or ""),
         target=str(kwargs.get("target", base.target) or ""),
         extract=str(kwargs.get("extract", base.extract) or ""),
+        extract_recent=list(
+            kwargs.get("extract_recent", base.extract_recent) or []
+        ),
         green_roots=list(kwargs.get("green_roots", base.green_roots) or []),
         yellow_roots=list(kwargs.get("yellow_roots", base.yellow_roots) or []),
         language=str(kwargs.get("language", base.language) or "pl"),
@@ -595,6 +603,8 @@ backup = {data.backup}
 target = {data.target}
 ; Extract / Wydobądź output folder (leave blank to use the database folder)
 extract = {data.extract}
+; Recent Extract to… folders (newest first). One path per indented line.
+extract_recent ={_format_paths(data.extract_recent)}
 
 [green_roots]
 ; ON-MACHINE catch folders (green flag). One full path per indented line.
@@ -663,10 +673,12 @@ text = {data.notes}
 ; Client extract remaps when the indexer and this PC use different drive letters
 ; for the same share (e.g. indexer C:\\CNC\\Share → client Z:\\CNC\\Share).
 ; Applies to scan_root for main backup AND green/yellow roots on that prefix.
-; One rule per indented line: FROM => TO   (also accepted: from_prefix / to_prefix)
+; Several rules allowed — longest matching from-prefix wins at extract/preview.
+; One rule per indented line under rules=: FROM => TO
+; from_prefix / to_prefix remain as a shorthand for the first rule (older clients).
 from_prefix = {(data.path_remaps[0].from_prefix if data.path_remaps else "")}
 to_prefix = {(data.path_remaps[0].to_prefix if data.path_remaps else "")}
-rules ={format_remap_rules_block(data.path_remaps[1:] if len(data.path_remaps) > 1 else [])}
+rules ={format_remap_rules_block(data.path_remaps)}
 
 [desktop]
 ; Windows logon autostart (indexer helper). yes/no
@@ -726,7 +738,8 @@ preview_geometry = {data.preview_geometry}
 ;   folder_colour_aliases.yaml — Folder roles… (catalogue + name aliases)
 ;   folder_tree_map.yaml       — Map tree… (path machine/tags/exclude)
 ;   extra_scan_roots.yaml      — mirror of green/yellow roots (INI is primary)
-;   filter_presets.yaml        — named filter presets (Save preset…)
+;   views.yaml                 — named find-bar views / presets (Save current…)
+;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
 ;   ui_settings.yaml           — schedule_last_run mirror (optional)
 ;   indexer_settings.yaml      — shop scan/schedule/watch defaults (not can_index)
 ;   scan_history.json          — scan run history

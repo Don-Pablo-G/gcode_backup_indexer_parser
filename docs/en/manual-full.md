@@ -17,7 +17,7 @@ With `can_index=yes` the GUI can:
 - Add **green** (on-machine) and **yellow** (extra) scan roots
 - Run **auto-index** on a schedule while the GUI stays open
 - Map odd folder names to machines and edit **local aliases**
-- Use advanced filters, presets, compare, scan report, duplicates
+- Use advanced filters, saved views, compare, scan report / index quality, duplicates
 - Optionally write Excel after a scan
 - Use Windows **autostart** / **tray** helpers
 
@@ -36,12 +36,12 @@ In the preview pane, use **In preview** to find text in the G-code body (next/pr
 
 ## Path remap (client)
 
-If the index was built on a server as **C:** and this PC sees the same share as **Z:**, open **Change…** and set **Path remap (client)**:
+If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Change…** → **Path remap (client)** and **Add…** one or more rules:
 
 - **Prefix in index** = `C:\…` (as stored in the DB / `scan_root`)
 - **Local prefix** = `Z:\…` (as on this PC)
 
-Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
 
 ## Folders
 
@@ -151,11 +151,13 @@ The GUI is **single-instance**: launching again (including while it sits in the 
 Same find bar as the floor client, plus:
 
 - **Include unassigned** / **Uwzględniaj nieprzypisane** (default **ON**) — when a machine multi-select is active, keep **MACHINE UNKNOWN** / `unmapped:…` rows in the results. Turning OFF shows a confirm warning. Saved as `[scan] include_unknown` in `gcode-index.ini`. Floor clients and locked installs force this **ON** (control disabled).
-- **More filters** — source type, control, flag (green/yellow), programmer, presets, **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
+- **More filters** — source type, control, flag (green/yellow), role, odbiorca, programmer, **views** (named filter sets in `views.yaml` next to the DB), **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
 - Click any **results column header** to sort ascending/descending
 - **Compare…** — unified diff of exactly two selected rows
+- **Index quality…** — UNKNOWN machines, missing odbiorca, `system_programs` (O9…), colour conflicts; click a row to filter results
 - **Duplicates…** — exact groups use **program-body** SHA-256 (`program_sha256`: normalized extract text with `%` frame + LF newlines), so glued dump slices can match loose `.nc` / `.nc.copy` with the same body. Members show **colour badges**; groups with ≥2 colours for the same body are flagged as **colour conflicts** (**Konflikt kolorów**) with a filter to show only those. Near-duplicates: same program # + similar size, different body hash. Whole-file `content_sha256` is unchanged for extract integrity. **Re-scan** after upgrade to fill `program_sha256` on older rows.
 - **Open folder** / **Copy path** on the source file
+- Right-click → **Extract to…** — pick a folder (recent destinations remembered in the ini)
 
 **Wydobądź / Extract** writes program bodies to the extract folder (or a path you choose). Sources are never modified. Extract checks whole-file SHA-256 (`content_sha256`) + size from scan time.
 

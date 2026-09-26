@@ -74,12 +74,14 @@ See the **Indexer manual** in the Help menu.
 
 ## Path remap (client)
 
-If the index was built on a server as **C:** and this PC sees the same share as **Z:**, open **Change…** and set **Path remap (client)**:
+If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Change…** → **Path remap (client)** and **Add…** one or more rules:
 
 - **Prefix in index** = `C:\…` (as stored in the DB / `scan_root`)
 - **Local prefix** = `Z:\…` (as on this PC)
 
-Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+
+Right-click a result → **Extract to…** to pick a destination folder (recent folders are remembered).
 
 ---
 

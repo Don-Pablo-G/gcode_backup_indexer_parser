@@ -17,7 +17,7 @@ Przy `can_index=yes` GUI może:
 - Dodawać katalogi **zielone** (z maszyny) i **żółte** (dodatkowe)
 - Uruchamiać **auto-indeks** według harmonogramu, gdy GUI jest otwarte
 - Mapować dziwne nazwy folderów na maszyny i edytować **lokalne aliasy**
-- Korzystać z filtrów zaawansowanych, presetów, porównania, raportu skanu, duplikatów
+- Korzystać z filtrów zaawansowanych, widoków, porównania, raportu / jakości skanu, duplikatów
 - Opcjonalnie zapisać Excel po skanie
 - Używać Windows **autostart** / **zasobnik**
 
@@ -36,12 +36,12 @@ W panelu podglądu użyj **W podglądzie**, żeby znaleźć tekst w treści G-co
 
 ## Mapowanie ścieżek (klient)
 
-Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:**, ustaw w **Zmień…** sekcję **Mapowanie ścieżek (klient)**:
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), w **Zmień…** → **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
 
 - **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
-Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
 
 ## Foldery
 
@@ -134,7 +134,10 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 Jak na kliencie hali, plus:
 
 - **Uwzględniaj nieprzypisane** / **Include unassigned** (domyślnie **ON**) — przy aktywnym filtrze maszyn zostawia w wynikach **MACHINE UNKNOWN** / `unmapped:…`. Wyłączenie pokazuje ostrzeżenie. Zapis: `[scan] include_unknown` w `gcode-index.ini`. Na kliencie hali i przy blokadzie zawsze **ON** (kontrolka wyłączona).
-- **Więcej filtrów**, **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; odznaki kolorów przy członkach; **Konflikt kolorów**, gdy to samo ciało ma ≥2 kolory — filtr „Tylko konflikt kolorów”; po aktualizacji **przeskanuj** ponownie). Wydobycie sprawdza SHA całego pliku (`content_sha256`) + rozmiar ze skanu.
+- **Więcej filtrów** — typ źródła, sterowanie, status, rola, odbiorca, programista, **widoki** (`views.yaml` obok bazy), rozmiar / data pliku
+- **Jakość indeksu…** — UNKNOWN, brak odbiorcy, programy systemowe (O9…), konflikty kolorów; klik → filtr wyników
+- **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; odznaki kolorów przy członkach; **Konflikt kolorów**, gdy to samo ciało ma ≥2 kolory — filtr „Tylko konflikt kolorów”; po aktualizacji **przeskanuj** ponownie)
+- Prawy przycisk → **Wydobądź do…** — wybór folderu (ostatnie foldery w ini). Wydobycie sprawdza SHA całego pliku (`content_sha256`) + rozmiar ze skanu.
 
 ---
 
