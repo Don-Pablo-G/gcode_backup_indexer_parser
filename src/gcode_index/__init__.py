@@ -1,4 +1,4 @@
 """gcode-index — CNC backup tree → SQLite program-instance index."""
 
-__version__ = "0.2.58"
-PARSER_VERSION = "0.2.58"
+__version__ = "0.2.59"
+PARSER_VERSION = "0.2.59"

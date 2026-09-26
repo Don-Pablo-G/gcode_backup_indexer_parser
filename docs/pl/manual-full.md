@@ -62,6 +62,19 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 **Zagnieżdżone katalogi:** **najgłębszy** skonfigurowany root (główna kopia lub zielony/żółty), który zawiera plik, go „posiada” — jego kolor i `scan_root`. Przykład: żółty rodzic + zielone dziecko → pliki w dziecku tylko **zielone** (bez duplikatu żółtego). Przy dodaniu rootu wewnątrz innego pojawia się krótka informacja, że dziecko nadpisuje kolor rodzica.
 
+### Aliasy kolorów folderów (zielony / żółty / czerwony / wyklucz)
+
+**Kolory folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy. Reguła: **nazwa folderu** (fuzzy jak aliasy maszyn) →
+
+| Kolor | Znaczenie |
+|-------|-----------|
+| **Zielony** | Z maszyny / kopia |
+| **Żółty** | Dodatkowy / nie z kopii |
+| **Czerwony** | WIP / nie produkcja |
+| **Wyklucz** | **Nie** indeksuj tej gałęzi |
+
+**Najgłębszy** pasujący segment wygrywa — także w głównej kopii (np. `…/maszyna/Pawel/*.nc` → czerwony). Nadpisuje domyślny kolor rootu. W wynikach: 🟢 / 🟡 / 🔴.
+
 ---
 
 ## Mapowanie folderów i aliasy

@@ -20,13 +20,16 @@ from gcode_index.locators.fanuc_all_prog import locate_fanuc_all_prog
 from gcode_index.locators.haas_pgm import locate_haas_pgm
 from gcode_index.locators.whole_file_nc import locate_whole_file_nc
 from gcode_index.models import (
+    COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
     PROVENANCE_EXTRA,
+    PROVENANCE_WIP,
     FileSeen,
     MachineInfo,
     ScanResult,
     UnknownFolder,
 )
+from gcode_index.folder_colour_aliases import FolderColourAliasMap
 from gcode_index.folder_watch import path_under
 from gcode_index.scan_cache import ScanCache
 
@@ -142,6 +145,35 @@ def _under_skip(path: Path, skip_under: Optional[list[Path]]) -> bool:
     return any(path_under(path, s) for s in skip_under)
 
 
+def _folder_parts_under_root(path: Path, root: Path) -> Tuple[str, ...]:
+    """Ancestor folder names under ``root`` for ``path`` (excludes filename)."""
+    parts = _path_parts_under_root(path, root)
+    if not parts:
+        return ()
+    # Drop filename when last segment looks like a file
+    if path.is_file() or "." in parts[-1]:
+        return parts[:-1]
+    return parts
+
+
+def _colour_for_path(
+    path: Path,
+    root: Path,
+    colour_map: Optional[FolderColourAliasMap],
+) -> Optional[str]:
+    if colour_map is None or len(colour_map) == 0:
+        return None
+    return colour_map.resolve_path_parts(_folder_parts_under_root(path, root))
+
+
+def _path_excluded(
+    path: Path,
+    root: Path,
+    colour_map: Optional[FolderColourAliasMap],
+) -> bool:
+    return _colour_for_path(path, root, colour_map) == COLOUR_EXCLUDE
+
+
 def roots_nest(a: Path | str, b: Path | str) -> bool:
     """True when one path is a strict ancestor of the other (nested roots)."""
     try:
@@ -182,6 +214,7 @@ def _count_indexable_files(
     root: Path,
     *,
     skip_under: Optional[list[Path]] = None,
+    colour_map: Optional[FolderColourAliasMap] = None,
 ) -> int:
     """Count dump + .nc / .nc.copy files we expect to touch (for progress denominator)."""
     n = 0
@@ -189,6 +222,8 @@ def _count_indexable_files(
         if not path.is_file():
             continue
         if _under_skip(path, skip_under):
+            continue
+        if _path_excluded(path, root, colour_map):
             continue
         if (
             _is_nc_like(path)
@@ -222,6 +257,7 @@ def scan_backup_tree(
     provenance: str = PROVENANCE_BACKUP,
     cache: Optional[ScanCache] = None,
     skip_under: Optional[list[Path]] = None,
+    colour_map: Optional[FolderColourAliasMap] = None,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -229,6 +265,7 @@ def scan_backup_tree(
         raise NotADirectoryError(f"backup root is not a directory: {root}")
 
     skip = list(skip_under or [])
+    colours = colour_map if colour_map is not None else FolderColourAliasMap.empty()
 
     if progress:
         progress(
@@ -242,7 +279,7 @@ def scan_backup_tree(
                 "eta_s": None,
             }
         )
-    total = _count_indexable_files(root, skip_under=skip)
+    total = _count_indexable_files(root, skip_under=skip, colour_map=colours)
     prog = _ScanProgress(progress, total)
     prog.emit(
         phase="scanning",
@@ -254,11 +291,11 @@ def scan_backup_tree(
 
     # date → machine: glued dumps (.pgm / ALL-FLDR / ALL-PROG) + unknown-folder log
     for date_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        if _under_skip(date_dir, skip):
+        if _under_skip(date_dir, skip) or _path_excluded(date_dir, root, colours):
             continue
         date_folder_raw = date_dir.name
         for machine_dir in sorted(p for p in date_dir.iterdir() if p.is_dir()):
-            if _under_skip(machine_dir, skip):
+            if _under_skip(machine_dir, skip) or _path_excluded(machine_dir, root, colours):
                 continue
             _scan_machine_folder_dumps(
                 machine_dir=machine_dir,
@@ -271,6 +308,7 @@ def scan_backup_tree(
                 cache=cache,
                 scan_root=scan_root_s,
                 skip_under=skip,
+                colour_map=colours,
             )
 
     # Individual .nc / .nc.copy: whole tree from backup root (any depth)
@@ -283,9 +321,11 @@ def scan_backup_tree(
         cache=cache,
         scan_root=scan_root_s,
         skip_under=skip,
+        colour_map=colours,
     )
 
     _stamp_provenance(result, provenance=provenance, scan_root=root)
+    _apply_folder_colour_overrides(result, colours)
 
     prog.emit(
         phase="done",
@@ -305,6 +345,7 @@ def scan_with_extra_roots(
     progress: Optional[ProgressCallback] = None,
     folder_map: Optional[FolderMachineMap] = None,
     cache: Optional[ScanCache] = None,
+    colour_map: Optional[FolderColourAliasMap] = None,
 ) -> ScanResult:
     """Scan the main backup (green) plus optional additional folders.
 
@@ -316,6 +357,9 @@ def scan_with_extra_roots(
     deepest configured root that contains it (that root's colour / ``scan_root``).
     A green child inside a yellow parent therefore yields green rows only for the child
     tree — no duplicate rows from the parent pass.
+
+    Optional ``colour_map`` (folder-name aliases) then overrides provenance per deepest
+    matching path segment, or excludes that branch entirely.
     """
     roots: list[tuple[Path, str]] = [(Path(backup_root), PROVENANCE_BACKUP)]
     seen: set[str] = {str(Path(backup_root).resolve())}
@@ -350,6 +394,7 @@ def scan_with_extra_roots(
     for raw in extra_roots or []:
         _add(raw, PROVENANCE_EXTRA)
 
+    colours = colour_map if colour_map is not None else FolderColourAliasMap.empty()
     all_root_paths = [p for p, _ in roots]
     resolved_roots: list[tuple[Path, str]] = []
     for p, prov in roots:
@@ -388,23 +433,28 @@ def scan_with_extra_roots(
             provenance=prov,
             cache=cache,
             skip_under=skip,
+            colour_map=colours,
         )
         merged.instances.extend(part.instances)
         merged.files_seen.extend(part.files_seen)
         merged.unknowns.extend(part.unknowns)
 
     merged = _filter_longest_prefix_instances(merged, resolved_roots)
+    # Colour overrides already applied per-root; re-apply after ownership in case
+    # a kept row still needs deepest-segment colour vs root default.
+    _apply_folder_colour_overrides(merged, colours)
 
     if progress:
         n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
         n_ext = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_EXTRA)
+        n_wip = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_WIP)
         n_cached = sum(1 for fs in merged.files_seen if fs.status == "cached")
         progress(
             {
                 "phase": "done",
                 "message": (
                     f"Scan complete — {len(merged.instances)} programs "
-                    f"({n_bak} backup / green, {n_ext} extra / yellow"
+                    f"({n_bak} green, {n_ext} yellow, {n_wip} red"
                     f"{f', {n_cached} files reused' if n_cached else ''})"
                 ),
                 "message_key": "scan_complete_programs",
@@ -419,6 +469,24 @@ def scan_with_extra_roots(
             }
         )
     return merged
+
+
+def _apply_folder_colour_overrides(
+    result: ScanResult,
+    colour_map: Optional[FolderColourAliasMap],
+) -> None:
+    """Override or drop instances using deepest folder-colour alias on source_path."""
+    if colour_map is None or len(colour_map) == 0:
+        return
+    kept = []
+    for inst in result.instances:
+        colour = colour_map.resolve_source_path(inst.source_path or "")
+        if colour == COLOUR_EXCLUDE:
+            continue
+        if colour in (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP):
+            inst.provenance = colour
+        kept.append(inst)
+    result.instances[:] = kept
 
 
 def _filter_longest_prefix_instances(
@@ -447,8 +515,8 @@ def _filter_longest_prefix_instances(
             inst_root = scan_root
         if inst_root != owner_root:
             continue
-        if inst.provenance != owner_prov:
-            inst.provenance = owner_prov
+        # Root ownership colour; path-colour aliases re-applied after this filter.
+        inst.provenance = owner_prov
         kept.instances.append(inst)
     return kept
 
@@ -477,6 +545,7 @@ def _scan_machine_folder_dumps(
     cache: Optional[ScanCache] = None,
     scan_root: str = "",
     skip_under: Optional[list[Path]] = None,
+    colour_map: Optional[FolderColourAliasMap] = None,
 ) -> None:
     """Index glued dumps (.pgm / ALL-FLDR / ALL-PROG).
 
@@ -515,6 +584,8 @@ def _scan_machine_folder_dumps(
         if not path.is_file():
             continue
         if _under_skip(path, skip_under):
+            continue
+        if _path_excluded(path, root, colour_map):
             continue
         if _is_pgm(path):
             _index_pgm(
@@ -686,6 +757,7 @@ def _index_all_nc_files(
     cache: Optional[ScanCache] = None,
     scan_root: str = "",
     skip_under: Optional[list[Path]] = None,
+    colour_map: Optional[FolderColourAliasMap] = None,
 ) -> None:
     """Walk entire backup tree for *.nc / *.nc.copy.
 
@@ -697,6 +769,8 @@ def _index_all_nc_files(
         if not path.is_file() or not _is_nc_like(path):
             continue
         if _under_skip(path, skip_under):
+            continue
+        if _path_excluded(path, root, colour_map):
             continue
         rp = path.resolve()
         if rp in seen:

@@ -62,6 +62,19 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 **Nested roots:** the **deepest** configured root (main backup or green/yellow) that contains a file owns it — that root’s colour and `scan_root` apply. Example: yellow parent + green child → files under the child are **green only** (no duplicate yellow row). Adding a root inside another shows a short note that the child overrides the parent colour.
 
+### Folder colour aliases (green / yellow / red / exclude)
+
+**Folder colours…** (indexer) edits `folder_colour_aliases.yaml` next to the database. Each rule maps a **folder name** (fuzzy like machine aliases) to:
+
+| Colour | Meaning |
+|--------|---------|
+| **Green** | On-machine / backup |
+| **Yellow** | Extra / not from backup |
+| **Red** | WIP / not production-ready |
+| **Exclude** | Do **not** index that folder branch |
+
+The **deepest** matching path segment wins — including inside the main backup (e.g. `…/machine/Pawel/*.nc` → red). Overrides the default root colour. Results show 🟢 / 🟡 / 🔴 in the Flag column.
+
 ---
 
 ## Map folders and aliases

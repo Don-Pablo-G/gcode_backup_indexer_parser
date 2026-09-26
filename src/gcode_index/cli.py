@@ -120,6 +120,12 @@ def scan_cmd(
     yellows = list(extra_root or [])
     greens = list(green_root or [])
     cache = None
+    from gcode_index.folder_colour_aliases import (
+        FolderColourAliasMap,
+        folder_colour_aliases_path_for_target,
+    )
+
+    colour_map = FolderColourAliasMap.load(folder_colour_aliases_path_for_target(db.parent))
     if incremental and db.is_file():
         from gcode_index.scan_cache import load_scan_cache
 
@@ -145,6 +151,7 @@ def scan_cmd(
             root_specs=specs,
             folder_map=fmap if fmap and fmap.assignments else None,
             cache=cache,
+            colour_map=colour_map,
         )
     else:
         typer.echo(f"Scanning {backup_root} …")
@@ -153,6 +160,7 @@ def scan_cmd(
             alias_map,
             folder_map=fmap if fmap and fmap.assignments else None,
             cache=cache,
+            colour_map=colour_map,
         )
     db.parent.mkdir(parents=True, exist_ok=True)
     if db.is_file():

@@ -14,10 +14,17 @@ SOURCE_TYPES = (
     "loose_nc",
 )
 
-# Provenance / run flag: backup tree = ran on machine (green); extra folder = not from backup (yellow)
+# Provenance / run flag:
+# backup = green (ran on machine / catch);
+# extra = yellow (additional folder, not from backup);
+# wip = red (work-in-progress / not production-ready)
 PROVENANCE_BACKUP = "backup"
 PROVENANCE_EXTRA = "extra"
-PROVENANCE_VALUES = (PROVENANCE_BACKUP, PROVENANCE_EXTRA)
+PROVENANCE_WIP = "wip"
+PROVENANCE_VALUES = (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP)
+
+# Path-colour rule that skips indexing a folder branch (not stored on rows)
+COLOUR_EXCLUDE = "exclude"
 
 
 @dataclass
@@ -56,7 +63,7 @@ class ProgramInstance:
     parse_status: str = "ok"
     error_message: Optional[str] = None
     header_kind: Optional[str] = None
-    # backup = green (ran on machine); extra = yellow (additional folder, not in backup)
+    # backup = green; extra = yellow; wip = red (WIP / not production)
     provenance: str = PROVENANCE_BACKUP
     scan_root: Optional[str] = None
     # Next-line comment (LP1) / (MS1); null if absent or non-matching
