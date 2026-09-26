@@ -670,6 +670,7 @@ preview_find = {data.preview_find}
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (auto-loaded; do not delete):
 ;   machine_folders.yaml       — legacy folder→machine map (still read by scanner)
+;   odbiorcy.yaml              — recipient/customer catalogue + name aliases
 ;   aliases.local.yaml         — Machines & aliases…
 ;   folder_colour_aliases.yaml — Folder roles… (catalogue + name aliases)
 ;   folder_tree_map.yaml       — Map tree… (path machine/tags/exclude)
