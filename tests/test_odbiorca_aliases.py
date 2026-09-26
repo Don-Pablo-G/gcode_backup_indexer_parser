@@ -85,7 +85,8 @@ def test_odbiorca_path_override(tmp_path: Path):
 
 def test_odbiorca_does_not_change_roles_or_status(tmp_path: Path):
     bak = tmp_path / "bak"
-    hit = _write_nc(bak / "15.09.2026" / "OddMill" / "Acme" / "x.nc", "O9301")
+    # Non-O9 program number so auto system_programs role does not apply
+    hit = _write_nc(bak / "15.09.2026" / "OddMill" / "Acme" / "x.nc", "O2301")
     am = AliasMap.load(ALIASES)
     from gcode_index.folder_colour_aliases import FolderColourAliasMap, FolderColourRule
     from gcode_index.models import ROLE_PERSONAL

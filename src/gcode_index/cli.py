@@ -136,6 +136,10 @@ def scan_cmd(
         odbiorca_from_header = bool(load_instance_ini().odbiorca_from_header)
     except Exception:  # noqa: BLE001
         odbiorca_from_header = True
+    try:
+        o9_system_programs_role = bool(load_instance_ini().o9_system_programs_role)
+    except Exception:  # noqa: BLE001
+        o9_system_programs_role = True
     if incremental and db.is_file():
         from gcode_index.scan_cache import load_scan_cache
 
@@ -165,6 +169,7 @@ def scan_cmd(
             tree_map=tree_map,
             odbiorca_map=odbiorca_map,
             odbiorca_from_header=odbiorca_from_header,
+            o9_system_programs_role=o9_system_programs_role,
         )
     else:
         typer.echo(f"Scanning {backup_root} …")
@@ -177,6 +182,7 @@ def scan_cmd(
             tree_map=tree_map,
             odbiorca_map=odbiorca_map,
             odbiorca_from_header=odbiorca_from_header,
+            o9_system_programs_role=o9_system_programs_role,
         )
     db.parent.mkdir(parents=True, exist_ok=True)
     if db.is_file():

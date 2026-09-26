@@ -104,6 +104,7 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
    - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
    - **Also write Excel** — export workbook next to the DB after scan
    - **Odbiorca from header** — when folder/path left odbiorca empty, match aliases in header paren comments (O##### window only)
+   - **O9 → system programs** — auto-add role `system_programs` when program number is any O9… (accumulates with other roles; reindex to backfill)
    - **Watch folders** — see below
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
 

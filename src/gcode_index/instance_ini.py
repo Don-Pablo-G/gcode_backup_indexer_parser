@@ -56,6 +56,8 @@ class InstanceConfig:
     include_unknown: bool = True  # sticky: keep MACHINE UNKNOWN when filtering machines
     # Match odbiorca aliases against header-window paren comments when folder/path unset
     odbiorca_from_header: bool = True
+    # Auto-tag O9… program numbers with role system_programs
+    o9_system_programs_role: bool = True
     search_auto_refresh: bool = False  # re-query when DB mtime changes
     search_auto_refresh_s: int = 20  # poll interval for DB mtime (seconds)
     geometry: str = "1320x820"
@@ -288,6 +290,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.odbiorca_from_header = _truthy(
             parser.get("scan", "odbiorca_from_header", fallback="yes"), default=True
         )
+        cfg.o9_system_programs_role = _truthy(
+            parser.get("scan", "o9_system_programs_role", fallback="yes"), default=True
+        )
         cfg.watch_folders = _truthy(
             parser.get("scan", "watch_folders", fallback="no"), default=False
         )
@@ -488,6 +493,9 @@ def save_instance_ini(
         odbiorca_from_header=bool(
             kwargs.get("odbiorca_from_header", base.odbiorca_from_header)
         ),
+        o9_system_programs_role=bool(
+            kwargs.get("o9_system_programs_role", base.o9_system_programs_role)
+        ),
         search_auto_refresh=bool(
             kwargs.get("search_auto_refresh", base.search_auto_refresh)
         ),
@@ -632,6 +640,9 @@ include_unknown = {yn(data.include_unknown)}
 ; yes/no — when folder/path left odbiorca empty, match aliases in header paren comments
 ; (O-header window only — not the full toolpath body). Reindex to backfill.
 odbiorca_from_header = {yn(data.odbiorca_from_header)}
+; yes/no — auto-add role system_programs when program_number is any O9… (accumulate)
+; Reindex to backfill. Does not change status / machine / odbiorca.
+o9_system_programs_role = {yn(data.o9_system_programs_role)}
 ; yes/no — auto-refresh search results when the DB file changes (mtime)
 ; Useful on floor clients sharing a network DB — no need to retype search.
 search_auto_refresh = {yn(data.search_auto_refresh)}

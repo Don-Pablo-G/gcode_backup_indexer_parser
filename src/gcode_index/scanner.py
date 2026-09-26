@@ -24,10 +24,12 @@ from gcode_index.models import (
     PROVENANCE_BACKUP,
     PROVENANCE_EXTRA,
     PROVENANCE_WIP,
+    ROLE_SYSTEM_PROGRAMS,
     FileSeen,
     MachineInfo,
     ScanResult,
     UnknownFolder,
+    is_o9_system_program,
 )
 from gcode_index.folder_colour_aliases import FolderColourAliasMap
 from gcode_index.folder_tree_map import (
@@ -273,6 +275,7 @@ def scan_backup_tree(
     tree_map: Optional[FolderTreeMap] = None,
     odbiorca_map: Optional[OdbiorcaAliasMap] = None,
     odbiorca_from_header: bool = True,
+    o9_system_programs_role: bool = True,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -354,6 +357,8 @@ def scan_backup_tree(
     _apply_folder_tree_map_overrides(result, trees, aliases)
     if odbiorca_from_header:
         _apply_odbiorca_from_header(result, odbiorcy)
+    if o9_system_programs_role:
+        _apply_o9_system_programs_role(result)
 
     prog.emit(
         phase="done",
@@ -377,6 +382,7 @@ def scan_with_extra_roots(
     tree_map: Optional[FolderTreeMap] = None,
     odbiorca_map: Optional[OdbiorcaAliasMap] = None,
     odbiorca_from_header: bool = True,
+    o9_system_programs_role: bool = True,
 ) -> ScanResult:
     """Scan the main backup (green) plus optional additional folders.
 
@@ -472,6 +478,7 @@ def scan_with_extra_roots(
             tree_map=trees,
             odbiorca_map=odbiorcy,
             odbiorca_from_header=False,  # apply once on merged set below
+            o9_system_programs_role=False,
         )
         merged.instances.extend(part.instances)
         merged.files_seen.extend(part.files_seen)
@@ -484,6 +491,8 @@ def scan_with_extra_roots(
     _apply_folder_tree_map_overrides(merged, trees, aliases)
     if odbiorca_from_header:
         _apply_odbiorca_from_header(merged, odbiorcy)
+    if o9_system_programs_role:
+        _apply_o9_system_programs_role(merged)
 
     if progress:
         n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
@@ -512,6 +521,25 @@ def scan_with_extra_roots(
             }
         )
     return merged
+
+
+def _apply_o9_system_programs_role(result: ScanResult) -> None:
+    """Add ``system_programs`` when program_number is any O9… (accumulate).
+
+    Never changes status, machine, or odbiorca. Runs after folder/path roles so
+    tree-map replacements still receive the O9 tag.
+    """
+    n = 0
+    for inst in result.instances:
+        if not is_o9_system_program(inst.program_number):
+            continue
+        roles = roles_from_db(inst.role)
+        if ROLE_SYSTEM_PROGRAMS in roles:
+            continue
+        roles.append(ROLE_SYSTEM_PROGRAMS)
+        inst.role = roles_to_db(roles)
+        n += 1
+    result.o9_system_programs = n
 
 
 def _apply_folder_colour_overrides(

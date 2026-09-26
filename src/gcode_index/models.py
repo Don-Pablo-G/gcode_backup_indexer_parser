@@ -54,6 +54,21 @@ ROLE_LEGACY_IDS = (ROLE_PRODUCTION, ROLE_WIP, ROLE_TEST)
 COLOUR_EXCLUDE = "exclude"
 
 
+def is_o9_system_program(program_number: Optional[str]) -> bool:
+    """True when program number is any ``O9…`` (case-insensitive O, then 9).
+
+    Accepts stored forms with or without a leading ``O`` (locators usually store
+    digits only). Does not require a fixed digit count — any suffix after ``9``
+    that the parser already kept is fine.
+    """
+    raw = (program_number or "").strip()
+    if not raw:
+        return False
+    if raw[0] in "Oo":
+        raw = raw[1:].lstrip()
+    return bool(raw) and raw[0] == "9"
+
+
 @dataclass
 class MachineInfo:
     machine_id: str
@@ -132,3 +147,5 @@ class ScanResult:
     odbiorca_from_folder: int = 0
     odbiorca_from_path: int = 0
     odbiorca_from_header: int = 0
+    # Rows that received auto role system_programs from O9… program numbers
+    o9_system_programs: int = 0

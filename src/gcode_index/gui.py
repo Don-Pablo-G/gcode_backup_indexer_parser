@@ -324,6 +324,7 @@ class IndexerApp(tk.Tk):
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
+        self.o9_system_programs_role_var = tk.BooleanVar(value=True)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
@@ -451,6 +452,7 @@ class IndexerApp(tk.Tk):
             self.incremental_var,
             self.newest_only_var,
             self.odbiorca_from_header_var,
+            self.o9_system_programs_role_var,
         ):
             var.trace_add("write", self._on_scan_option_changed)
         # Persist folder edits typed by hand (debounced)
@@ -485,6 +487,7 @@ class IndexerApp(tk.Tk):
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
+        self.o9_system_programs_role_var.set(bool(cfg.o9_system_programs_role))
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
         self.search_auto_refresh_var.set(bool(cfg.search_auto_refresh))
@@ -669,6 +672,7 @@ class IndexerApp(tk.Tk):
             watch_mode=self._watch_mode,
             also_excel=bool(self.excel_var.get()),
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+            o9_system_programs_role=bool(self.o9_system_programs_role_var.get()),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
             close_to_tray=bool(self.close_to_tray_var.get()),
@@ -1224,6 +1228,7 @@ class IndexerApp(tk.Tk):
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
+            "o9_system_programs_role": bool(self.o9_system_programs_role_var.get()),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
@@ -1460,6 +1465,10 @@ class IndexerApp(tk.Tk):
                 if "odbiorca_from_header" in preserved:
                     self.odbiorca_from_header_var.set(
                         bool(preserved.get("odbiorca_from_header"))
+                    )
+                if "o9_system_programs_role" in preserved:
+                    self.o9_system_programs_role_var.set(
+                        bool(preserved.get("o9_system_programs_role"))
                     )
                 if preserved.get("watch_mode") is not None:
                     self._watch_mode = normalize_watch_mode(
@@ -2230,6 +2239,12 @@ class IndexerApp(tk.Tk):
             row2,
             text=self._("odbiorca_from_header"),
             variable=self.odbiorca_from_header_var,
+            command=self._schedule_filter_ini_save,
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Checkbutton(
+            row2,
+            text=self._("o9_system_programs_role"),
+            variable=self.o9_system_programs_role_var,
             command=self._schedule_filter_ini_save,
         ).pack(side=tk.LEFT, padx=8)
         ttk.Checkbutton(
@@ -4038,6 +4053,9 @@ class IndexerApp(tk.Tk):
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
                     odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+                    o9_system_programs_role=bool(
+                        self.o9_system_programs_role_var.get()
+                    ),
                 )
             else:
                 result = scan_backup_tree(
@@ -4051,6 +4069,9 @@ class IndexerApp(tk.Tk):
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
                     odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+                    o9_system_programs_role=bool(
+                        self.o9_system_programs_role_var.get()
+                    ),
                 )
             n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
             if db_path.is_file():
@@ -4134,9 +4155,13 @@ class IndexerApp(tk.Tk):
                     path=n_odb_p,
                     header=n_odb_h,
                 )
+            n_o9 = int(getattr(result, "o9_system_programs", 0) or 0)
+            o9_note = (
+                self._("scan_note_o9_system", n=n_o9) if n_o9 else ""
+            )
             extra = (
                 f"{unk_note}{local_note}{flag_note}"
-                f"{cache_note}{mode_note}{auto_note}{odb_note}"
+                f"{cache_note}{mode_note}{auto_note}{odb_note}{o9_note}"
             )
             msg = self._(
                 "scan_done_status",
