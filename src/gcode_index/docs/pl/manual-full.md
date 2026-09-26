@@ -74,12 +74,21 @@ Ilość + jednostka (sekundy / minuty / godziny / dni). Klient hali (`can_index=
 
 ### Obserwacja folderów
 
-Zaznacz **Obserwuj foldery** — poll kopii i zielonych/żółtych; po zmianach przyrostowy skan.
+Zaznacz **Obserwuj foldery** — po zmianach w kopii / zielonych/żółtych katalogach uruchamia się **przyrostowy** skan (po krótkim debounce).
+
+Obok checkboxa wybierz **metodę** (przełącznik segmentowy):
+
+| Metoda | Zachowanie |
+|--------|------------|
+| **Auto** (`watch_mode=hybrid`) | Zdarzenia OS na dyskach lokalnych; stamp-**poll** na udziałach sieciowych / UNC (`Z:\…`, `\\serwer\udział`) |
+| **Tylko poll** (`watch_mode=poll`) | Stamp-poll wszędzie (bezpieczny fallback / poprzednie zachowanie) |
+
+Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`). Wybór zapisuje się w `gcode-index.ini` → `[scan] watch_mode`.
 
 - Tylko przy `can_index=yes`.
 - Blokada `gcode_index.lock` obok bazy — **jeden PC** obserwuje.
 - Zalecenie: jeden PC indeksujący z Obserwuj; pozostałe — `can_index=no` na tej samej bazie.
-- Pasek **Obserwacja** pokazuje poll / pliki / ostatni skan / posiadacza blokady.
+- Pasek **Obserwacja** pokazuje poll / pliki / ostatni skan / metodę per root / posiadacza blokady.
 
 ### Autostart i zasobnik (Windows)
 

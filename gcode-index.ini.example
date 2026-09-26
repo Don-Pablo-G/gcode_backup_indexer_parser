@@ -64,6 +64,11 @@ schedule_last_run =
 incremental = yes
 ; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
 watch_folders = no
+; Watch method when watch_folders=yes (indexer only):
+;   hybrid = Auto — OS events on local disks, stamp-poll on network/UNC (Z:\, \\server\share)
+;   poll   = stamp-poll everywhere (safe fallback / previous behavior)
+; Aliases: auto / hybryda → hybrid; safe / stamp → poll
+watch_mode = hybrid
 ; yes/no — also write gcode_index.xlsx after a successful scan (indexer)
 also_excel = no
 ; yes/no — default "newest only" (one row per program+machine) on startup

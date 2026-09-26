@@ -22,6 +22,7 @@ from gcode_index.path_remap import (
     parse_remap_rules_block,
 )
 from gcode_index.autostart_win import VIA_STARTUP, normalize_autostart_via
+from gcode_index.folder_watch import DEFAULT_WATCH_MODE, normalize_watch_mode
 from gcode_index.schedule import SCHEDULE_OFF, normalize_schedule
 
 INSTANCE_INI_FILENAME = "gcode-index.ini"
@@ -44,6 +45,7 @@ class InstanceConfig:
     schedule_last_run: str = ""
     incremental: bool = True
     watch_folders: bool = False
+    watch_mode: str = DEFAULT_WATCH_MODE  # hybrid | poll
     also_excel: bool = False
     newest_only: bool = False
     geometry: str = "1320x820"
@@ -235,6 +237,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.watch_folders = _truthy(
             parser.get("scan", "watch_folders", fallback="no"), default=False
         )
+        cfg.watch_mode = normalize_watch_mode(
+            parser.get("scan", "watch_mode", fallback=DEFAULT_WATCH_MODE)
+        )
 
     if parser.has_section("window"):
         geom = parser.get("window", "geometry", fallback=cfg.geometry).strip()
@@ -310,6 +315,9 @@ def save_instance_ini(
         ),
         incremental=bool(kwargs.get("incremental", base.incremental)),
         watch_folders=bool(kwargs.get("watch_folders", base.watch_folders)),
+        watch_mode=normalize_watch_mode(
+            str(kwargs.get("watch_mode", base.watch_mode) or DEFAULT_WATCH_MODE)
+        ),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
         geometry=str(kwargs.get("geometry", base.geometry) or "1320x820"),
@@ -392,6 +400,11 @@ schedule_last_run = {data.schedule_last_run}
 incremental = {yn(data.incremental)}
 ; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
 watch_folders = {yn(data.watch_folders)}
+; Watch method when watch_folders=yes (indexer):
+;   hybrid = Auto — OS events on local disks, stamp-poll on network/UNC shares
+;   poll   = stamp-poll everywhere (safe fallback)
+; Accepted aliases: auto/hybryda → hybrid; safe/stamp → poll
+watch_mode = {data.watch_mode}
 ; yes/no — also write gcode_index.xlsx after a scan (indexer)
 also_excel = {yn(data.also_excel)}
 ; yes/no — default "newest only" filter on startup

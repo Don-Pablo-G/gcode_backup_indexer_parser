@@ -124,7 +124,14 @@ from gcode_index.scan_report import (
     scan_report_from_result,
 )
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots
-from gcode_index.folder_watch import FolderWatcher
+from gcode_index.folder_watch import (
+    DEFAULT_WATCH_MODE,
+    METHOD_EVENTS,
+    WATCH_MODE_HYBRID,
+    WATCH_MODE_POLL,
+    FolderWatcher,
+    normalize_watch_mode,
+)
 from gcode_index.autostart_win import (
     VIA_STARTUP,
     VIA_TASK,
@@ -199,6 +206,7 @@ class IndexerApp(tk.Tk):
         self.newest_only_var = tk.BooleanVar(value=False)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
+        self.watch_mode_var = tk.StringVar(value="")
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
@@ -229,6 +237,7 @@ class IndexerApp(tk.Tk):
         self._watch_rescan_pending = False
         self._folder_watcher: Optional[FolderWatcher] = None
         self._watch_enabled = False
+        self._watch_mode = DEFAULT_WATCH_MODE
         self._tray: Optional[TrayController] = None
         self._tray_hidden = False
         self._iconify_guard = False
@@ -307,6 +316,8 @@ class IndexerApp(tk.Tk):
         self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
+        self._watch_mode = normalize_watch_mode(cfg.watch_mode)
+        self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
         self.autostart_var.set(bool(cfg.autostart))
         self.autostart_via_var.set(
             self._autostart_via_label(normalize_autostart_via(cfg.autostart_via))
@@ -360,6 +371,7 @@ class IndexerApp(tk.Tk):
             schedule_last_run=self._schedule_last_run or "",
             incremental=bool(self.incremental_var.get()),
             watch_folders=bool(self.watch_var.get()),
+            watch_mode=self._watch_mode,
             also_excel=bool(self.excel_var.get()),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
@@ -672,6 +684,7 @@ class IndexerApp(tk.Tk):
             "newest": bool(self.newest_only_var.get()),
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
+            "watch_mode": self._watch_mode,
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
             "roots": list(self._scan_root_specs()),
@@ -757,6 +770,9 @@ class IndexerApp(tk.Tk):
             self.newest_only_var.set(bool(preserved.get("newest")))
             self.incremental_var.set(bool(preserved.get("incremental", True)))
             self.watch_var.set(bool(preserved.get("watch", False)))
+            if preserved.get("watch_mode") is not None:
+                self._watch_mode = normalize_watch_mode(str(preserved.get("watch_mode")))
+                self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
             self.excel_var.set(bool(preserved.get("excel", True)))
             sort_col = preserved.get("sort_col")
             self._sort_col = str(sort_col) if sort_col else None
@@ -1301,6 +1317,7 @@ class IndexerApp(tk.Tk):
             variable=self.watch_var,
             command=self._on_watch_toggled,
         ).pack(side=tk.LEFT, padx=4)
+        self._build_watch_mode_segment(row2)
         ttk.Label(
             row2, textvariable=self.watch_status_var, style="Muted.TLabel"
         ).pack(side=tk.LEFT, padx=(4, 0))
@@ -2084,6 +2101,106 @@ class IndexerApp(tk.Tk):
         self._save_instance_ini()
         self._update_schedule_status()
 
+    def _watch_mode_label(self, mode: str) -> str:
+        code = normalize_watch_mode(mode)
+        if code == WATCH_MODE_POLL:
+            return self._("watch_mode_poll")
+        return self._("watch_mode_hybrid")
+
+    def _watch_mode_from_label(self, label: str) -> str:
+        raw = (label or "").strip()
+        if raw == self._("watch_mode_poll"):
+            return WATCH_MODE_POLL
+        if raw == self._("watch_mode_hybrid"):
+            return WATCH_MODE_HYBRID
+        return normalize_watch_mode(raw)
+
+    def _build_watch_mode_segment(self, parent) -> None:
+        """Small Auto | Poll segmented control (indexer watch method)."""
+        wrap = ttk.Frame(parent)
+        wrap.pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Label(wrap, text=self._("watch_mode"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
+        strip = tk.Frame(wrap, bg="#c5d0cb", padx=1, pady=1)
+        strip.pack(side=tk.LEFT)
+        self._watch_mode_hybrid_btn = tk.Button(
+            strip,
+            text=self._("watch_mode_hybrid"),
+            command=lambda: self._set_watch_mode(WATCH_MODE_HYBRID),
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=8,
+            pady=1,
+            cursor="hand2",
+            font=self._ui_font(size=9, bold=False),
+        )
+        self._watch_mode_hybrid_btn.pack(side=tk.LEFT)
+        self._watch_mode_poll_btn = tk.Button(
+            strip,
+            text=self._("watch_mode_poll"),
+            command=lambda: self._set_watch_mode(WATCH_MODE_POLL),
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=8,
+            pady=1,
+            cursor="hand2",
+            font=self._ui_font(size=9, bold=False),
+        )
+        self._watch_mode_poll_btn.pack(side=tk.LEFT)
+        self._refresh_watch_mode_styles()
+
+    def _refresh_watch_mode_styles(self) -> None:
+        mode = normalize_watch_mode(self._watch_mode)
+        pairs = (
+            (getattr(self, "_watch_mode_hybrid_btn", None), mode == WATCH_MODE_HYBRID),
+            (getattr(self, "_watch_mode_poll_btn", None), mode == WATCH_MODE_POLL),
+        )
+        for btn, selected in pairs:
+            if btn is None:
+                continue
+            try:
+                if not btn.winfo_exists():
+                    continue
+            except tk.TclError:
+                continue
+            if selected:
+                btn.configure(
+                    bg=UI_ACCENT,
+                    fg=UI_ACCENT_TEXT,
+                    activebackground=UI_ACCENT_HOVER,
+                    activeforeground=UI_ACCENT_TEXT,
+                    relief=tk.SUNKEN,
+                    font=self._ui_font(size=9, bold=True),
+                )
+            else:
+                btn.configure(
+                    bg="#eef2f0",
+                    fg=UI_KEY_FG,
+                    activebackground="#dde5e1",
+                    activeforeground=UI_KEY_FG,
+                    relief=tk.RAISED,
+                    font=self._ui_font(size=9, bold=False),
+                )
+
+    def _set_watch_mode(self, mode: str, *, persist: bool = True) -> None:
+        code = normalize_watch_mode(mode)
+        if code == self._watch_mode:
+            self._refresh_watch_mode_styles()
+            return
+        self._watch_mode = code
+        self.watch_mode_var.set(self._watch_mode_label(code))
+        self._refresh_watch_mode_styles()
+        if persist:
+            self._save_instance_ini()
+        # Restart watcher so event vs poll roots rebind
+        if self._watch_enabled and not self._is_simple():
+            self._stop_folder_watch(release=False)
+            self._sync_folder_watch()
+        else:
+            self._refresh_watch_strip()
+
     def _watch_roots(self) -> list[Path]:
         roots: list[Path] = []
         backup = self.backup_var.get().strip()
@@ -2137,6 +2254,19 @@ class IndexerApp(tk.Tk):
                 when=self._format_watch_when(self._last_watch_scan_at),
             ),
         ]
+        # Per-root method (local=events, Z:/UNC=poll) when hybrid is active
+        methods = fw.root_methods()
+        if methods:
+            parts: list[str] = []
+            for label, method in methods:
+                if method == METHOD_EVENTS:
+                    parts.append(
+                        self._("watch_strip_root_events", root=label)
+                    )
+                else:
+                    parts.append(self._("watch_strip_root_poll", root=label))
+            if parts:
+                bits.append(" · ".join(parts))
         target = self.target_var.get().strip()
         if locked_by:
             bits.append(self._("watch_strip_lock", holder=locked_by))
@@ -2244,20 +2374,43 @@ class IndexerApp(tk.Tk):
                 )
             return
         roots = self._watch_roots()
+        mode = normalize_watch_mode(self._watch_mode)
         if self._folder_watcher is None:
             self._folder_watcher = FolderWatcher(
                 on_change=self._on_watch_change_thread,
                 poll_s=5.0,
                 debounce_s=3.0,
                 on_poll=self._on_watch_poll_thread,
+                mode=mode,
             )
-        self._folder_watcher.set_roots(roots)
-        if not self._folder_watcher.running:
+            self._folder_watcher.set_roots(roots)
             n = self._folder_watcher.seed()
             self._folder_watcher.start()
-            log.info("folder watch started (%s files baseline)", n)
+            log.info(
+                "folder watch started mode=%s (%s files baseline)", mode, n
+            )
         else:
-            self._folder_watcher.seed()
+            prev_mode = self._folder_watcher.mode
+            prev_methods = self._folder_watcher.root_methods()
+            self._folder_watcher.set_mode(mode)
+            self._folder_watcher.set_roots(roots)
+            new_methods = self._folder_watcher.root_methods()
+            rebind = prev_mode != mode or prev_methods != new_methods
+            if self._folder_watcher.running and rebind:
+                self._folder_watcher.stop()
+                n = self._folder_watcher.seed()
+                self._folder_watcher.start()
+                log.info(
+                    "folder watch rebound mode=%s (%s files)", mode, n
+                )
+            elif not self._folder_watcher.running:
+                n = self._folder_watcher.seed()
+                self._folder_watcher.start()
+                log.info(
+                    "folder watch started mode=%s (%s files baseline)", mode, n
+                )
+            else:
+                self._folder_watcher.seed()
         self._update_watch_status()
         self._save_instance_ini()
 

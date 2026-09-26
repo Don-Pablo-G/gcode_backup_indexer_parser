@@ -60,6 +60,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_running": "Auto-indeks w toku…",
         "schedule_last": "Ostatni auto-indeks: {when}",
         "watch_folders": "Obserwuj foldery",
+        "watch_mode": "Metoda",
+        "watch_mode_hybrid": "Auto",
+        "watch_mode_poll": "Tylko poll",
         "watch_idle": "Obserwacja wyłączona",
         "watch_on": "Obserwuję foldery…",
         "watch_locked": "Obserwacja zablokowana: {holder}",
@@ -219,6 +222,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "watch_strip_lock": "blokada: {holder}",
         "watch_strip_lock_us": "blokada: ten PC",
         "watch_strip_lock_none": "blokada: brak",
+        "watch_strip_root_events": "{root}=events",
+        "watch_strip_root_poll": "{root}=poll",
         "about_title": "O programie",
         "about_body": (
             "Indeksator kopii G-code\n"
@@ -273,6 +278,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_running": "Auto-indexing…",
         "schedule_last": "Last auto-index: {when}",
         "watch_folders": "Watch folders",
+        "watch_mode": "Method",
+        "watch_mode_hybrid": "Auto",
+        "watch_mode_poll": "Poll only",
         "watch_idle": "Watch off",
         "watch_on": "Watching folders…",
         "watch_locked": "Watch locked: {holder}",
@@ -432,6 +440,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "watch_strip_lock": "lock: {holder}",
         "watch_strip_lock_us": "lock: this PC",
         "watch_strip_lock_none": "lock: none",
+        "watch_strip_root_events": "{root}=events",
+        "watch_strip_root_poll": "{root}=poll",
         "about_title": "About",
         "about_body": (
             "G-code Backup Indexer\n"

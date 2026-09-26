@@ -83,12 +83,21 @@ A live **countdown** to the next run appears beside it (`In m:ss` / `h:mm:ss`, r
 
 ### Watch folders
 
-Tick **Watch folders** to poll the backup tree and extra (green/yellow) roots every few seconds. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
+Tick **Watch folders** to watch the backup tree and extra (green/yellow) roots. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
+
+Next to the checkbox, choose the watch **method** (segmented control):
+
+| Method | Behavior |
+|--------|----------|
+| **Auto** (`watch_mode=hybrid`) | OS filesystem **events** on local disks; stamp-**poll** on network/UNC shares (`Z:\…`, `\\server\share`) |
+| **Poll only** (`watch_mode=poll`) | Stamp-poll everywhere (previous safe behavior) |
+
+The watch status strip shows which method is active per root (e.g. `D:\CNC=events · Z:\Share=poll`). Choice is saved in `gcode-index.ini` → `[scan] watch_mode`.
 
 - Only available when `can_index=yes`.
 - Takes a `gcode_index.lock` next to the database so **one PC** owns watching/indexing. Other indexer instances see “Watch locked” if they try to enable it. Floor clients never take the lock.
 - Prefer: one indexer PC with Watch on; other PCs use `can_index=no` against the same DB.
-- A compact **Watch** status strip under the toolbar shows last poll time, files seen (stamp count), last incremental run, and who holds `gcode_index.lock`.
+- A compact **Watch** status strip under the toolbar shows last poll time, files seen (stamp count), last incremental run, per-root method, and who holds `gcode_index.lock`.
 
 ### Autostart and tray (Windows)
 
