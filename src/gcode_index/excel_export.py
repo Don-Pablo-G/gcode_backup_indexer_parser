@@ -16,7 +16,7 @@ COLUMNS = [
     ("backup_date", "Date"),
     ("date_source", "Date source"),
     ("provenance", "Status (backup=on_machine / extra=not_run)"),
-    ("role", "Role"),
+    ("role", "Roles (CSV tags)"),
     ("scan_root", "Scan root"),
     ("source_type", "Source type"),
     ("source_path", "Source path"),

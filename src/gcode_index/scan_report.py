@@ -73,6 +73,13 @@ def _member_role(row) -> str:
     return ""
 
 
+def _member_role_ids(row) -> frozenset[str]:
+    """Individual tag ids from a multi-tag CSV role field."""
+    from gcode_index.folder_tree_map import roles_from_db
+
+    return frozenset(roles_from_db(_member_role(row) or None))
+
+
 def _member_status(row) -> str:
     keys = row.keys() if hasattr(row, "keys") else ()
     if "provenance" in keys and row["provenance"]:
@@ -81,7 +88,10 @@ def _member_status(row) -> str:
 
 
 def _group_role_ids(members: list) -> frozenset[str]:
-    return frozenset(_member_role(m) for m in members if _member_role(m))
+    out: set[str] = set()
+    for m in members:
+        out |= set(_member_role_ids(m))
+    return frozenset(out)
 
 
 def _group_status_ids(members: list) -> frozenset[str]:

@@ -89,7 +89,8 @@ class ProgramInstance:
     header_kind: Optional[str] = None
     # Status (ran on machine?): backup=on_machine 🟢, extra=not_run 🟡 — from roots only
     provenance: str = STATUS_ON_MACHINE
-    # Role (production / wip / …) — from folder-role aliases; None = unset
+    # Role tags (production / wip / …) — CSV of catalogue ids; None = unset.
+    # Multiple tags allowed (e.g. "fixture,wip"). Path tree map + name aliases.
     role: Optional[str] = None
     scan_root: Optional[str] = None
     # Next-line comment (LP1) / (MS1); null if absent or non-matching

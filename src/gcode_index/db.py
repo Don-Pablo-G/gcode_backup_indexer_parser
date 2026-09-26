@@ -747,8 +747,17 @@ def query_instances(
         "(all)",
         "(wszystkie)",
     }:
-        clauses.append("IFNULL(role,'') = ?")
-        params.append(str(role).strip())
+        # Multi-tag CSV: exact match OR tag bounded by commas
+        tag = str(role).strip()
+        clauses.append(
+            "("
+            "IFNULL(role,'') = ? OR "
+            "IFNULL(role,'') LIKE ? OR "
+            "IFNULL(role,'') LIKE ? OR "
+            "IFNULL(role,'') LIKE ?"
+            ")"
+        )
+        params.extend([tag, f"{tag},%", f"%,{tag},%", f"%,{tag}"])
 
     if programmer is not None and str(programmer).strip() and str(programmer).strip() not in {
         "(all)",

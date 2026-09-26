@@ -48,7 +48,7 @@ Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym pre
 | Folder | Znaczenie |
 |--------|-----------|
 | **Folder kopii** | Główne drzewo kopii CNC (`DATA\MASZYNA\…`) |
-| **Folder bazy** (`target`) | `gcode_index.sqlite` + pliki pomocnicze |
+| **Folder bazy** (`target`) | `gcode_index.sqlite` + pliki pomocnicze (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, …) |
 | **Folder wydobycia** | Domyślny zapis Wydobądź (puste = ten sam co folder bazy) |
 
 Wybór folderów **nie zwija** sekcji — dokończ ścieżki, potem **Gotowe**.
@@ -74,17 +74,20 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 **Role folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
 
 1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: produkcja, przyrząd, WIP, test, osobisty. Wbudowanych nie usuniesz. Stare zielony/żółty w katalogu → status; czerwony/własne → role.
-2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy nigdy nie zmieniają statusu.
+2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy nigdy nie zmieniają statusu. Wiele ról na folderze ustawisz w mapie drzewa.
 
-Kolumna Flaga pokazuje **status + rolę** (np. 🟢🔴). Osobne filtry **Status** i **Rola**. Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
+**Mapuj drzewo…** (indeksator) edytuje `folder_tree_map.yaml` obok bazy: leniwe drzewo z kopii + zielonych/żółtych korzeni. Per węzeł: maszyna (opcjonalnie), **wiele ról**, wyklucz lub wyczyść. ★ = reguła jawna, · = dziedziczona. **Najdłuższy prefiks ścieżki wygrywa** nad aliasami nazw. Reindeks stosuje zapisane reguły bez ponownego klikania.
+
+Kolumna Flaga pokazuje **status + odznaki ról** (np. 🟢🔧🔴). Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
 
 ---
 
 ## Mapowanie folderów i aliasy
 
 1. **Mapuj foldery…** — wykrywa `<data>/<maszyna>`, dopasowuje aliasy, listuje tylko niedopasowane.
-2. Opcjonalnie zapisz jako **lokalne aliasy** (`aliases.local.yaml`).
-3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
+2. **Mapuj drzewo…** — leniwe drzewo ścieżek: maszyna + wiele ról + wyklucz (`folder_tree_map.yaml`; najgłębsza ścieżka wygrywa).
+3. Opcjonalnie zapisz jako **lokalne aliasy** (`aliases.local.yaml`).
+4. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
 
 ---
 

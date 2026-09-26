@@ -26,7 +26,8 @@ settings_locked = no
 ; Main CNC backup tree (usually DATE\MACHINE\... dumps + .nc files).
 ; Required on the indexer; optional on floor clients that only open a shared DB.
 backup = D:\CNC\Backups
-; Database folder — gcode_index.sqlite + sidecar yaml (machine_folders, aliases.local, …)
+; Database folder — gcode_index.sqlite + sidecar yaml (machine_folders,
+; folder_tree_map, folder_colour_aliases, aliases.local, …)
 target = D:\CNC\Index
 ; Extract / Wydobądź output folder. Leave blank to use the database folder.
 ; Legacy key extract_folder= is still accepted when loading.
@@ -80,8 +81,10 @@ newest_only = no
 ; yes/no — when filtering by machines, still show MACHINE UNKNOWN / unassigned (default yes)
 ; Floor clients (can_index=no / operator.lock) keep this on — control is disabled.
 include_unknown = yes
-; Folder colours + path aliases: folder_colour_aliases.yaml next to the database
-; (GUI: Folder colours… — define colours and folder-name → colour/exclude rules).
+; Folder roles + name aliases: folder_colour_aliases.yaml next to the database
+; (GUI: Folder roles… — define roles and folder-name → role/exclude rules).
+; Path tree map (machine + multi-tag roles + exclude): folder_tree_map.yaml
+; (GUI: Map tree… — lazy tree from backup + green/yellow roots; deepest path wins).
 ; yes/no — auto-refresh search when gcode_index.sqlite mtime changes (clients)
 search_auto_refresh = no
 ; Seconds between DB mtime checks while auto-refresh is on (minimum 5)

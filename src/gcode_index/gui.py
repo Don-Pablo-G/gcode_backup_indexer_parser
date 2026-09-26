@@ -66,6 +66,15 @@ from gcode_index.folder_map import (
     partition_folders,
     suggest_assignments,
 )
+from gcode_index.folder_tree_map import (
+    TREE_MAP_FILENAME,
+    FolderTreeMap,
+    list_child_dirs,
+    load_folder_tree_map,
+    roles_from_db,
+    save_folder_tree_map,
+    tree_map_path_for_target,
+)
 from gcode_index.models import (
     COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
@@ -1522,6 +1531,9 @@ class IndexerApp(tk.Tk):
             row1, text=self._("map_folders"), command=self._open_folder_map
         ).pack(side=tk.LEFT, padx=8)
         ttk.Button(
+            row1, text=self._("map_tree"), command=self._open_folder_tree_map
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
             row1, text=self._("aliases"), command=self._open_alias_editor
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
@@ -2877,6 +2889,71 @@ class IndexerApp(tk.Tk):
                 )
             self.status_var.set("; ".join(bits))
 
+    def _open_folder_tree_map(self) -> None:
+        backup = self.backup_var.get().strip()
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showerror(
+                self._("target_folder"),
+                self._("err_target_for_tree_map", filename=TREE_MAP_FILENAME),
+            )
+            return
+        roots: list[Path] = []
+        seen: set[str] = set()
+
+        def _add_root(raw: str | Path) -> None:
+            p = Path(raw)
+            try:
+                key = str(p.resolve())
+            except OSError:
+                key = str(p)
+            if key in seen:
+                return
+            if not p.is_dir():
+                return
+            seen.add(key)
+            roots.append(p)
+
+        if backup:
+            _add_root(backup)
+        for path, _prov in self._scan_root_specs():
+            _add_root(path)
+        if not roots:
+            messagebox.showerror(
+                self._("map_tree"),
+                self._("err_tree_map_need_roots"),
+            )
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        save_path = tree_map_path_for_target(target)
+        tree_map = load_folder_tree_map(save_path)
+        try:
+            aliases = self._load_alias_map()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(self._("aliases_dialog_title"), str(exc))
+            return
+        catalog = load_colour_catalog(
+            folder_colour_aliases_path_for_target(target)
+        )
+        machine_choices = [
+            display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
+            *aliases.known_machine_displays(),
+            "",  # leave machine unchanged
+        ]
+        dlg = FolderTreeMapDialog(
+            self,
+            roots=roots,
+            tree_map=tree_map,
+            catalog=catalog,
+            machine_choices=machine_choices,
+            save_path=save_path,
+        )
+        self.wait_window(dlg)
+        if dlg.saved:
+            self.status_var.set(
+                self._("status_tree_map_saved", filename=TREE_MAP_FILENAME)
+            )
+
     def _open_alias_editor(self) -> None:
         target = self.target_var.get().strip()
         if not target:
@@ -3061,6 +3138,7 @@ class IndexerApp(tk.Tk):
             colour_map = FolderColourAliasMap.load(
                 folder_colour_aliases_path_for_target(target)
             )
+            tree_map = load_folder_tree_map(tree_map_path_for_target(target))
             self._colour_catalog = load_colour_catalog(
                 folder_colour_aliases_path_for_target(target)
             )
@@ -3090,6 +3168,7 @@ class IndexerApp(tk.Tk):
                     folder_map=fmap,
                     cache=cache,
                     colour_map=colour_map,
+                    tree_map=tree_map,
                 )
             else:
                 result = scan_backup_tree(
@@ -3100,6 +3179,7 @@ class IndexerApp(tk.Tk):
                     provenance=PROVENANCE_BACKUP,
                     cache=cache,
                     colour_map=colour_map,
+                    tree_map=tree_map,
                 )
             n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
             if db_path.is_file():
@@ -3116,11 +3196,14 @@ class IndexerApp(tk.Tk):
             unknown_prog = sum(1 for i in result.instances if i.machine_id == "unknown")
             n_green = sum(1 for i in result.instances if i.provenance == PROVENANCE_BACKUP)
             n_yellow = sum(1 for i in result.instances if i.provenance == PROVENANCE_EXTRA)
-            n_red = sum(1 for i in result.instances if (i.role or "") == ROLE_WIP)
+            n_red = sum(
+                1 for i in result.instances if ROLE_WIP in roles_from_db(i.role)
+            )
             other_flags = Counter(
-                i.role
+                tag
                 for i in result.instances
-                if i.role and i.role != ROLE_WIP
+                for tag in roles_from_db(i.role)
+                if tag != ROLE_WIP
             )
             conn.close()
             scan_finished = datetime.now(timezone.utc)
@@ -3881,15 +3964,17 @@ class IndexerApp(tk.Tk):
         return "🟢"
 
     def _flag_badge_and_tag(self, prov: str, role: Optional[str] = None) -> tuple[str, str]:
-        """Return combined status+role badges and a tree tag (role swatch preferred)."""
+        """Return combined status+role badges and a tree tag (first role swatch preferred)."""
         status = prov or PROVENANCE_BACKUP
         status_badge = self._status_badge(status)
         catalog = getattr(self, "_colour_catalog", ColourCatalog())
-        role_id = (role or "").strip()
-        if role_id:
-            c = catalog.get(role_id)
-            role_badge = c.badge if c is not None else "●"
-            return f"{status_badge}{role_badge}", f"flag_{role_id}"
+        tags = roles_from_db(role)
+        if tags:
+            badges: list[str] = []
+            for rid in tags:
+                c = catalog.get(rid)
+                badges.append(c.badge if c is not None else "●")
+            return f"{status_badge}{''.join(badges)}", f"flag_{tags[0]}"
         return status_badge, f"flag_{status}"
 
     def _provenance_filter_value(self) -> Optional[str]:
@@ -4811,11 +4896,13 @@ class DuplicatesDialog(tk.Toplevel):
     def _flag_for(self, prov: str, role: str | None = None) -> tuple[str, str]:
         status = prov or PROVENANCE_BACKUP
         status_badge = "🟡" if status == PROVENANCE_EXTRA else "🟢"
-        role_id = (role or "").strip()
-        if role_id:
-            c = self._catalog.get(role_id)
-            role_badge = c.badge if c is not None else "●"
-            return f"{status_badge}{role_badge}", f"flag_{role_id}"
+        tags = roles_from_db(role)
+        if tags:
+            badges: list[str] = []
+            for rid in tags:
+                c = self._catalog.get(rid)
+                badges.append(c.badge if c is not None else "●")
+            return f"{status_badge}{''.join(badges)}", f"flag_{tags[0]}"
         return status_badge, f"flag_{status}"
 
     def _rebuild_group_list(self) -> None:
@@ -4957,6 +5044,309 @@ class DuplicatesDialog(tk.Toplevel):
             return
         self.selected_members = list(self._groups[sel[0]].members)
         self.destroy()
+
+
+class FolderTreeMapDialog(tk.Toplevel):
+    """Lazy folder tree: assign machine + multi-role tags + exclude per path.
+
+    Persists to ``folder_tree_map.yaml`` next to the database. Longest path
+    prefix wins on reindex; name-wide role aliases remain as fallback.
+    """
+
+    _PLACEHOLDER = "__lazy__"
+
+    def __init__(
+        self,
+        master: tk.Tk,
+        *,
+        roots: list[Path],
+        tree_map: FolderTreeMap,
+        catalog: ColourCatalog,
+        machine_choices: list[str],
+        save_path: Path,
+    ) -> None:
+        super().__init__(master)
+        self.title(_tr(master, "map_tree_dialog_title"))
+        self.minsize(720, 480)
+        self.geometry("900x580")
+        self.transient(master)
+        self.grab_set()
+        self.saved = False
+        self._save_path = Path(save_path)
+        self._map = FolderTreeMap(rules=list(tree_map.rules))
+        self._catalog = catalog
+        self._roots = [Path(r) for r in roots]
+        self._choices = list(machine_choices)
+        self._leave_machine = _tr(master, "map_tree_machine_leave")
+        if self._leave_machine not in self._choices:
+            self._choices.insert(0, self._leave_machine)
+        # Normalize empty choice to leave marker
+        self._choices = [
+            self._leave_machine if not (c or "").strip() else c for c in self._choices
+        ]
+        # de-dupe preserving order
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for c in self._choices:
+            if c in seen:
+                continue
+            seen.add(c)
+            cleaned.append(c)
+        self._choices = cleaned
+
+        self._path_by_iid: dict[str, Path] = {}
+        self._tag_vars: dict[str, tk.BooleanVar] = {}
+        self._selected_path: Optional[Path] = None
+
+        ttk.Label(
+            self,
+            text=_tr(master, "map_tree_intro"),
+            wraplength=860,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        body = ttk.Frame(self)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        left = ttk.Frame(body)
+        left.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 8))
+        left.rowconfigure(0, weight=1)
+        left.columnconfigure(0, weight=1)
+        self._tree = ttk.Treeview(left, show="tree", selectmode="browse")
+        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._tree.yview)
+        self._tree.configure(yscrollcommand=sb.set)
+        self._tree.grid(row=0, column=0, sticky=tk.NSEW)
+        sb.grid(row=0, column=1, sticky=tk.NS)
+        self._tree.bind("<<TreeviewOpen>>", self._on_open)
+        self._tree.bind("<<TreeviewSelect>>", self._on_select)
+
+        right = ttk.LabelFrame(body, text=_tr(master, "map_tree_assign"), padding=8)
+        right.grid(row=0, column=1, sticky=tk.NSEW)
+        self._path_var = tk.StringVar(value="")
+        self._inherit_var = tk.StringVar(value="")
+        ttk.Label(right, textvariable=self._path_var, wraplength=300).pack(
+            anchor=tk.W, pady=(0, 4)
+        )
+        ttk.Label(
+            right, textvariable=self._inherit_var, wraplength=300, style="Muted.TLabel"
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        ttk.Label(right, text=_tr(master, "map_tree_machine")).pack(anchor=tk.W)
+        self._machine_var = tk.StringVar(value=self._leave_machine)
+        ttk.Combobox(
+            right,
+            textvariable=self._machine_var,
+            values=self._choices,
+            state="readonly",
+            width=36,
+        ).pack(fill=tk.X, pady=(2, 8))
+
+        tags_frame = ttk.LabelFrame(right, text=_tr(master, "map_tree_tags"), padding=4)
+        tags_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        for c in catalog.colours:
+            var = tk.BooleanVar(value=False)
+            self._tag_vars[c.id] = var
+            ttk.Checkbutton(
+                tags_frame,
+                text=f"{c.badge} {c.label(_lang_of(master))}",
+                variable=var,
+            ).pack(anchor=tk.W)
+
+        self._exclude_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            right,
+            text=_tr(master, "map_tree_exclude"),
+            variable=self._exclude_var,
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        abtns = ttk.Frame(right)
+        abtns.pack(fill=tk.X)
+        ttk.Button(
+            abtns, text=_tr(master, "map_tree_apply_node"), command=self._apply_node
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            abtns, text=_tr(master, "map_tree_clear_node"), command=self._clear_node
+        ).pack(side=tk.LEFT, padx=6)
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(btns, text=_tr(master, "map_tree_save"), command=self._save).pack(
+            side=tk.RIGHT, padx=8
+        )
+
+        self._populate_roots()
+        self._set_editor_enabled(False)
+
+    def _populate_roots(self) -> None:
+        for root in self._roots:
+            iid = self._insert_dir("", root, is_root=True)
+            self._ensure_placeholder(iid, root)
+
+    def _insert_dir(self, parent: str, path: Path, *, is_root: bool = False) -> str:
+        label = str(path) if is_root else path.name
+        exact, inherited = self._map.inherited_from(path)
+        if exact is not None:
+            label = f"{label} ★"
+        elif inherited is not None:
+            label = f"{label} ·"
+        iid = self._tree.insert(parent, tk.END, text=label, open=False)
+        self._path_by_iid[iid] = path
+        return iid
+
+    def _ensure_placeholder(self, iid: str, path: Path) -> None:
+        # Always add a dummy child so the expand arrow appears; filled on open.
+        if self._tree.get_children(iid):
+            return
+        try:
+            has_kids = any(True for _ in path.iterdir() if _.is_dir())
+        except OSError:
+            has_kids = False
+        if has_kids:
+            self._tree.insert(iid, tk.END, text="", tags=(self._PLACEHOLDER,))
+
+    def _on_open(self, _event=None) -> None:
+        sel = self._tree.focus()
+        if not sel:
+            return
+        path = self._path_by_iid.get(sel)
+        if path is None:
+            return
+        kids = self._tree.get_children(sel)
+        if kids and self._PLACEHOLDER in self._tree.item(kids[0], "tags"):
+            self._tree.delete(kids[0])
+        # Only populate once
+        if self._tree.get_children(sel):
+            return
+        for child in list_child_dirs(path):
+            cid = self._insert_dir(sel, child)
+            self._ensure_placeholder(cid, child)
+
+    def _on_select(self, _event=None) -> None:
+        sel = self._tree.focus()
+        path = self._path_by_iid.get(sel) if sel else None
+        self._selected_path = path
+        if path is None:
+            self._set_editor_enabled(False)
+            self._path_var.set("")
+            self._inherit_var.set("")
+            return
+        self._set_editor_enabled(True)
+        self._path_var.set(str(path))
+        exact, inherited = self._map.inherited_from(path)
+        if exact is not None:
+            self._inherit_var.set(_tr(self.master, "map_tree_explicit"))
+            self._load_rule_into_editor(exact, inherited=False)
+        elif inherited is not None:
+            self._inherit_var.set(
+                _tr(self.master, "map_tree_inherited", path=inherited.path)
+            )
+            self._load_rule_into_editor(inherited, inherited=True)
+        else:
+            self._inherit_var.set(_tr(self.master, "map_tree_no_rule"))
+            self._reset_editor()
+
+    def _load_rule_into_editor(self, rule, *, inherited: bool) -> None:
+        if rule.machine_id:
+            display = display_for_machine(rule.machine_id, rule.machine_id)
+            # Prefer catalog display if present
+            for choice in self._choices:
+                mid, _lab = parse_machine_display(choice)
+                if mid == rule.machine_id:
+                    display = choice
+                    break
+            self._machine_var.set(display)
+        else:
+            self._machine_var.set(self._leave_machine)
+        selected = set(rule.tags)
+        for cid, var in self._tag_vars.items():
+            var.set(cid in selected)
+        self._exclude_var.set(bool(rule.exclude))
+        if inherited:
+            # Editing starts from inherited values; Apply writes an explicit rule.
+            pass
+
+    def _reset_editor(self) -> None:
+        self._machine_var.set(self._leave_machine)
+        for var in self._tag_vars.values():
+            var.set(False)
+        self._exclude_var.set(False)
+
+    def _set_editor_enabled(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        # Combobox uses readonly when enabled
+        for child in self.winfo_children():
+            pass
+        # Soft enable: leave widgets alone; Apply checks selection.
+
+    def _apply_node(self) -> None:
+        path = self._selected_path
+        if path is None:
+            return
+        tags = [cid for cid, var in self._tag_vars.items() if var.get()]
+        exclude = bool(self._exclude_var.get())
+        machine_raw = self._machine_var.get().strip()
+        machine_id = None
+        if machine_raw and machine_raw != self._leave_machine:
+            mid, _lab = parse_machine_display(machine_raw)
+            if mid and mid not in {UNKNOWN_ID, ""}:
+                machine_id = mid
+            elif mid == UNKNOWN_ID:
+                machine_id = UNKNOWN_ID
+        self._map.set_rule(
+            path,
+            machine_id=machine_id,
+            tags=tags,
+            exclude=exclude,
+        )
+        self._refresh_node_label(path)
+        self._inherit_var.set(_tr(self.master, "map_tree_explicit"))
+
+    def _clear_node(self) -> None:
+        path = self._selected_path
+        if path is None:
+            return
+        self._map.set_rule(path, clear=True)
+        self._reset_editor()
+        self._refresh_node_label(path)
+        exact, inherited = self._map.inherited_from(path)
+        if inherited is not None:
+            self._inherit_var.set(
+                _tr(self.master, "map_tree_inherited", path=inherited.path)
+            )
+            self._load_rule_into_editor(inherited, inherited=True)
+        else:
+            self._inherit_var.set(_tr(self.master, "map_tree_no_rule"))
+
+    def _refresh_node_label(self, path: Path) -> None:
+        for iid, p in self._path_by_iid.items():
+            if p == path or str(p).casefold() == str(path).casefold():
+                is_root = p in self._roots
+                label = str(p) if is_root else p.name
+                exact, inherited = self._map.inherited_from(p)
+                if exact is not None:
+                    label = f"{label} ★"
+                elif inherited is not None:
+                    label = f"{label} ·"
+                self._tree.item(iid, text=label)
+                break
+
+    def _save(self) -> None:
+        try:
+            save_folder_tree_map(self._save_path, self._map)
+        except OSError as exc:
+            messagebox.showerror(_tr(self.master, "map_tree_save"), str(exc), parent=self)
+            return
+        self.saved = True
+        self.destroy()
+
+
+def _lang_of(master) -> str:
+    return getattr(master, "_lang", None) or DEFAULT_LANG
 
 
 class FolderMapDialog(tk.Toplevel):
