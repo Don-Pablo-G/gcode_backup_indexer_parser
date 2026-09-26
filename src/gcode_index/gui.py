@@ -6143,6 +6143,8 @@ class AliasEditorDialog(tk.Toplevel):
         self._dirty = False
         self._selected_mid: Optional[str] = None
         self._machine_order: list[str] = []
+        # Guard: programmatic selection_set must not re-enter <<ListboxSelect>>
+        self._selecting_machine = False
         # Staging: machine_id → {label, control_family, layout, local_aliases, …}
         self._draft: dict[str, dict[str, Any]] = {}
         # Snapshot of catalog meta at open (detect label/control/layout edits)
@@ -6270,8 +6272,9 @@ class AliasEditorDialog(tk.Toplevel):
         ttk.Button(footer, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
         ttk.Button(footer, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT, padx=8)
 
+        # Select first machine (if any) and show its details — do not clear
+        # the detail pane afterward (that left highlight vs fields out of sync).
         self._reload_machine_list()
-        self._clear_detail()
 
     # --- draft model -----------------------------------------------------------
 
@@ -6318,15 +6321,21 @@ class AliasEditorDialog(tk.Toplevel):
             self._machine_list.insert(tk.END, self._machine_display(mid))
             if keep and mid == keep:
                 select_idx = i
-        if self._machine_order:
-            self._machine_list.selection_clear(0, tk.END)
-            self._machine_list.selection_set(select_idx)
-            self._machine_list.see(select_idx)
-            self._selected_mid = self._machine_order[select_idx]
-            self._fill_detail(self._selected_mid)
-        else:
-            self._selected_mid = None
-            self._clear_detail()
+        # selection_set fires <<ListboxSelect>>; suppress re-entrant flush/reload
+        self._selecting_machine = True
+        try:
+            if self._machine_order:
+                self._machine_list.selection_clear(0, tk.END)
+                self._machine_list.selection_set(select_idx)
+                self._machine_list.activate(select_idx)
+                self._machine_list.see(select_idx)
+                self._selected_mid = self._machine_order[select_idx]
+                self._fill_detail(self._selected_mid)
+            else:
+                self._selected_mid = None
+                self._clear_detail()
+        finally:
+            self._selecting_machine = False
 
     def _clear_detail(self) -> None:
         self._mid_var.set("")
@@ -6347,18 +6356,59 @@ class AliasEditorDialog(tk.Toplevel):
         for name in row.get("bundled_aliases") or []:
             self._alias_list.insert(tk.END, f"{name}  [bundled]")
 
+    def _flush_machine_fields(self, mid: str) -> bool:
+        """Write label/control/layout from the detail pane into draft.
+
+        Returns True when the display label changed (left list may need refresh
+        / re-sort). Does not touch Listbox selection.
+        """
+        if mid not in self._draft:
+            return False
+        row = self._draft[mid]
+        new_label = self._label_var.get().strip()
+        new_control = self._control_var.get().strip()
+        new_layout = self._layout_var.get().strip()
+        old_label = str(row.get("label") or "")
+        changed_meta = (
+            old_label != new_label
+            or str(row.get("control_family") or "") != new_control
+            or str(row.get("layout") or "") != new_layout
+        )
+        if not changed_meta:
+            return False
+        row["label"] = new_label
+        row["control_family"] = new_control
+        row["layout"] = new_layout
+        self._dirty = True
+        return old_label != new_label
+
     def _on_machine_selected(self, _event: object = None) -> None:
-        # Flush label/control/layout edits for previous selection
-        if self._selected_mid:
-            self._apply_machine_details(silent=True)
+        if self._selecting_machine:
+            return
         sel = self._machine_list.curselection()
         if not sel:
             return
         idx = int(sel[0])
         if idx < 0 or idx >= len(self._machine_order):
             return
-        self._selected_mid = self._machine_order[idx]
-        self._fill_detail(self._selected_mid)
+        new_mid = self._machine_order[idx]
+        if new_mid == self._selected_mid:
+            return
+        prev = self._selected_mid
+        label_changed = False
+        # Detail pane still shows *prev* — flush it before switching.
+        # Critical: do NOT call _apply_machine_details here; that reloaded the
+        # list and re-selected ``prev``, pinning the highlight on the old row
+        # (often the 2nd machine after the first successful click).
+        if prev and prev in self._draft:
+            label_changed = self._flush_machine_fields(prev)
+        if label_changed:
+            # Sort order may have changed — rebuild but keep the clicked row.
+            self._selected_mid = new_mid
+            self._reload_machine_list(select_mid=new_mid)
+            return
+        self._selected_mid = new_mid
+        self._fill_detail(new_mid)
 
     def _apply_machine_details(self, silent: bool = False) -> None:
         mid = self._selected_mid or self._mid_var.get().strip()
@@ -6370,12 +6420,11 @@ class AliasEditorDialog(tk.Toplevel):
                     parent=self,
                 )
             return
-        self._draft[mid]["label"] = self._label_var.get().strip()
-        self._draft[mid]["control_family"] = self._control_var.get().strip()
-        self._draft[mid]["layout"] = self._layout_var.get().strip()
-        self._dirty = True
-        # Refresh left list label without losing selection
-        self._reload_machine_list(select_mid=mid)
+        label_changed = self._flush_machine_fields(mid)
+        # Explicit Apply always refreshes the left list; silent flush only when
+        # the display string (sort key) may have changed.
+        if label_changed or not silent:
+            self._reload_machine_list(select_mid=mid)
 
     def _add_machine(self) -> None:
         form = MachineForm(self, title=_tr(self.master, "alias_add_machine_title"))
