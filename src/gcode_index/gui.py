@@ -347,6 +347,9 @@ class IndexerApp(tk.Tk):
         self._iconify_guard = False
         self._last_watch_scan_at = None
         self._filter_trace_lock = False
+        self._rebuilding = False
+        self._rebuild_after_id: Optional[str] = None
+        self._pending_lang_persist = False
         self._machine_names: list[str] = []
         self._last_scan_report: Optional[ScanReport] = None
         self._root_frame: Optional[ttk.Frame] = None
@@ -1183,101 +1186,188 @@ class IndexerApp(tk.Tk):
         self._save_instance_ini()
 
     def _set_language(self, lang: str, *, persist: bool = True) -> None:
+        """Switch UI language and rebuild widgets.
+
+        Rebuild is deferred with ``after_idle`` so ``<<ComboboxSelected>>`` can
+        finish before the language Combobox is destroyed — destroying it from
+        inside its own event handler freezes / corrupts Tk packing (empty Indeks
+        pane with only Praca/Indeks buttons left).
+        """
         code = normalize_lang(lang)
         if code == self._lang and self._root_frame is not None:
             return
-        preserved = self._snapshot_ui()
+        if getattr(self, "_rebuilding", False):
+            self._lang = code
+            self._pending_lang_persist = bool(persist)
+            return
         self._lang = code
-        self.lang_var.set(code)
-        if persist:
-            self._persist_ui_settings(preserved["target"])
+        self._pending_lang_persist = bool(persist)
+        if getattr(self, "_rebuild_after_id", None):
+            try:
+                self.after_cancel(self._rebuild_after_id)
+            except tk.TclError:
+                pass
+        self._rebuild_after_id = self.after_idle(self._rebuild_after_language_change)
+
+    def _rebuild_after_language_change(self) -> None:
+        self._rebuild_after_id = None
+        if getattr(self, "_rebuilding", False):
+            return
+        # Snapshot now so Praca/Indeks clicks during the idle gap are kept.
+        preserved = self._snapshot_ui()
+        try:
+            self.lang_var.set(self._lang)
+        except tk.TclError:
+            pass
+        if self._pending_lang_persist:
+            self._persist_ui_settings(preserved.get("target"))
+            self._pending_lang_persist = False
         self._rebuild(preserved)
 
+    def _cancel_pending_ui_afters(self) -> None:
+        """Drop deferred saves/loads/queries before tearing down widgets."""
+        for attr in (
+            "_rebuild_after_id",
+            "_search_after_id",
+            "_folder_save_after_id",
+            "_filter_save_after_id",
+            "_geometry_save_after_id",
+            "_colour_load_after_id",
+            "_indexer_settings_load_after_id",
+            "_schedule_amount_debounce_id",
+            "_auto_refresh_after_id",
+        ):
+            aid = getattr(self, attr, None)
+            if not aid:
+                continue
+            try:
+                self.after_cancel(aid)
+            except tk.TclError:
+                pass
+            setattr(self, attr, None)
+
     def _rebuild(self, preserved: Optional[dict] = None) -> None:
+        if getattr(self, "_rebuilding", False):
+            return
+        self._rebuilding = True
+        self._cancel_pending_ui_afters()
+        try:
+            self._rebuild_body(preserved)
+        finally:
+            self._rebuilding = False
+
+    def _rebuild_body(self, preserved: Optional[dict] = None) -> None:
         if self._root_frame is not None:
-            self._root_frame.destroy()
+            try:
+                self._root_frame.destroy()
+            except tk.TclError:
+                pass
             self._root_frame = None
-        self._build()
-        if preserved:
-            self.backup_var.set(preserved.get("backup") or "")
-            self.target_var.set(preserved.get("target") or "")
-            self.extract_var.set(preserved.get("extract") or "")
-            remaps = preserved.get("path_remaps")
-            if remaps is not None:
-                self._path_remaps = normalize_remaps(remaps)
-            else:
-                fr = str(preserved.get("remap_from") or "").strip()
-                to = str(preserved.get("remap_to") or "").strip()
-                self._path_remaps = (
-                    normalize_remaps([PathRemap(fr, to)]) if fr and to else []
-                )
-            self._sync_remap_vars_from_list()
-            self.search_var.set(preserved.get("search") or "")
-            self.date_from_var.set(preserved.get("date_from") or "")
-            self.date_to_var.set(preserved.get("date_to") or "")
-            self.size_min_var.set(preserved.get("size_min") or "")
-            self.size_max_var.set(preserved.get("size_max") or "")
-            self.mtime_from_var.set(preserved.get("mtime_from") or "")
-            self.mtime_to_var.set(preserved.get("mtime_to") or "")
-            st = preserved.get("source_type") or self._all_token()
-            if st in ALL_TOKENS:
-                st = self._all_token()
-            self.source_type_var.set(st)
-            ctl = preserved.get("control") or self._all_token()
-            if ctl in ALL_TOKENS:
-                ctl = self._all_token()
-            self.control_var.set(ctl)
-            prog = preserved.get("programmer") or self._all_token()
-            if prog in ALL_TOKENS:
-                prog = self._all_token()
-            self.programmer_var.set(prog)
-            prov = str(preserved.get("provenance") or "")
-            if prov in (PROVENANCE_BACKUP, "green", "on_machine") or prov == self._(
-                "status_on_machine"
-            ):
-                self.provenance_var.set(self._("status_on_machine"))
-            elif prov in (
-                PROVENANCE_EXTRA,
-                "yellow",
-                "not_run",
-                "unknown",
-                "status_unknown",
-            ) or prov in (self._("status_not_run"), self._("status_unknown")):
-                self.provenance_var.set(self._("status_unknown"))
-            else:
-                self.provenance_var.set(self._all_token())
-            role_raw = str(preserved.get("role") or "")
-            if role_raw and not self._is_all_token(role_raw):
-                c = self._colour_catalog.get(role_raw) or self._colour_catalog.get(
-                    self._colour_id_from_filter_label(role_raw) or ""
-                )
-                self.role_var.set(c.label(self._lang) if c else self._all_token())
-            else:
-                self.role_var.set(self._all_token())
-            self.newest_only_var.set(bool(preserved.get("newest")))
-            if "include_unknown" in preserved:
-                self.include_unknown_var.set(bool(preserved.get("include_unknown")))
-            self.incremental_var.set(bool(preserved.get("incremental", True)))
-            self.watch_var.set(bool(preserved.get("watch", False)))
-            if preserved.get("watch_mode") is not None:
-                self._watch_mode = normalize_watch_mode(str(preserved.get("watch_mode")))
-                self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
-            if "search_auto_refresh" in preserved:
-                self.search_auto_refresh_var.set(
-                    bool(preserved.get("search_auto_refresh"))
-                )
-            self.excel_var.set(bool(preserved.get("excel", True)))
-            sort_col = preserved.get("sort_col")
-            self._sort_col = str(sort_col) if sort_col else None
-            self._sort_reverse = bool(preserved.get("sort_reverse"))
-            roots = list(preserved.get("roots") or [])
-            self._hidden_root_specs = [
-                r if isinstance(r, ScanRootSpec) else ScanRootSpec(path=str(r))
-                for r in roots
-            ]
-            self._fill_extra_list(self._hidden_root_specs)
-            if preserved.get("schedule") is not None:
-                self._set_schedule(str(preserved.get("schedule") or SCHEDULE_OFF), persist=False)
+        # Drop stale refs so mid-rebuild nav clicks are no-ops until _build finishes
+        self._praca_frame = None
+        self._indeks_frame = None
+        self._nav_praca_btn = None
+        self._nav_indeks_btn = None
+        self._pelny_content = None
+        self._actions_frame = None
+
+        desired_view = None
+        if preserved is not None:
+            raw = str(preserved.get("pelny_view") or "").strip().casefold()
+            if raw in ("praca", "indeks"):
+                desired_view = raw
+
+        self._build(initial_view=desired_view)
+
+        self._filter_trace_lock = True
+        try:
+            if preserved:
+                self.backup_var.set(preserved.get("backup") or "")
+                self.target_var.set(preserved.get("target") or "")
+                self.extract_var.set(preserved.get("extract") or "")
+                remaps = preserved.get("path_remaps")
+                if remaps is not None:
+                    self._path_remaps = normalize_remaps(remaps)
+                else:
+                    fr = str(preserved.get("remap_from") or "").strip()
+                    to = str(preserved.get("remap_to") or "").strip()
+                    self._path_remaps = (
+                        normalize_remaps([PathRemap(fr, to)]) if fr and to else []
+                    )
+                self._sync_remap_vars_from_list()
+                self.search_var.set(preserved.get("search") or "")
+                self.date_from_var.set(preserved.get("date_from") or "")
+                self.date_to_var.set(preserved.get("date_to") or "")
+                self.size_min_var.set(preserved.get("size_min") or "")
+                self.size_max_var.set(preserved.get("size_max") or "")
+                self.mtime_from_var.set(preserved.get("mtime_from") or "")
+                self.mtime_to_var.set(preserved.get("mtime_to") or "")
+                st = preserved.get("source_type") or self._all_token()
+                if st in ALL_TOKENS:
+                    st = self._all_token()
+                self.source_type_var.set(st)
+                ctl = preserved.get("control") or self._all_token()
+                if ctl in ALL_TOKENS:
+                    ctl = self._all_token()
+                self.control_var.set(ctl)
+                prog = preserved.get("programmer") or self._all_token()
+                if prog in ALL_TOKENS:
+                    prog = self._all_token()
+                self.programmer_var.set(prog)
+                prov = str(preserved.get("provenance") or "")
+                if prov in (PROVENANCE_BACKUP, "green", "on_machine") or prov == self._(
+                    "status_on_machine"
+                ):
+                    self.provenance_var.set(self._("status_on_machine"))
+                elif prov in (
+                    PROVENANCE_EXTRA,
+                    "yellow",
+                    "not_run",
+                    "unknown",
+                    "status_unknown",
+                ) or prov in (self._("status_not_run"), self._("status_unknown")):
+                    self.provenance_var.set(self._("status_unknown"))
+                else:
+                    self.provenance_var.set(self._all_token())
+                role_raw = str(preserved.get("role") or "")
+                if role_raw and not self._is_all_token(role_raw):
+                    c = self._colour_catalog.get(role_raw) or self._colour_catalog.get(
+                        self._colour_id_from_filter_label(role_raw) or ""
+                    )
+                    self.role_var.set(c.label(self._lang) if c else self._all_token())
+                else:
+                    self.role_var.set(self._all_token())
+                self.newest_only_var.set(bool(preserved.get("newest")))
+                if "include_unknown" in preserved:
+                    self.include_unknown_var.set(bool(preserved.get("include_unknown")))
+                self.incremental_var.set(bool(preserved.get("incremental", True)))
+                self.watch_var.set(bool(preserved.get("watch", False)))
+                if preserved.get("watch_mode") is not None:
+                    self._watch_mode = normalize_watch_mode(
+                        str(preserved.get("watch_mode"))
+                    )
+                    self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
+                if "search_auto_refresh" in preserved:
+                    self.search_auto_refresh_var.set(
+                        bool(preserved.get("search_auto_refresh"))
+                    )
+                self.excel_var.set(bool(preserved.get("excel", True)))
+                sort_col = preserved.get("sort_col")
+                self._sort_col = str(sort_col) if sort_col else None
+                self._sort_reverse = bool(preserved.get("sort_reverse"))
+                roots = list(preserved.get("roots") or [])
+                self._hidden_root_specs = [
+                    r if isinstance(r, ScanRootSpec) else ScanRootSpec(path=str(r))
+                    for r in roots
+                ]
+                self._fill_extra_list(self._hidden_root_specs)
+                if preserved.get("schedule") is not None:
+                    self._set_schedule(
+                        str(preserved.get("schedule") or SCHEDULE_OFF), persist=False
+                    )
+        finally:
+            self._filter_trace_lock = False
+
         self._refresh_filter_choices()
         if preserved and preserved.get("machines"):
             self._machine_sel = {
@@ -1286,7 +1376,9 @@ class IndexerApp(tk.Tk):
             self._update_machines_button()
         if preserved is not None:
             if "folders_expanded" in preserved:
-                self._set_folders_expanded(bool(preserved["folders_expanded"]), persist=False)
+                self._set_folders_expanded(
+                    bool(preserved["folders_expanded"]), persist=False
+                )
             else:
                 self._maybe_auto_collapse_folders()
             if "more_filters" in preserved:
@@ -1294,9 +1386,13 @@ class IndexerApp(tk.Tk):
                 self._apply_more_filters_visibility()
             if "preview_find" in preserved:
                 self.preview_find_var.set(str(preserved.get("preview_find") or ""))
+            # Remount the desired pane after folder expand/collapse so Indeks
+            # never stays as an empty host under the nav strip.
             view = str(preserved.get("pelny_view") or "").strip().casefold()
             if view in ("praca", "indeks") and not self._is_simple():
                 self._show_pelny_view(view)
+            elif not self._is_simple():
+                self._show_pelny_view(getattr(self, "_pelny_view", "praca") or "praca")
         self._sync_include_unknown_widget()
         self._run_query_now()
         self._sync_folder_watch()
@@ -1525,7 +1621,13 @@ class IndexerApp(tk.Tk):
         self._show_pelny_view("praca")
 
     def _show_pelny_view(self, which: str) -> None:
-        """Switch indexer primary nav between Praca and Indeks."""
+        """Switch indexer primary nav between Praca and Indeks.
+
+        Always remounts the active pane (pack_forget both, then pack one).
+        Relying on ``winfo_ismapped()`` can leave ``_pelny_content`` empty under
+        the nav strip after a language rebuild or corrupted pack state — Indeks
+        then shows only the Praca/Indeks buttons with no toolbar/panels.
+        """
         if self._is_simple():
             return
         praca = getattr(self, "_praca_frame", None)
@@ -1534,19 +1636,28 @@ class IndexerApp(tk.Tk):
             return
         view = "indeks" if which == "indeks" else "praca"
         self._pelny_view = view
+        active = indeks if view == "indeks" else praca
         try:
-            if view == "praca":
-                indeks.pack_forget()
-                if not praca.winfo_ismapped():
-                    praca.pack(fill=tk.BOTH, expand=True)
-            else:
-                praca.pack_forget()
-                if not indeks.winfo_ismapped():
-                    indeks.pack(fill=tk.BOTH, expand=True)
+            for pane in (praca, indeks):
+                try:
+                    if pane.winfo_manager():
+                        pane.pack_forget()
+                except tk.TclError:
+                    pass
+            active.pack(fill=tk.BOTH, expand=True)
+            # Content host can lose its packer after a mid-event destroy/rebuild.
+            content = getattr(self, "_pelny_content", None)
+            if content is not None:
+                try:
+                    if not content.winfo_manager():
+                        content.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+                except tk.TclError:
+                    pass
         except tk.TclError:
             return
         self._refresh_pelny_nav_styles()
-        self._schedule_filter_ini_save()
+        if not getattr(self, "_rebuilding", False):
+            self._schedule_filter_ini_save()
 
     def _refresh_pelny_nav_styles(self) -> None:
         """Bold / accent selected segment; muted idle segment."""
@@ -1613,7 +1724,8 @@ class IndexerApp(tk.Tk):
             **btn_opts,
         )
         self._nav_indeks_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
-        self._pelny_view = "praca"
+        if getattr(self, "_pelny_view", None) not in ("praca", "indeks"):
+            self._pelny_view = "praca"
         self._refresh_pelny_nav_styles()
 
     def _open_indeks_folders(self) -> None:
@@ -1621,7 +1733,7 @@ class IndexerApp(tk.Tk):
         self._goto_indeks_tab()
         self._set_folders_expanded(True)
 
-    def _build(self) -> None:
+    def _build(self, *, initial_view: Optional[str] = None) -> None:
         pad = {"padx": 8, "pady": 4}
         simple = self._is_simple()
         self.title(window_title(self._("app_title")))
@@ -1635,7 +1747,9 @@ class IndexerApp(tk.Tk):
         self._indeks_frame = None
         self._nav_praca_btn = None
         self._nav_indeks_btn = None
-        self._pelny_view = "praca"
+        # Keep prior view when rebuilding; only reset to Praca on first build.
+        if initial_view not in ("praca", "indeks"):
+            self._pelny_view = "praca"
 
         # Ensure filter "all" token matches current language
         if self._is_all_token(self.source_type_var.get()):
@@ -1706,8 +1820,10 @@ class IndexerApp(tk.Tk):
             self._build_full_index_actions(indeks, pad)
             self._build_progress_bar(indeks)
 
-            # Default to Praca when folders already configured
-            if self._folders_ready():
+            # Restore view after language rebuild, else default by folder readiness
+            if initial_view in ("praca", "indeks"):
+                self._show_pelny_view(initial_view)
+            elif self._folders_ready():
                 self._show_pelny_view("praca")
             else:
                 self._show_pelny_view("indeks")
