@@ -300,3 +300,50 @@ def list_child_dirs(path: Path | str) -> list[Path]:
     except OSError:
         return []
     return sorted(kids, key=lambda c: c.name.casefold())
+
+
+def collect_tree_map_roots(
+    backup: Path | str | None,
+    extra_specs: Iterable[Any],
+) -> tuple[list[Path], list[str]]:
+    """Collect existing directory roots for the tree-map dialog.
+
+    ``extra_specs`` may be ``ScanRootSpec`` objects (``.path``), ``(path, prov)``
+    tuples, or bare path strings. Returns ``(roots, skipped_missing)``.
+    """
+    roots: list[Path] = []
+    skipped: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw: Path | str | None) -> None:
+        if raw is None:
+            return
+        text = str(raw).strip()
+        if not text:
+            return
+        p = Path(text)
+        try:
+            key = str(p.resolve())
+        except OSError:
+            key = str(p)
+        if key in seen:
+            return
+        if not p.is_dir():
+            skipped.append(str(p))
+            return
+        seen.add(key)
+        roots.append(p)
+
+    if backup is not None and str(backup).strip():
+        _add(backup)
+    for item in extra_specs or []:
+        if item is None:
+            continue
+        if hasattr(item, "path"):
+            _add(getattr(item, "path"))
+        elif isinstance(item, (tuple, list)) and item:
+            _add(item[0])
+        else:
+            _add(item)
+    return roots, skipped
+

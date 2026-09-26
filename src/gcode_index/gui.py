@@ -69,6 +69,7 @@ from gcode_index.folder_map import (
 from gcode_index.folder_tree_map import (
     TREE_MAP_FILENAME,
     FolderTreeMap,
+    collect_tree_map_roots,
     list_child_dirs,
     load_folder_tree_map,
     roles_from_db,
@@ -2890,6 +2891,14 @@ class IndexerApp(tk.Tk):
             self.status_var.set("; ".join(bits))
 
     def _open_folder_tree_map(self) -> None:
+        """Open lazy path-tree mapper (indexer). Show errors instead of failing silently."""
+        try:
+            self._open_folder_tree_map_impl()
+        except Exception as exc:  # noqa: BLE001
+            log.exception("open folder tree map failed")
+            messagebox.showerror(self._("map_tree"), str(exc))
+
+    def _open_folder_tree_map_impl(self) -> None:
         backup = self.backup_var.get().strip()
         target = self.target_var.get().strip()
         if not target:
@@ -2898,31 +2907,16 @@ class IndexerApp(tk.Tk):
                 self._("err_target_for_tree_map", filename=TREE_MAP_FILENAME),
             )
             return
-        roots: list[Path] = []
-        seen: set[str] = set()
-
-        def _add_root(raw: str | Path) -> None:
-            p = Path(raw)
-            try:
-                key = str(p.resolve())
-            except OSError:
-                key = str(p)
-            if key in seen:
-                return
-            if not p.is_dir():
-                return
-            seen.add(key)
-            roots.append(p)
-
-        if backup:
-            _add_root(backup)
-        for path, _prov in self._scan_root_specs():
-            _add_root(path)
+        roots, skipped = collect_tree_map_roots(backup, self._scan_root_specs())
         if not roots:
-            messagebox.showerror(
-                self._("map_tree"),
-                self._("err_tree_map_need_roots"),
-            )
+            detail = self._("err_tree_map_need_roots")
+            if skipped:
+                detail = (
+                    detail
+                    + "\n\n"
+                    + self._("err_tree_map_roots_missing", paths="\n".join(skipped))
+                )
+            messagebox.showerror(self._("map_tree"), detail)
             return
         Path(target).mkdir(parents=True, exist_ok=True)
         save_path = tree_map_path_for_target(target)

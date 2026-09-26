@@ -150,3 +150,26 @@ def test_inherited_vs_exact(tmp_path: Path):
     exact2, inherited2 = tm.inherited_from(child)
     assert exact2 is not None and exact2.tags == ["fixture"]
     assert inherited2 is not None and inherited2.tags == ["wip"]
+
+
+def test_collect_tree_map_roots_accepts_scan_root_specs(tmp_path: Path):
+    """Regression: Mapuj drzewo unpackaged ScanRootSpec as tuples → silent no-op."""
+    from gcode_index.extra_roots import ScanRootSpec
+    from gcode_index.folder_tree_map import collect_tree_map_roots
+    from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
+
+    backup = tmp_path / "backup"
+    extra = tmp_path / "extra"
+    backup.mkdir()
+    extra.mkdir()
+    missing = tmp_path / "gone"
+    specs = [
+        ScanRootSpec(path=str(extra), provenance=PROVENANCE_EXTRA),
+        ScanRootSpec(path=str(missing), provenance=PROVENANCE_BACKUP),
+    ]
+    roots, skipped = collect_tree_map_roots(backup, specs)
+    assert {p.resolve() for p in roots} == {backup.resolve(), extra.resolve()}
+    assert any("gone" in s for s in skipped)
+    # Tuple form still accepted (defensive)
+    roots2, _ = collect_tree_map_roots(None, [(str(extra), PROVENANCE_EXTRA)])
+    assert roots2[0].resolve() == extra.resolve()
