@@ -163,6 +163,10 @@ from gcode_index.ui_theme import (
     UI_ACCENT_TEXT,
     UI_KEY_FG,
     UI_MUTED_FG,
+    UI_NAV_BORDER,
+    UI_NAV_IDLE_BG,
+    UI_NAV_IDLE_FG,
+    UI_NAV_IDLE_HOVER,
 )
 
 log = logging.getLogger(__name__)
@@ -231,10 +235,15 @@ class IndexerApp(tk.Tk):
         self.minimize_to_tray_var = tk.BooleanVar(value=True)
         self.preset_var = tk.StringVar(value="")
         self.preview_header_var = tk.StringVar(value="")
+        self.preview_find_var = tk.StringVar(value="")
+        self.preview_find_status_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="")
         self.progress_var = tk.DoubleVar(value=0.0)
         self.progress_label_var = tk.StringVar(value="")
 
+        self._preview_find_matches: list[str] = []
+        self._preview_find_index: int = -1
+        self._pelny_view = "praca"
         self._search_after_id: Optional[str] = None
         self._schedule_after_id: Optional[str] = None
         self._schedule_amount_debounce_id: Optional[str] = None
@@ -731,6 +740,8 @@ class IndexerApp(tk.Tk):
             "schedule": self._schedule,
             "sort_col": self._sort_col,
             "sort_reverse": bool(self._sort_reverse),
+            "pelny_view": getattr(self, "_pelny_view", "praca"),
+            "preview_find": self.preview_find_var.get(),
         }
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
@@ -841,6 +852,11 @@ class IndexerApp(tk.Tk):
             if "more_filters" in preserved:
                 self._more_filters_open = bool(preserved["more_filters"])
                 self._apply_more_filters_visibility()
+            if "preview_find" in preserved:
+                self.preview_find_var.set(str(preserved.get("preview_find") or ""))
+            view = str(preserved.get("pelny_view") or "").strip().casefold()
+            if view in ("praca", "indeks") and not self._is_simple():
+                self._show_pelny_view(view)
         self._run_query_now()
         self._sync_folder_watch()
         self._arm_search_auto_refresh()
@@ -879,6 +895,7 @@ class IndexerApp(tk.Tk):
                         extract=extract_disp,
                     )
                 )
+            self._sync_praca_path_from_summary()
             return
         if not bak and not tgt and not ext:
             self._folders_summary_var.set(self._("folders_summary_empty"))
@@ -891,6 +908,11 @@ class IndexerApp(tk.Tk):
                     extract=extract_disp,
                 )
             )
+        self._sync_praca_path_from_summary()
+
+    def _sync_praca_path_from_summary(self) -> None:
+        if hasattr(self, "_praca_path_var") and hasattr(self, "_folders_summary_var"):
+            self._praca_path_var.set(self._folders_summary_var.get())
 
     def _extract_dir(self) -> str:
         """Resolved extract output folder (explicit extract, else database/target)."""
@@ -919,6 +941,7 @@ class IndexerApp(tk.Tk):
             self._folders_expanded_frame.pack_forget()
             self._update_folders_summary()
             self._folders_summary_frame.pack(**pack_opts)
+        self._sync_praca_path_from_summary()
 
     def _maybe_auto_collapse_folders(self) -> None:
         """Collapse only when folders are already complete (startup / scan).
@@ -1040,13 +1063,118 @@ class IndexerApp(tk.Tk):
             return
         if visible:
             if not self.prog_frame.winfo_ismapped():
+                # Prefer Index tab chrome; fall back to packing in parent.
                 after = getattr(self, "_actions_frame", None)
                 pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
                 if after is not None and after.winfo_exists():
                     pack_opts["after"] = after
                 self.prog_frame.pack(**pack_opts)
+                # If scanning from Praca, jump to Indeks so progress is visible.
+                self._goto_indeks_tab()
         else:
             self.prog_frame.pack_forget()
+
+    def _goto_indeks_tab(self) -> None:
+        self._show_pelny_view("indeks")
+
+    def _goto_praca_tab(self) -> None:
+        self._show_pelny_view("praca")
+
+    def _show_pelny_view(self, which: str) -> None:
+        """Switch indexer primary nav between Praca and Indeks."""
+        if self._is_simple():
+            return
+        praca = getattr(self, "_praca_frame", None)
+        indeks = getattr(self, "_indeks_frame", None)
+        if praca is None or indeks is None:
+            return
+        view = "indeks" if which == "indeks" else "praca"
+        self._pelny_view = view
+        try:
+            if view == "praca":
+                indeks.pack_forget()
+                if not praca.winfo_ismapped():
+                    praca.pack(fill=tk.BOTH, expand=True)
+            else:
+                praca.pack_forget()
+                if not indeks.winfo_ismapped():
+                    indeks.pack(fill=tk.BOTH, expand=True)
+        except tk.TclError:
+            return
+        self._refresh_pelny_nav_styles()
+
+    def _refresh_pelny_nav_styles(self) -> None:
+        """Bold / accent selected segment; muted idle segment."""
+        view = getattr(self, "_pelny_view", "praca")
+        pairs = (
+            (getattr(self, "_nav_praca_btn", None), view == "praca"),
+            (getattr(self, "_nav_indeks_btn", None), view == "indeks"),
+        )
+        for btn, selected in pairs:
+            if btn is None:
+                continue
+            try:
+                if not btn.winfo_exists():
+                    continue
+            except tk.TclError:
+                continue
+            if selected:
+                btn.configure(
+                    bg=UI_ACCENT,
+                    fg=UI_ACCENT_TEXT,
+                    activebackground=UI_ACCENT_HOVER,
+                    activeforeground=UI_ACCENT_TEXT,
+                    relief=tk.SUNKEN,
+                    font=self._ui_font(size=13, bold=True),
+                )
+            else:
+                btn.configure(
+                    bg=UI_NAV_IDLE_BG,
+                    fg=UI_NAV_IDLE_FG,
+                    activebackground=UI_NAV_IDLE_HOVER,
+                    activeforeground=UI_NAV_IDLE_FG,
+                    relief=tk.RAISED,
+                    font=self._ui_font(size=13, bold=False),
+                )
+
+    def _build_pelny_nav(self, parent, pad: dict) -> None:
+        """Large segmented Praca | Indeks control — primary indexer navigation."""
+        wrap = ttk.Frame(parent)
+        wrap.pack(fill=tk.X, **pad)
+        strip = tk.Frame(wrap, bg=UI_NAV_BORDER, padx=2, pady=2)
+        strip.pack(fill=tk.X)
+        inner = tk.Frame(strip, bg=UI_NAV_BORDER)
+        inner.pack(fill=tk.X)
+        btn_opts = dict(
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=28,
+            pady=12,
+            cursor="hand2",
+            highlightthickness=0,
+            font=self._ui_font(size=13, bold=False),
+        )
+        self._nav_praca_btn = tk.Button(
+            inner,
+            text=self._("tab_praca"),
+            command=lambda: self._show_pelny_view("praca"),
+            **btn_opts,
+        )
+        self._nav_praca_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
+        self._nav_indeks_btn = tk.Button(
+            inner,
+            text=self._("tab_indeks"),
+            command=lambda: self._show_pelny_view("indeks"),
+            **btn_opts,
+        )
+        self._nav_indeks_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
+        self._pelny_view = "praca"
+        self._refresh_pelny_nav_styles()
+
+    def _open_indeks_folders(self) -> None:
+        """From Praca path line: switch to Indeks and expand folder editors."""
+        self._goto_indeks_tab()
+        self._set_folders_expanded(True)
 
     def _build(self) -> None:
         pad = {"padx": 8, "pady": 4}
@@ -1057,6 +1185,12 @@ class IndexerApp(tk.Tk):
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         self._root_frame = root
+        self._main_notebook = None  # legacy name; indexer uses segmented nav
+        self._praca_frame = None
+        self._indeks_frame = None
+        self._nav_praca_btn = None
+        self._nav_indeks_btn = None
+        self._pelny_view = "praca"
 
         # Ensure filter "all" token matches current language
         if self._is_all_token(self.source_type_var.get()):
@@ -1099,20 +1233,39 @@ class IndexerApp(tk.Tk):
             command=lambda: self._open_manual("simple" if simple else "full"),
         ).pack(side=tk.LEFT, padx=(12, 0))
 
-        # Single search surface for both capabilities (no Prosty/Pełny or Praca/Indeks).
         if simple:
+            # Floor client (can_index=no): retrieve-only — no Praca/Indeks tabs.
             self._build_folders_section(root, pad, simple=True)
             self._build_simple_actions(root, pad)
             self._build_progress_bar(root)
             self._build_find_section(root, pad, simple=True)
             self._build_results_preview(root, pad, simple=True)
         else:
-            self._build_folders_section(root, pad, simple=False)
-            self._build_full_index_actions(root, pad)
-            self._build_progress_bar(root)
-            self._build_find_section(root, pad, simple=False)
-            self._build_results_preview(root, pad, simple=False)
-            if not self._folders_ready():
+            # Indexer (can_index=yes): Praca | Indeks segmented primary nav.
+            self._build_pelny_nav(root, pad)
+            content = ttk.Frame(root)
+            content.pack(fill=tk.BOTH, expand=True, **pad)
+            self._pelny_content = content
+            praca = ttk.Frame(content, padding=4)
+            indeks = ttk.Frame(content, padding=4)
+            self._praca_frame = praca
+            self._indeks_frame = indeks
+
+            # Praca: one-line path + find + results|full-height preview
+            self._build_praca_path_line(praca, pad)
+            self._build_find_section(praca, pad, simple=False)
+            self._build_results_preview(praca, pad, simple=False)
+
+            # Indeks: folders, remap, scan/watch/schedule/tray, progress
+            self._build_folders_section(indeks, pad, simple=False)
+            self._build_full_index_actions(indeks, pad)
+            self._build_progress_bar(indeks)
+
+            # Default to Praca when folders already configured
+            if self._folders_ready():
+                self._show_pelny_view("praca")
+            else:
+                self._show_pelny_view("indeks")
                 self._set_folders_expanded(True, persist=False)
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
@@ -1120,7 +1273,7 @@ class IndexerApp(tk.Tk):
 
 
     def _build_folders_section(self, parent, pad: dict, *, simple: bool) -> None:
-        """Folder summary + expanded editors (client or indexer)."""
+        """Folder summary + expanded editors (floor client root or indexer Indeks)."""
         self._folders_summary_frame = ttk.Frame(parent)
         self._update_folders_summary()
         ttk.Label(
@@ -1287,7 +1440,7 @@ class IndexerApp(tk.Tk):
 
 
     def _build_full_index_actions(self, parent, pad: dict) -> None:
-        """Indexer (can_index=yes): scan, map, schedule, watch, tray, report tools."""
+        """Indexer Indeks tab: scan, map, schedule, watch, tray, report tools."""
         actions = ttk.Frame(parent)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
@@ -1433,6 +1586,22 @@ class IndexerApp(tk.Tk):
         ttk.Label(
             self.prog_frame, textvariable=self.progress_label_var, width=42
         ).pack(side=tk.LEFT, padx=(8, 0))
+
+
+    def _build_praca_path_line(self, parent, pad: dict) -> None:
+        """One-line path summary on Praca (no fat folder/remap chrome)."""
+        self._praca_path_var = tk.StringVar(value="")
+        line = ttk.Frame(parent)
+        line.pack(fill=tk.X, **pad)
+        ttk.Label(
+            line, textvariable=self._praca_path_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(
+            line,
+            text=self._("goto_indeks"),
+            command=self._open_indeks_folders,
+        ).pack(side=tk.RIGHT)
+        self._update_folders_summary()
 
 
     def _build_find_section(self, parent, pad: dict, *, simple: bool) -> None:
@@ -1705,6 +1874,27 @@ class IndexerApp(tk.Tk):
         ttk.Label(preview_frame, textvariable=self.preview_header_var).pack(
             fill=tk.X, padx=2, pady=(0, 2)
         )
+        find_row = ttk.Frame(preview_frame)
+        find_row.pack(fill=tk.X, padx=2, pady=(0, 4))
+        ttk.Label(find_row, text=self._("preview_find"), style="Muted.TLabel").pack(
+            side=tk.LEFT
+        )
+        self.preview_find_entry = ttk.Entry(
+            find_row, textvariable=self.preview_find_var, width=18
+        )
+        self.preview_find_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        self.preview_find_entry.bind("<Return>", self._preview_find_next)
+        self.preview_find_entry.bind("<Shift-Return>", self._preview_find_prev)
+        self.preview_find_entry.bind("<KeyRelease>", self._on_preview_find_typed)
+        ttk.Button(
+            find_row, text=self._("preview_find_prev"), width=3, command=self._preview_find_prev
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            find_row, text=self._("preview_find_next"), width=3, command=self._preview_find_next
+        ).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(
+            find_row, textvariable=self.preview_find_status_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=(6, 0))
         prev_inner = ttk.Frame(preview_frame)
         prev_inner.pack(fill=tk.BOTH, expand=True)
         self.preview_text = tk.Text(
@@ -1722,6 +1912,12 @@ class IndexerApp(tk.Tk):
         )
         self.preview_text.configure(
             yscrollcommand=prev_vsb.set, xscrollcommand=prev_hsb.set
+        )
+        self.preview_text.tag_configure(
+            "preview_find_hit", background="#ffe58a", foreground="#222222"
+        )
+        self.preview_text.tag_configure(
+            "preview_find_current", background="#f0a202", foreground="#111111"
         )
         self.preview_text.grid(row=0, column=0, sticky="nsew")
         prev_vsb.grid(row=0, column=1, sticky="ns")
@@ -3547,6 +3743,7 @@ class IndexerApp(tk.Tk):
             state=tk.DISABLED,
             foreground="#a40000" if is_error else "#222222",
         )
+        self._preview_find_reapply()
 
     def _clear_preview(self) -> None:
         self._set_preview_body(self._("preview_idle"), "")
@@ -3575,6 +3772,96 @@ class IndexerApp(tk.Tk):
             self._set_preview_body(header, f"Cannot preview:\n{err}", is_error=True)
             return
         self._set_preview_body(header, body)
+
+    def _on_preview_find_typed(self, *_args) -> None:
+        self._preview_find_reapply(keep_index=False)
+
+    def _preview_find_clear_tags(self) -> None:
+        if not hasattr(self, "preview_text"):
+            return
+        try:
+            self.preview_text.tag_remove("preview_find_hit", "1.0", tk.END)
+            self.preview_text.tag_remove("preview_find_current", "1.0", tk.END)
+        except tk.TclError:
+            pass
+
+    def _preview_find_reapply(self, *, keep_index: bool = True) -> None:
+        """Recompute match list from current needle + preview body; update highlights."""
+        if not hasattr(self, "preview_text"):
+            return
+        needle = (self.preview_find_var.get() or "").strip()
+        self._preview_find_clear_tags()
+        self._preview_find_matches = []
+        if not needle:
+            self._preview_find_index = -1
+            self.preview_find_status_var.set("")
+            return
+        # Text.search needs NORMAL briefly for some platforms; we keep DISABLED after.
+        was = str(self.preview_text.cget("state"))
+        try:
+            self.preview_text.configure(state=tk.NORMAL)
+            start = "1.0"
+            while True:
+                pos = self.preview_text.search(
+                    needle, start, stopindex=tk.END, nocase=True
+                )
+                if not pos:
+                    break
+                end = f"{pos}+{len(needle)}c"
+                self._preview_find_matches.append(pos)
+                self.preview_text.tag_add("preview_find_hit", pos, end)
+                start = end
+        except tk.TclError:
+            self._preview_find_matches = []
+        finally:
+            try:
+                self.preview_text.configure(state=was)
+            except tk.TclError:
+                pass
+        if not self._preview_find_matches:
+            self._preview_find_index = -1
+            self.preview_find_status_var.set(self._("preview_find_none"))
+            return
+        if keep_index and 0 <= self._preview_find_index < len(self._preview_find_matches):
+            idx = self._preview_find_index
+        else:
+            idx = 0
+        self._preview_find_goto(idx)
+
+    def _preview_find_goto(self, index: int) -> None:
+        matches = self._preview_find_matches
+        if not matches or not hasattr(self, "preview_text"):
+            return
+        n = len(matches)
+        idx = index % n
+        self._preview_find_index = idx
+        needle = (self.preview_find_var.get() or "").strip()
+        pos = matches[idx]
+        end = f"{pos}+{len(needle)}c"
+        try:
+            was = str(self.preview_text.cget("state"))
+            self.preview_text.configure(state=tk.NORMAL)
+            self.preview_text.tag_remove("preview_find_current", "1.0", tk.END)
+            self.preview_text.tag_add("preview_find_current", pos, end)
+            self.preview_text.see(pos)
+            self.preview_text.configure(state=was)
+        except tk.TclError:
+            pass
+        self.preview_find_status_var.set(
+            self._("preview_find_status", current=idx + 1, total=n)
+        )
+
+    def _preview_find_next(self, *_args) -> None:
+        if not self._preview_find_matches:
+            self._preview_find_reapply(keep_index=False)
+            return
+        self._preview_find_goto(self._preview_find_index + 1)
+
+    def _preview_find_prev(self, *_args) -> None:
+        if not self._preview_find_matches:
+            self._preview_find_reapply(keep_index=False)
+            return
+        self._preview_find_goto(self._preview_find_index - 1)
 
     def _compare_selected(self) -> None:
         rows = self._selected_rows()

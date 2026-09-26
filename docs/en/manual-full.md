@@ -21,7 +21,16 @@ With `can_index=yes` the GUI can:
 - Optionally write Excel after a scan
 - Use Windows **autostart** / **tray** helpers
 
-Layout is a **single search surface**: collapsible folders → index actions (scan / map / schedule / watch / tray) → find bar → results \| preview. There are no Prosty/Pełny labels or Praca/Indeks tabs.
+Indexer layout uses two primary navigation segments (large bar at the top):
+
+| Tab | Contents |
+|-----|----------|
+| **Work / Praca** | Search / filters / **results table** \| **full-height preview on the right** — clean retrieve surface. One-line path summary + **Folders…** to open Index. Primary CTA: **Extract**. |
+| **Index / Indeks** | Backup/DB/extract folders, green/yellow extras, path remap, **Index/scan**, Map, Machines & aliases, incremental, watch, schedule, history, autostart/tray, report/duplicates/Excel |
+
+Floor clients (`can_index=no`) stay on a single retrieve surface — no Praca/Indeks tabs.
+
+In the preview pane, use **In preview** to find text in the G-code body (next/prev + highlight).
 
 ---
 

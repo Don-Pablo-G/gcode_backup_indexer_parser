@@ -47,6 +47,10 @@ Wyniki są w tabeli. **Podgląd** jest na stałe **po prawej** (pełna wysokoś�
 
 Jeśli plik źródłowy **nie istnieje** na dysku (kolumna **Źródło = BRAK**) albo zmienił się od ostatniego indeksu, wydobycie jest **odmówione** z jasnym komunikatem — poproś osobę na **PC indeksatora** (`can_index=yes`) o ponowny skan (albo sprawdź mapowanie ścieżek).
 
+## Szukanie w podglądzie
+
+Zaznacz wiersz wyniku, żeby załadować G-code w **Podglądzie** po prawej. Pole **W podglądzie** nad tekstem szuka w treści — **▲** / **▼** (lub Enter / Shift+Enter) przechodzą między trafieniami; wyniki są podświetlone.
+
 ---
 
 ## Flagi w wynikach

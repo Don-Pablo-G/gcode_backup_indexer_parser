@@ -47,6 +47,10 @@ Results appear in the table. **Preview** stays docked on the **right** (full hei
 
 If the source file is **missing on disk** (column **Source = MISSING**) or changed since the last index, extract is **refused** with a clear message — ask someone on the **indexer PC** (`can_index=yes`) to re-scan (or check path remap).
 
+## Find in preview
+
+Select a result row to load G-code in the right-hand **Preview**. Use **In preview** above the text to search inside the body — **▲** / **▼** (or Enter / Shift+Enter) move between matches; hits are highlighted.
+
 ---
 
 ## Flags in the results

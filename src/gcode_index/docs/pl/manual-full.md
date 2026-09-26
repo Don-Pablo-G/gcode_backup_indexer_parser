@@ -21,7 +21,16 @@ Przy `can_index=yes` GUI może:
 - Opcjonalnie zapisać Excel po skanie
 - Używać Windows **autostart** / **zasobnik**
 
-Układ to **jedna powierzchnia wyszukiwania**: zwijane foldery → akcje indeksu (skan / mapa / harmonogram / obserwacja / zasobnik) → pasek szukania → wyniki \| podgląd. Bez etykiet Prosty/Pełny i bez zakładek Praca/Indeks.
+Układ indeksatora ma dwa główne segmenty nawigacji (duży pasek u góry):
+
+| Zakładka | Zawartość |
+|----------|-----------|
+| **Praca** | Szukanie / filtry / **tabela wyników** \| **pełny podgląd po prawej** — czysta powierzchnia pracy. Jedna linia ścieżek + **Foldery…** do Indeksu. Główne CTA: **Wydobądź**. |
+| **Indeks** | Foldery kopii/bazy/wydobycia, zielone/żółte, mapowanie ścieżek, **Indeksuj/skanuj**, mapa, maszyny i aliasy, przyrostowo, obserwacja, harmonogram, historia, autostart/zasobnik, raport/duplikaty/Excel |
+
+Klient hali (`can_index=no`) zostaje na jednej powierzchni wyszukiwania — bez zakładek Praca/Indeks.
+
+W panelu podglądu użyj **W podglądzie**, żeby znaleźć tekst w treści G-code (następny/poprzedni + podświetlenie).
 
 ---
 

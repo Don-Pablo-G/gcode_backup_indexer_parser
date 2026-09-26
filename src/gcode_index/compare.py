@@ -14,6 +14,26 @@ DEFAULT_PREVIEW_MAX_CHARS = 120_000
 DEFAULT_PREVIEW_MAX_LINES = 2_500
 
 
+def preview_find_match_starts(
+    haystack: str, needle: str, *, nocase: bool = True
+) -> list[int]:
+    """Character offsets of non-overlapping matches (preview-pane find rules)."""
+    if not needle or not haystack:
+        return []
+    hay = haystack.casefold() if nocase else haystack
+    ned = needle.casefold() if nocase else needle
+    out: list[int] = []
+    start = 0
+    nlen = len(ned)
+    while True:
+        i = hay.find(ned, start)
+        if i < 0:
+            break
+        out.append(i)
+        start = i + max(nlen, 1)
+    return out
+
+
 def instance_label(row: RowLike) -> str:
     """Short label for a result row (program · machine · date)."""
     prog = str(row["program_number"] or "?")

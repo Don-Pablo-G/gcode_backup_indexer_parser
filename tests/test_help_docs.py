@@ -32,6 +32,8 @@ def test_full_manual_mentions_scan():
     assert "scan" in en.casefold() or "index" in en.casefold()
     assert "can_index" in en
     assert "can_index" in pl
+    assert "Praca" in pl and "Indeks" in pl
+    assert "Work" in en
 
 
 def test_docs_roots_nonempty():
