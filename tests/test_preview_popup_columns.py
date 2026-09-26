@@ -73,6 +73,24 @@ def test_preview_popup_columns_legend_and_lang_nav_lock(tmp_path: Path, monkeypa
         app._set_column_visible("path", True)
         assert "path" not in app._hidden_columns
 
+        # Columns do not use Tk stretch (we fill / adjacent-resize ourselves)
+        for col in RESULT_COLUMNS:
+            assert int(app.tree.column(col, "stretch")) == 0
+        app.update_idletasks()
+        app._fill_tree_columns()
+        visible = app._visible_result_columns()
+        total = sum(int(app.tree.column(c, "width")) for c in visible)
+        usable = app._tree_usable_width()
+        if usable > 0:
+            assert total == usable
+
+        # Adjacent resize keeps pair sum constant
+        from gcode_index.column_layout import resize_adjacent
+
+        before = dict(app._column_widths)
+        after = resize_adjacent(before, "flag", "src", 20)
+        assert after["flag"] + after["src"] == before["flag"] + before["src"]
+
         # Cannot hide the last visible column
         for col in RESULT_COLUMNS:
             if col != "program":
@@ -100,12 +118,14 @@ def test_preview_popup_columns_legend_and_lang_nav_lock(tmp_path: Path, monkeypa
         app._show_pelny_view("indeks")
         assert app._pelny_view == "indeks"
 
-        # Persist hidden columns + preview geometry into ini
+        # Persist hidden columns + widths + preview geometry into ini
         app._hidden_columns = {"control", "type"}
+        app._column_widths["path"] = 333
         app._preview_geometry = "700x500+10+10"
         app._save_instance_ini()
         loaded = load_instance_ini(ini)
         assert set(loaded.hidden_columns) == {"control", "type"}
+        assert loaded.column_widths.get("path") == 333
         assert loaded.preview_geometry == "700x500+10+10"
     finally:
         try:

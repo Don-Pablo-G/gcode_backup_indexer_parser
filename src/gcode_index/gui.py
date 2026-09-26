@@ -89,6 +89,14 @@ from gcode_index.badge_style import (
     status_dot,
     status_swatch,
 )
+from gcode_index.column_layout import (
+    DEFAULT_COLUMN_WIDTHS,
+    MIN_COLUMN_WIDTH,
+    display_index_to_id,
+    merge_widths,
+    redistribute_to_width,
+    resize_adjacent,
+)
 from gcode_index.models import (
     COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
@@ -359,6 +367,9 @@ class IndexerApp(tk.Tk):
         self._preview_win: Optional[tk.Toplevel] = None
         self._preview_geometry: str = DEFAULT_PREVIEW_GEOMETRY
         self._hidden_columns: set[str] = set()
+        self._column_widths: dict[str, int] = dict(DEFAULT_COLUMN_WIDTHS)
+        self._col_resize: Optional[dict] = None
+        self._col_fill_after_id: Optional[str] = None
         self._pelny_view = "praca"
         self._search_after_id: Optional[str] = None
         self._schedule_after_id: Optional[str] = None
@@ -532,6 +543,10 @@ class IndexerApp(tk.Tk):
             for c in (cfg.hidden_columns or [])
             if str(c).strip() in RESULT_COLUMNS
         }
+        self._column_widths = merge_widths(
+            getattr(cfg, "column_widths", None) or {},
+            RESULT_COLUMNS,
+        )
         # Target-side YAML is a backup copy; INI wins when it already lists roots.
         target = (cfg.target or "").strip()
         if target and not self._hidden_root_specs:
@@ -644,6 +659,10 @@ class IndexerApp(tk.Tk):
                 if str(c).strip() in RESULT_COLUMNS
             ]
             self._hidden_columns = set(hidden)
+            self._column_widths = merge_widths(
+                getattr(cfg, "column_widths", None) or {},
+                RESULT_COLUMNS,
+            )
             if hasattr(self, "_apply_column_visibility"):
                 self._apply_column_visibility()
             if (cfg.preview_geometry or "").strip():
@@ -721,6 +740,11 @@ class IndexerApp(tk.Tk):
             hidden_columns=sorted(
                 c for c in getattr(self, "_hidden_columns", set()) if c in RESULT_COLUMNS
             ),
+            column_widths={
+                k: int(v)
+                for k, v in getattr(self, "_column_widths", {}).items()
+                if k in RESULT_COLUMNS
+            },
             preview_geometry=str(
                 getattr(self, "_preview_geometry", "") or ""
             ).strip(),
@@ -1385,6 +1409,7 @@ class IndexerApp(tk.Tk):
             "pelny_view": getattr(self, "_pelny_view", "praca"),
             "preview_find": self.preview_find_var.get(),
             "hidden_columns": sorted(self._hidden_columns),
+            "column_widths": dict(getattr(self, "_column_widths", {}) or {}),
             "preview_geometry": getattr(
                 self, "_preview_geometry", DEFAULT_PREVIEW_GEOMETRY
             )
@@ -1537,6 +1562,9 @@ class IndexerApp(tk.Tk):
                     for c in hidden
                     if str(c).strip() in RESULT_COLUMNS
                 }
+            widths = preserved.get("column_widths")
+            if isinstance(widths, dict) and widths:
+                self._column_widths = merge_widths(widths, RESULT_COLUMNS)
             geom = str(preserved.get("preview_geometry") or "").strip()
             if geom:
                 self._preview_geometry = geom
@@ -2742,27 +2770,37 @@ class IndexerApp(tk.Tk):
             tree_frame, columns=cols, show="headings", selectmode="extended"
         )
         headings = {
-            "flag": (self._("col_flag"), 88),
-            "src": (self._("col_src"), 64),
-            "program": (self._("col_program"), 90),
-            "part": (self._("col_part"), 130),
-            "programmer": (self._("col_programmer"), 56),
-            "machine": (self._("col_machine"), 110),
-            "odbiorca": (self._("col_odbiorca"), 110),
-            "date": (self._("col_date"), 100),
-            "size": (self._("col_size"), 70),
-            "type": (self._("col_type"), 100),
-            "control": (self._("col_control"), 70),
-            "path": (self._("col_path"), 280),
-            "location": (self._("col_location"), 120),
+            "flag": self._("col_flag"),
+            "src": self._("col_src"),
+            "program": self._("col_program"),
+            "part": self._("col_part"),
+            "programmer": self._("col_programmer"),
+            "machine": self._("col_machine"),
+            "odbiorca": self._("col_odbiorca"),
+            "date": self._("col_date"),
+            "size": self._("col_size"),
+            "type": self._("col_type"),
+            "control": self._("col_control"),
+            "path": self._("col_path"),
+            "location": self._("col_location"),
         }
-        self._heading_labels = {k: label for k, (label, _w) in headings.items()}
-        for key, (label, width) in headings.items():
+        self._heading_labels = dict(headings)
+        self._column_widths = merge_widths(
+            getattr(self, "_column_widths", None) or {},
+            RESULT_COLUMNS,
+        )
+        for key, label in headings.items():
             self.tree.heading(
                 key, text=label, command=lambda c=key: self._on_sort_column(c)
             )
-            stretch = key in ("path", "part")
-            self.tree.column(key, width=width, stretch=stretch, minwidth=40)
+            # stretch=False: we manage fill + adjacent resize ourselves so
+            # separator drag does not shove following columns as a rigid block.
+            self.tree.column(
+                key,
+                width=int(self._column_widths.get(key, DEFAULT_COLUMN_WIDTHS.get(key, 100))),
+                stretch=False,
+                minwidth=MIN_COLUMN_WIDTH,
+            )
         self._apply_column_visibility()
         self._refresh_heading_labels()
         self.tree.tag_configure("flag_backup", foreground=STATUS_SWATCH[PROVENANCE_BACKUP])
@@ -2782,6 +2820,11 @@ class IndexerApp(tk.Tk):
         self.tree.bind("<Double-1>", lambda _e: self._extract_selected())
         self.tree.bind("<Button-3>", self._on_tree_context)
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        # Adjacent-column resize (absorb delta) + fill frame on size change
+        self.tree.bind("<ButtonPress-1>", self._on_tree_col_press, add="+")
+        self.tree.bind("<B1-Motion>", self._on_tree_col_drag, add="+")
+        self.tree.bind("<ButtonRelease-1>", self._on_tree_col_release, add="+")
+        self.tree.bind("<Configure>", self._on_tree_configure_fill, add="+")
         if sys.platform == "darwin":
             self.tree.bind("<Button-2>", self._on_tree_context)
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
@@ -2814,6 +2857,11 @@ class IndexerApp(tk.Tk):
         self._ctx_menu.add_command(
             label=self._("columns_menu"), command=self._open_columns_menu
         )
+        # Fill once the widget has a real size
+        try:
+            self.after_idle(self._fill_tree_columns)
+        except tk.TclError:
+            pass
 
     def _pack_results_colour_legend(self, parent) -> None:
         """Status + role colour chips beside the results toolbar."""
@@ -2830,21 +2878,191 @@ class IndexerApp(tk.Tk):
             roles_caption=self._("colour_legend_roles") if roles else "",
         ).pack(side=tk.RIGHT)
 
-    def _apply_column_visibility(self) -> None:
-        if not hasattr(self, "tree"):
-            return
+    def _visible_result_columns(self) -> list[str]:
         hidden = {
             c for c in getattr(self, "_hidden_columns", set()) if c in RESULT_COLUMNS
         }
         visible = [c for c in RESULT_COLUMNS if c not in hidden]
         if not visible:
             visible = ["program"]
-            hidden.discard("program")
-            self._hidden_columns = set(hidden)
+            self._hidden_columns = set(hidden) - {"program"}
+        return visible
+
+    def _apply_column_visibility(self) -> None:
+        if not hasattr(self, "tree"):
+            return
+        visible = self._visible_result_columns()
         try:
             self.tree.configure(displaycolumns=visible)
         except tk.TclError:
-            pass
+            return
+        self._apply_column_widths_to_tree()
+        self._schedule_fill_tree_columns()
+
+    def _apply_column_widths_to_tree(self) -> None:
+        if not hasattr(self, "tree"):
+            return
+        widths = getattr(self, "_column_widths", None) or DEFAULT_COLUMN_WIDTHS
+        for key in RESULT_COLUMNS:
+            w = int(widths.get(key, DEFAULT_COLUMN_WIDTHS.get(key, 100)))
+            try:
+                self.tree.column(
+                    key, width=w, stretch=False, minwidth=MIN_COLUMN_WIDTH
+                )
+            except tk.TclError:
+                pass
+
+    def _tree_usable_width(self) -> int:
+        if not hasattr(self, "tree"):
+            return 0
+        try:
+            w = int(self.tree.winfo_width())
+        except tk.TclError:
+            return 0
+        if w <= 1:
+            return 0
+        # Small fudge for borders / focus ring so we don't force a h-scrollbar
+        return max(0, w - 2)
+
+    def _fill_tree_columns(self) -> None:
+        """Make visible columns sum to the tree width (no empty gutter)."""
+        self._col_fill_after_id = None
+        if not hasattr(self, "tree"):
+            return
+        total = self._tree_usable_width()
+        if total <= 0:
+            return
+        visible = self._visible_result_columns()
+        if not visible:
+            return
+        current = getattr(self, "_column_widths", None) or {}
+        filled = redistribute_to_width(current, visible, total)
+        # Keep hidden column stored widths intact
+        merged = dict(current)
+        merged.update(filled)
+        self._column_widths = merge_widths(merged, RESULT_COLUMNS)
+        for key, w in filled.items():
+            try:
+                self.tree.column(
+                    key, width=int(w), stretch=False, minwidth=MIN_COLUMN_WIDTH
+                )
+            except tk.TclError:
+                pass
+
+    def _schedule_fill_tree_columns(self) -> None:
+        if getattr(self, "_col_fill_after_id", None):
+            try:
+                self.after_cancel(self._col_fill_after_id)
+            except tk.TclError:
+                pass
+        try:
+            self._col_fill_after_id = self.after(40, self._fill_tree_columns)
+        except tk.TclError:
+            self._col_fill_after_id = None
+
+    def _on_tree_configure_fill(self, event=None) -> None:
+        if event is not None and getattr(event, "widget", None) is not self.tree:
+            return
+        # Ignore tiny configure storms while dragging a separator ourselves
+        if getattr(self, "_col_resize", None):
+            return
+        self._schedule_fill_tree_columns()
+
+    def _displaycolumns_list(self) -> list[str]:
+        try:
+            raw = self.tree.cget("displaycolumns")
+        except tk.TclError:
+            return self._visible_result_columns()
+        if raw in ("#all", ("#all",), ["#all"]):
+            return self._visible_result_columns()
+        if isinstance(raw, str):
+            parts = [p for p in raw.split() if p and p != "#all"]
+            return parts or self._visible_result_columns()
+        return [str(p) for p in raw if str(p) != "#all"] or self._visible_result_columns()
+
+    def _on_tree_col_press(self, event) -> Optional[str]:
+        try:
+            region = self.tree.identify_region(event.x, event.y)
+        except tk.TclError:
+            return None
+        if region != "separator":
+            self._col_resize = None
+            return None
+        try:
+            col_spec = self.tree.identify_column(event.x)
+        except tk.TclError:
+            return None
+        if not col_spec or not str(col_spec).startswith("#"):
+            return None
+        try:
+            idx = int(str(col_spec)[1:])
+        except ValueError:
+            return None
+        visible = self._displaycolumns_list()
+        left = display_index_to_id(visible, idx)
+        right = display_index_to_id(visible, idx + 1)
+        if left is None or right is None:
+            # Last separator with no right neighbor — let fill absorb on release
+            if left is None:
+                return None
+            self._col_resize = {
+                "left": left,
+                "right": None,
+                "start_x": event.x,
+                "start_widths": dict(self._column_widths),
+            }
+            return "break"
+        self._col_resize = {
+            "left": left,
+            "right": right,
+            "start_x": event.x,
+            "start_widths": dict(self._column_widths),
+        }
+        return "break"
+
+    def _on_tree_col_drag(self, event) -> Optional[str]:
+        state = getattr(self, "_col_resize", None)
+        if not state:
+            return None
+        left = state.get("left")
+        right = state.get("right")
+        if not left:
+            return "break"
+        dx = int(event.x) - int(state["start_x"])
+        start = state.get("start_widths") or {}
+        if right:
+            updated = resize_adjacent(start, left, right, dx)
+        else:
+            # No right neighbor: grow/shrink left only; fill will rebalance on release
+            updated = dict(start)
+            updated[left] = max(
+                MIN_COLUMN_WIDTH,
+                int(start.get(left, DEFAULT_COLUMN_WIDTHS.get(left, 100))) + dx,
+            )
+        self._column_widths = merge_widths(updated, RESULT_COLUMNS)
+        for key in (left, right) if right else (left,):
+            if not key:
+                continue
+            try:
+                self.tree.column(
+                    key,
+                    width=int(self._column_widths[key]),
+                    stretch=False,
+                    minwidth=MIN_COLUMN_WIDTH,
+                )
+            except tk.TclError:
+                pass
+        return "break"
+
+    def _on_tree_col_release(self, event=None) -> Optional[str]:
+        state = getattr(self, "_col_resize", None)
+        if not state:
+            return None
+        self._col_resize = None
+        # Ensure we still fill the frame after a separator drag
+        self._fill_tree_columns()
+        self._schedule_filter_ini_save()
+        return "break"
 
     def _set_column_visible(self, col: str, visible: bool) -> None:
         if col not in RESULT_COLUMNS:

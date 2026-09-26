@@ -235,6 +235,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
         pelny_view="indeks",
         preview_find="G0",
         hidden_columns=["path", "location"],
+        column_widths={"path": 320, "flag": 96, "program": 110},
         preview_geometry="800x600+40+40",
     )
     save_instance_ini(path, config=cfg)
@@ -244,6 +245,8 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert "role = wip" in text
     assert "sort_col = date" in text
     assert "hidden_columns = location,path" in text or "hidden_columns = path,location" in text
+    assert "path=320" in text
+    assert "flag=96" in text
     assert "preview_geometry = 800x600+40+40" in text
     loaded = load_instance_ini(path)
     assert loaded.filter_text == "O1234"
@@ -260,6 +263,8 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert loaded.hidden_columns == ["path", "location"] or set(
         loaded.hidden_columns
     ) == {"path", "location"}
+    assert loaded.column_widths.get("path") == 320
+    assert loaded.column_widths.get("flag") == 96
     assert loaded.preview_geometry == "800x600+40+40"
 
 

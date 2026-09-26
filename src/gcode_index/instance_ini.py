@@ -21,6 +21,11 @@ from gcode_index.path_remap import (
     normalize_remaps,
     parse_remap_rules_block,
 )
+from gcode_index.column_layout import (
+    DEFAULT_COLUMN_WIDTHS,
+    format_column_widths,
+    parse_column_widths,
+)
 from gcode_index.autostart_win import VIA_STARTUP, normalize_autostart_via
 from gcode_index.folder_watch import DEFAULT_WATCH_MODE, normalize_watch_mode
 from gcode_index.operator_lock import (
@@ -93,6 +98,8 @@ class InstanceConfig:
     preview_find: str = ""
     # Comma-separated results-table column ids to hide (empty = show all)
     hidden_columns: list[str] = field(default_factory=list)
+    # Results column widths: column_id → pixels
+    column_widths: dict[str, int] = field(default_factory=dict)
     # Preview popup WxH[+X+Y]; empty = default
     preview_geometry: str = ""
 
@@ -418,6 +425,8 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             ]
         else:
             cfg.hidden_columns = []
+        widths_raw = parser.get("session", "column_widths", fallback="").strip()
+        cfg.column_widths = parse_column_widths(widths_raw) if widths_raw else {}
         session_prev = parser.get("session", "preview_geometry", fallback="").strip()
         if session_prev:
             cfg.preview_geometry = session_prev
@@ -558,6 +567,9 @@ def save_instance_ini(
         preview_find=str(kwargs.get("preview_find", base.preview_find) or ""),
         hidden_columns=list(
             kwargs.get("hidden_columns", base.hidden_columns) or []
+        ),
+        column_widths=dict(
+            kwargs.get("column_widths", base.column_widths) or {}
         ),
         preview_geometry=str(
             kwargs.get("preview_geometry", base.preview_geometry) or ""
@@ -727,6 +739,8 @@ pelny_view = {data.pelny_view}
 preview_find = {data.preview_find}
 ; Results columns to hide (comma-separated ids: flag,src,program,part,…)
 hidden_columns = {",".join(data.hidden_columns)}
+; Results column widths (id=pixels, comma-separated). Blank = defaults.
+column_widths = {format_column_widths(data.column_widths, list(DEFAULT_COLUMN_WIDTHS))}
 ; Preview popup geometry (also written under [window]; kept here for older readers)
 preview_geometry = {data.preview_geometry}
 

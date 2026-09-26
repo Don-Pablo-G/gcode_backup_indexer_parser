@@ -157,6 +157,13 @@ folders_expanded =
 pelny_view = praca
 ; Preview “find in program” last string
 preview_find =
+; Results columns to hide (comma-separated ids: flag,src,program,part,…)
+hidden_columns =
+; Results column widths (id=pixels). Blank = defaults; GUI updates on resize.
+; Separator drag resizes adjacent columns (no empty gutter); widths fill the frame.
+column_widths =
+; Preview popup geometry (also under [window])
+preview_geometry =
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (paths implied by [folders] target=).
