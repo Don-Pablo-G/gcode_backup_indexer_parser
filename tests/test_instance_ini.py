@@ -228,6 +228,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
         filter_status="backup",
         filter_role="wip",
         filter_programmer="LP1",
+        filter_odbiorca="acme_sp",
         sort_col="date",
         sort_reverse=True,
         more_filters=True,
@@ -254,6 +255,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert loaded.filter_size_min == "10k"
     assert loaded.filter_status == "backup"
     assert loaded.filter_role == "wip"
+    assert loaded.filter_odbiorca == "acme_sp"
     assert loaded.sort_col == "date"
     assert loaded.sort_reverse is True
     assert loaded.more_filters is True

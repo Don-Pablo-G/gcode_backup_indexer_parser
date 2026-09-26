@@ -45,6 +45,8 @@ def test_extract_missing_message_mentions_scan(tmp_path: Path):
 def test_missing_badge_i18n():
     assert t("pl", "badge_missing") == "BRAK"
     assert t("en", "badge_missing") == "MISSING"
+    assert t("pl", "badge_ok") == "✓"
+    assert t("en", "badge_ok") == "✓"
     assert "Źródło" in t("pl", "col_src")
     assert "Source" in t("en", "col_src")
     assert "nie istnieje" in t("pl", "extract_source_missing", path="X").casefold()

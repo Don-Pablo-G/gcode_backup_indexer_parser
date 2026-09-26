@@ -618,6 +618,18 @@ class IndexerApp(tk.Tk):
             self.programmer_var.set(
                 cfg.filter_programmer or self._all_token()
             )
+            # Odbiorca — restore id / __missing__ as display label
+            odb = (cfg.filter_odbiorca or "").strip()
+            if hasattr(self, "odbiorca_var"):
+                if not odb:
+                    self.odbiorca_var.set(self._all_token())
+                elif odb == "__missing__":
+                    self.odbiorca_var.set(self._("odbiorca_missing"))
+                else:
+                    cat = self._odbiorca_catalog()
+                    self.odbiorca_var.set(
+                        cat.label_for(odb, self._lang) or odb
+                    )
             wanted = {
                 m.strip() for m in (cfg.filter_machines or []) if str(m).strip()
             }
@@ -736,6 +748,7 @@ class IndexerApp(tk.Tk):
             filter_status=self._status_filter_value() or "",
             filter_role=self._role_filter_value() or "",
             filter_programmer=self._combo_filter_for_ini(self.programmer_var.get()),
+            filter_odbiorca=self._odbiorca_filter_for_ini(),
             sort_col=self._sort_col or "",
             sort_reverse=bool(self._sort_reverse),
             more_filters=bool(self._more_filters_open),
@@ -764,6 +777,13 @@ class IndexerApp(tk.Tk):
         if not s or self._is_all_token(s):
             return ""
         return s
+
+    def _odbiorca_filter_for_ini(self) -> str:
+        """Stable odbiorca filter token for ini (id / __missing__ / blank)."""
+        if not hasattr(self, "odbiorca_var"):
+            return ""
+        val = self._odbiorca_filter_value()
+        return val or ""
 
     def _sync_remap_vars_from_list(self) -> None:
         if self._path_remaps:
@@ -1399,6 +1419,9 @@ class IndexerApp(tk.Tk):
             "provenance": self.provenance_var.get(),
             "role": self.role_var.get(),
             "programmer": self.programmer_var.get(),
+            "odbiorca": self._odbiorca_filter_for_ini()
+            if hasattr(self, "odbiorca_var")
+            else "",
             "newest": bool(self.newest_only_var.get()),
             "include_unknown": bool(self.include_unknown_var.get()),
             "incremental": bool(self.incremental_var.get()),
@@ -1627,6 +1650,20 @@ class IndexerApp(tk.Tk):
                 if prog in ALL_TOKENS:
                     prog = self._all_token()
                 self.programmer_var.set(prog)
+                if hasattr(self, "odbiorca_var"):
+                    odb_raw = str(preserved.get("odbiorca") or "")
+                    if not odb_raw or self._is_all_token(odb_raw):
+                        self.odbiorca_var.set(self._all_token())
+                    elif odb_raw == "__missing__" or odb_raw == self._(
+                        "odbiorca_missing"
+                    ):
+                        self.odbiorca_var.set(self._("odbiorca_missing"))
+                    else:
+                        # May be id or already a label from snapshot
+                        cat = self._odbiorca_catalog()
+                        oid = normalize_odbiorca_id(odb_raw) or odb_raw
+                        lab = cat.label_for(oid, self._lang) if oid else ""
+                        self.odbiorca_var.set(lab or odb_raw)
                 prov = str(preserved.get("provenance") or "")
                 if prov in (PROVENANCE_BACKUP, "green", "on_machine") or prov == self._(
                     "status_on_machine"
@@ -5533,6 +5570,7 @@ class IndexerApp(tk.Tk):
     def _redraw_tree(self) -> None:
         self.tree.delete(*self.tree.get_children())
         badge_missing = self._("badge_missing")
+        badge_ok = self._("badge_ok")
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
         remaps = self._active_path_remaps()
         missing_n = 0
@@ -5562,7 +5600,7 @@ class IndexerApp(tk.Tk):
             )
             if missing:
                 missing_n += 1
-            src_badge = badge_missing if missing else ""
+            src_badge = badge_missing if missing else badge_ok
             tags = ("source_missing",) if missing else (tag,)
             self.tree.insert(
                 "",

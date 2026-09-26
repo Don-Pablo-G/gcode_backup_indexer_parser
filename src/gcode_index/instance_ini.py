@@ -91,6 +91,7 @@ class InstanceConfig:
     filter_status: str = ""  # backup|extra|"" 
     filter_role: str = ""  # role id or ""
     filter_programmer: str = ""
+    filter_odbiorca: str = ""  # odbiorca id | __missing__ | ""
     # --- [session] chrome / layout ---
     sort_col: str = ""
     sort_reverse: bool = False
@@ -405,6 +406,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.filter_programmer = _filter_all_to_empty(
             parser.get("filters", "programmer", fallback="")
         )
+        cfg.filter_odbiorca = _filter_all_to_empty(
+            parser.get("filters", "odbiorca", fallback="")
+        )
 
     if parser.has_section("session"):
         cfg.sort_col = parser.get("session", "sort_col", fallback="").strip()
@@ -570,6 +574,9 @@ def save_instance_ini(
         ),
         filter_programmer=_filter_all_to_empty(
             str(kwargs.get("filter_programmer", base.filter_programmer) or "")
+        ),
+        filter_odbiorca=_filter_all_to_empty(
+            str(kwargs.get("filter_odbiorca", base.filter_odbiorca) or "")
         ),
         sort_col=str(kwargs.get("sort_col", base.sort_col) or ""),
         sort_reverse=bool(kwargs.get("sort_reverse", base.sort_reverse)),
@@ -740,6 +747,8 @@ status = {data.filter_status}
 role = {data.filter_role}
 ; Programmer flag (LP1 / MS1) or blank = all
 programmer = {data.filter_programmer}
+; Odbiorca id, __missing__ = no recipient, or blank = all
+odbiorca = {data.filter_odbiorca}
 
 [session]
 ; Results sort column id (flag/program/part/machine/date/size/…) or blank

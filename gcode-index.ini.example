@@ -150,6 +150,8 @@ status =
 role =
 ; Programmer flag (LP1 / MS1) or blank
 programmer =
+; Odbiorca id, __missing__ = no recipient, or blank = all
+odbiorca =
 
 [session]
 ; Results table sort column id (flag / program / part / machine / date / size / …)

@@ -317,6 +317,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_path": "Ścieżka źródła",
         "col_location": "Lokalizacja w pliku",
         "badge_missing": "BRAK",
+        "badge_ok": "✓",
         "extract_failed": "Wydobycie nieudane",
         "extract_source_missing": (
             "Plik źródłowy nie istnieje na dysku (usunięty lub przeniesiony od ostatniego skanu):\n"
@@ -928,6 +929,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_path": "Source path",
         "col_location": "In-file location",
         "badge_missing": "MISSING",
+        "badge_ok": "✓",
         "extract_failed": "Extract failed",
         "extract_source_missing": (
             "Source file is missing on disk (removed or moved since the last scan):\n"
