@@ -7089,6 +7089,94 @@ class FolderNameBrowserDialog(tk.Toplevel):
         )
 
 
+def _build_swatch_picker_ui(
+    parent: tk.Widget,
+    *,
+    tr_master: tk.Misc,
+    swatch_var: tk.StringVar,
+    after_set: Optional[Any] = None,
+) -> tk.Label:
+    """Clickable swatch + preset palette + optional hex (same UX as Role folderów).
+
+    Fills ``parent`` (use a Frame). Updates ``swatch_var`` on pick; calls
+    ``after_set()`` after a user colour change when provided. Returns preview Label.
+    """
+    parent.columnconfigure(1, weight=1)
+
+    preview = tk.Label(
+        parent,
+        text="    ",
+        background=normalize_hex_colour(swatch_var.get()),
+        width=6,
+        relief=tk.RAISED,
+        bd=2,
+        cursor="hand2",
+    )
+    preview.grid(row=0, column=0, padx=(0, 8), pady=2)
+
+    def _apply(hex_colour: str) -> None:
+        swatch_var.set(normalize_hex_colour(hex_colour))
+        if after_set is not None:
+            after_set()
+
+    def _pick() -> None:
+        initial = normalize_hex_colour(swatch_var.get())
+        try:
+            _rgb, chosen = colorchooser.askcolor(
+                color=initial,
+                title=_tr(tr_master, "folder_colour_pick_title"),
+                parent=parent.winfo_toplevel(),
+            )
+        except tk.TclError:
+            return
+        if chosen:
+            _apply(str(chosen))
+
+    preview.bind("<Button-1>", lambda _e: _pick())
+    ttk.Button(
+        parent,
+        text=_tr(tr_master, "folder_colour_pick"),
+        command=_pick,
+    ).grid(row=0, column=1, sticky=tk.W)
+
+    ttk.Label(parent, text=_tr(tr_master, "folder_colour_presets")).grid(
+        row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 2)
+    )
+    palette = ttk.Frame(parent)
+    palette.grid(row=2, column=0, columnspan=2, sticky=tk.W)
+    for hex_col in COLOUR_PRESET_SWATCHES:
+        chip = tk.Label(
+            palette,
+            text="  ",
+            background=hex_col,
+            width=3,
+            relief=tk.RAISED,
+            bd=1,
+            cursor="hand2",
+        )
+        chip.pack(side=tk.LEFT, padx=2, pady=2)
+        chip.bind(
+            "<Button-1>",
+            lambda _e, h=hex_col: _apply(h),
+        )
+
+    hex_row = ttk.Frame(parent)
+    hex_row.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+    ttk.Label(hex_row, text=_tr(tr_master, "folder_colour_hex")).pack(side=tk.LEFT)
+    ttk.Entry(hex_row, textvariable=swatch_var, width=12).pack(side=tk.LEFT, padx=6)
+
+    def _update_preview(*_a: object) -> None:
+        sw = normalize_hex_colour(swatch_var.get())
+        try:
+            preview.configure(background=sw)
+        except tk.TclError:
+            preview.configure(background="#888888")
+
+    swatch_var.trace_add("write", _update_preview)
+    _update_preview()
+    return preview
+
+
 class _NameHubRoleForm(tk.Toplevel):
     """Create a new folder role (function) with alias prefilled from a name."""
 
@@ -7128,11 +7216,13 @@ class _NameHubRoleForm(tk.Toplevel):
             row=2, column=1, sticky=tk.EW, padx=6, pady=3
         )
         ttk.Label(body, text=_tr(master, "folder_colour_swatch")).grid(
-            row=3, column=0, sticky=tk.W
+            row=3, column=0, sticky=tk.NW, pady=(6, 0)
         )
         self.swatch_var = tk.StringVar(value="#888888")
-        ttk.Entry(body, textvariable=self.swatch_var, width=12).grid(
-            row=3, column=1, sticky=tk.W, padx=6, pady=3
+        colour_box = ttk.Frame(body)
+        colour_box.grid(row=3, column=1, sticky=tk.EW, padx=6, pady=3)
+        _build_swatch_picker_ui(
+            colour_box, tr_master=master, swatch_var=self.swatch_var
         )
         ttk.Label(
             body,
@@ -7254,6 +7344,9 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._save_path = Path(save_path)
         self._catalog = load_colour_catalog(self._save_path)
         self._lang = getattr(master, "_lang", None) or "pl"
+        # Guard: programmatic selection_set must not re-enter <<ListboxSelect>>
+        self._selecting_colour = False
+        self._selected_colour_id: Optional[str] = None
 
         ttk.Label(
             self,
@@ -7347,51 +7440,11 @@ class FolderColourAliasDialog(tk.Toplevel):
         )
         colour_box = ttk.Frame(right)
         colour_box.grid(row=colour_row, column=1, sticky=tk.EW, padx=4, pady=(4, 2))
-        colour_box.columnconfigure(1, weight=1)
-
-        self._swatch_preview = tk.Label(
+        self._swatch_preview = _build_swatch_picker_ui(
             colour_box,
-            text="    ",
-            background="#888888",
-            width=6,
-            relief=tk.RAISED,
-            bd=2,
-            cursor="hand2",
-        )
-        self._swatch_preview.grid(row=0, column=0, padx=(0, 8), pady=2)
-        self._swatch_preview.bind("<Button-1>", lambda _e: self._pick_swatch_colour())
-        ttk.Button(
-            colour_box,
-            text=_tr(self.master, "folder_colour_pick"),
-            command=self._pick_swatch_colour,
-        ).grid(row=0, column=1, sticky=tk.W)
-
-        ttk.Label(colour_box, text=_tr(self.master, "folder_colour_presets")).grid(
-            row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 2)
-        )
-        palette = ttk.Frame(colour_box)
-        palette.grid(row=2, column=0, columnspan=2, sticky=tk.W)
-        for hex_col in COLOUR_PRESET_SWATCHES:
-            chip = tk.Label(
-                palette,
-                text="  ",
-                background=hex_col,
-                width=3,
-                relief=tk.RAISED,
-                bd=1,
-                cursor="hand2",
-            )
-            chip.pack(side=tk.LEFT, padx=2, pady=2)
-            chip.bind(
-                "<Button-1>",
-                lambda _e, h=hex_col: self._set_swatch_colour(h),
-            )
-
-        hex_row = ttk.Frame(colour_box)
-        hex_row.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
-        ttk.Label(hex_row, text=_tr(self.master, "folder_colour_hex")).pack(side=tk.LEFT)
-        ttk.Entry(hex_row, textvariable=self._swatch_var, width=12).pack(
-            side=tk.LEFT, padx=6
+            tr_master=self.master,
+            swatch_var=self._swatch_var,
+            after_set=lambda: self._persist_swatch_if_editing(),
         )
 
         ttk.Label(right, text=_tr(self.master, "folder_colour_badge")).grid(
@@ -7414,58 +7467,47 @@ class FolderColourAliasDialog(tk.Toplevel):
         ttk.Button(
             right, text=_tr(self.master, "folder_colour_update"), command=self._apply_colour_fields
         ).grid(row=7, column=1, sticky=tk.E, pady=(8, 0))
-        self._swatch_var.trace_add("write", self._update_swatch_preview)
 
     def _set_swatch_colour(self, hex_colour: str) -> None:
         self._swatch_var.set(normalize_hex_colour(hex_colour))
+        self._persist_swatch_if_editing()
+
+    def _persist_swatch_if_editing(self) -> None:
         # Persist into the in-memory catalogue immediately so a later Save
         # (or row switch) cannot drop a colour pick that never hit Apply.
         if self._cid_var.get().strip():
             self._apply_colour_fields(silent=True)
 
-    def _pick_swatch_colour(self) -> None:
-        initial = normalize_hex_colour(self._swatch_var.get())
-        try:
-            _rgb, chosen = colorchooser.askcolor(
-                color=initial,
-                title=_tr(self.master, "folder_colour_pick_title"),
-                parent=self,
-            )
-        except tk.TclError:
-            return
-        if chosen:
-            self._set_swatch_colour(str(chosen))
-
-    def _update_swatch_preview(self, *_a) -> None:
-        sw = normalize_hex_colour(self._swatch_var.get())
-        try:
-            self._swatch_preview.configure(background=sw)
-        except tk.TclError:
-            self._swatch_preview.configure(background="#888888")
-
     def _colour_row_label(self, c: ColourDef) -> str:
         # Disc takes Listbox item foreground (swatch); avoid emoji glyphs.
         return f"{DOT}  {c.label(self._lang)}  ({c.id})"
 
-    def _refresh_colour_list(self) -> None:
+    def _refresh_colour_list(self, *, select_id: Optional[str] = None) -> None:
+        keep = select_id if select_id is not None else self._selected_colour_id
         self._colour_list.delete(0, tk.END)
-        for c in self._catalog.colours:
+        select_idx: Optional[int] = None
+        for i, c in enumerate(self._catalog.colours):
             self._colour_list.insert(tk.END, self._colour_row_label(c))
-            idx = self._colour_list.size() - 1
             try:
-                self._colour_list.itemconfig(idx, foreground=c.swatch)
+                self._colour_list.itemconfig(i, foreground=c.swatch)
             except tk.TclError:
                 pass
+            if keep and c.id == keep:
+                select_idx = i
+        self._selecting_colour = True
+        try:
+            self._colour_list.selection_clear(0, tk.END)
+            if select_idx is not None:
+                self._colour_list.selection_set(select_idx)
+                self._colour_list.activate(select_idx)
+                self._colour_list.see(select_idx)
+                self._selected_colour_id = self._catalog.colours[select_idx].id
+            elif not self._catalog.colours:
+                self._selected_colour_id = None
+        finally:
+            self._selecting_colour = False
 
-    def _on_colour_select(self, _evt=None) -> None:
-        # Flush in-progress edits before switching rows (colour pick alone used
-        # to vanish when navigating away without clicking Apply).
-        if self._cid_var.get().strip():
-            self._apply_colour_fields(silent=True)
-        sel = self._colour_list.curselection()
-        if not sel:
-            return
-        c = self._catalog.colours[int(sel[0])]
+    def _fill_colour_detail(self, c: ColourDef) -> None:
         self._cid_var.set(c.id)
         self._label_pl_var.set(c.label_pl)
         self._label_en_var.set(c.label_en)
@@ -7476,47 +7518,100 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._meaning_en.delete("1.0", tk.END)
         self._meaning_en.insert("1.0", c.meaning_en)
 
-    def _apply_colour_fields(self, silent: bool = False) -> None:
-        cid = self._cid_var.get().strip()
-        if not cid:
-            if not silent:
-                return
-            return
-        # Prefer id match over list selection (selection can change mid-flush)
+    def _flush_colour_fields(self, cid: str) -> bool:
+        """Write detail pane into the catalogue for ``cid``.
+
+        Returns True when the Listbox display string (label/swatch) may have
+        changed. Does **not** touch Listbox selection — callers that switch
+        rows must keep the clicked index (same class of bug as Maszyny).
+        """
         idx = None
         for i, c in enumerate(self._catalog.colours):
             if c.id == cid:
                 idx = i
                 break
         if idx is None:
-            sel = self._colour_list.curselection()
-            if not sel:
-                return
-            idx = int(sel[0])
+            return False
         old = self._catalog.colours[idx]
+        new_pl = self._label_pl_var.get()
+        new_en = self._label_en_var.get()
+        new_sw = normalize_hex_colour(self._swatch_var.get())
+        new_badge = self._badge_var.get()
+        new_mpl = self._meaning_pl.get("1.0", tk.END).strip()
+        new_men = self._meaning_en.get("1.0", tk.END).strip()
+        display_changed = (
+            old.label_pl != new_pl
+            or old.label_en != new_en
+            or old.swatch != new_sw
+        )
+        if (
+            not display_changed
+            and old.badge == new_badge
+            and old.meaning_pl == new_mpl
+            and old.meaning_en == new_men
+        ):
+            return False
         updated = ColourDef(
             id=old.id,
-            label_pl=self._label_pl_var.get(),
-            label_en=self._label_en_var.get(),
-            swatch=normalize_hex_colour(self._swatch_var.get()),
-            meaning_pl=self._meaning_pl.get("1.0", tk.END).strip(),
-            meaning_en=self._meaning_en.get("1.0", tk.END).strip(),
-            badge=self._badge_var.get(),
+            label_pl=new_pl,
+            label_en=new_en,
+            swatch=new_sw,
+            meaning_pl=new_mpl,
+            meaning_en=new_men,
+            badge=new_badge,
             builtin=old.builtin,
         )
         colours = list(self._catalog.colours)
         colours[idx] = updated
         self._catalog = ColourCatalog(colours=colours, rules=list(self._catalog.rules))
-        # Re-read after merge to ensure UI matches persisted model
-        merged = self._catalog.get(old.id) or updated
-        self._swatch_var.set(merged.swatch)
-        self._refresh_colour_list()
-        # Reselect by id (order may be stable but be safe)
-        for i, c in enumerate(self._catalog.colours):
-            if c.id == old.id:
-                self._colour_list.selection_set(i)
-                break
-        self._sync_alias_colour_choices()
+        return display_changed
+
+    def _on_colour_select(self, _evt=None) -> None:
+        if self._selecting_colour:
+            return
+        sel = self._colour_list.curselection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        colours = self._catalog.colours
+        if idx < 0 or idx >= len(colours):
+            return
+        new_c = colours[idx]
+        if new_c.id == self._selected_colour_id:
+            return
+        prev_id = self._selected_colour_id or self._cid_var.get().strip()
+        display_changed = False
+        # Detail pane still shows *prev* — flush it before switching.
+        # Critical: do NOT call _apply_colour_fields here; that reloaded the
+        # list and re-selected ``prev``, pinning the highlight on the old row.
+        if prev_id:
+            display_changed = self._flush_colour_fields(prev_id)
+        if display_changed:
+            self._selected_colour_id = new_c.id
+            self._refresh_colour_list(select_id=new_c.id)
+            filled = self._catalog.get(new_c.id) or new_c
+            self._fill_colour_detail(filled)
+            self._sync_alias_colour_choices()
+            return
+        self._selected_colour_id = new_c.id
+        self._fill_colour_detail(new_c)
+
+    def _apply_colour_fields(self, silent: bool = False) -> None:
+        cid = self._cid_var.get().strip() or (self._selected_colour_id or "")
+        if not cid:
+            if not silent:
+                return
+            return
+        display_changed = self._flush_colour_fields(cid)
+        merged = self._catalog.get(cid)
+        if merged is not None:
+            self._swatch_var.set(merged.swatch)
+            self._selected_colour_id = cid
+        # Explicit Apply always refreshes the left list; silent flush only when
+        # the display string may have changed (label/swatch).
+        if display_changed or not silent:
+            self._refresh_colour_list(select_id=cid)
+            self._sync_alias_colour_choices()
 
     def _add_colour(self) -> None:
         base = "custom"
@@ -7535,12 +7630,14 @@ class FolderColourAliasDialog(tk.Toplevel):
             badge="●",
             builtin=False,
         )
+        prev = self._selected_colour_id or self._cid_var.get().strip()
+        if prev:
+            self._flush_colour_fields(prev)
         colours = list(self._catalog.colours) + [new]
         self._catalog = ColourCatalog(colours=colours, rules=list(self._catalog.rules))
-        self._refresh_colour_list()
-        self._colour_list.selection_clear(0, tk.END)
-        self._colour_list.selection_set(tk.END)
-        self._on_colour_select()
+        self._selected_colour_id = cid
+        self._refresh_colour_list(select_id=cid)
+        self._fill_colour_detail(new)
         self._sync_alias_colour_choices()
 
     def _remove_colour(self) -> None:
@@ -7555,7 +7652,6 @@ class FolderColourAliasDialog(tk.Toplevel):
             )
             return
         colours = [x for x in self._catalog.colours if x.id != c.id]
-        # Remap aliases pointing at removed role → fixture seed
         rules = []
         for r in self._catalog.rules:
             if r.colour == c.id:
@@ -7563,7 +7659,20 @@ class FolderColourAliasDialog(tk.Toplevel):
             else:
                 rules.append(r)
         self._catalog = ColourCatalog(colours=colours, rules=rules)
-        self._refresh_colour_list()
+        self._selected_colour_id = colours[0].id if colours else None
+        self._refresh_colour_list(select_id=self._selected_colour_id)
+        if self._selected_colour_id:
+            filled = self._catalog.get(self._selected_colour_id)
+            if filled is not None:
+                self._fill_colour_detail(filled)
+        else:
+            self._cid_var.set("")
+            self._label_pl_var.set("")
+            self._label_en_var.set("")
+            self._swatch_var.set("#888888")
+            self._badge_var.set("●")
+            self._meaning_pl.delete("1.0", tk.END)
+            self._meaning_en.delete("1.0", tk.END)
         self._refresh_alias_list()
         self._sync_alias_colour_choices()
 
