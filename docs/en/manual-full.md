@@ -127,6 +127,23 @@ Same find bar as the floor client, plus:
 
 ---
 
+## Scan history
+
+**Scan history…** (indexer only) lists the last index runs from `scan_history.json` next to the database: when, duration, programs, files **added / updated / removed / unchanged**. Survives DB rebuilds — useful when diagnosing network spikes during incremental scans.
+
+## Operator lock (floor deploy)
+
+Shop PCs should stay retrieve-only. Either:
+
+- set `[capabilities] settings_locked = yes` in `gcode-index.ini`, or
+- place an empty `operator.lock` (or `can_index.lock`) next to the ini / exe.
+
+When locked, `can_index` is forced to **no** even if the ini says yes. Remove the lock only on the indexer PC.
+
+## Auto-refresh search
+
+Tick **Auto-refresh results** / **Odświeżaj wyniki** to re-run the current search when `gcode_index.sqlite` changes (mtime poll, default ~20s). Optional for floor clients sharing a network DB. Saved as `search_auto_refresh` / `search_auto_refresh_s` in the ini.
+
 ## Instance settings
 
 `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, and window size.  

@@ -78,6 +78,14 @@ Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym pre
 
 ---
 
+## Odświeżanie wyników
+
+Opcjonalnie: **Odświeżaj wyniki** — tabela aktualizuje się, gdy indeksator zapisze nową bazę (udział sieciowy). Bez ponownego wpisywania szukania.
+
+## Blokada operatora
+
+Gdy jest `operator.lock` (lub `settings_locked=yes`), PC zostaje w trybie odczytu nawet po edycji `can_index=yes` w ini.
+
 ## Wskazówki
 
 - Ustawienia tego komputera są w `gcode-index.ini` obok pliku exe.

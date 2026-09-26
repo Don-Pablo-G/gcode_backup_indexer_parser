@@ -78,6 +78,14 @@ Applies to the main backup and green/yellow roots under that prefix. Search work
 
 ---
 
+## Auto-refresh search
+
+Optional: tick **Auto-refresh results** so the table updates when the indexer writes a new database (shared network path). No need to clear or retype the search. Preference is stored in `gcode-index.ini`.
+
+## Operator lock
+
+If this PC has `operator.lock` (or `settings_locked=yes`), it stays retrieve-only even if someone edits `can_index=yes` in the ini.
+
 ## Tips
 
 - Empty search + filters still lists rows (useful with Newest only).

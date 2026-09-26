@@ -132,6 +132,15 @@ from gcode_index.folder_watch import (
     FolderWatcher,
     normalize_watch_mode,
 )
+from gcode_index.scan_history import (
+    DEFAULT_HISTORY_LIMIT,
+    append_scan_history,
+    build_history_entry,
+    history_path_for_target,
+    load_scan_history,
+    prior_paths_from_cache,
+)
+from gcode_index.operator_lock import is_settings_locked
 from gcode_index.autostart_win import (
     VIA_STARTUP,
     VIA_TASK,
@@ -207,6 +216,7 @@ class IndexerApp(tk.Tk):
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
         self.watch_mode_var = tk.StringVar(value="")
+        self.search_auto_refresh_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
@@ -248,6 +258,10 @@ class IndexerApp(tk.Tk):
         self._root_frame: Optional[ttk.Frame] = None
         self._lang = DEFAULT_LANG
         self._can_index = False  # from [capabilities] can_index in gcode-index.ini
+        self._settings_locked = False
+        self._search_auto_refresh_s = 20
+        self._auto_refresh_after_id: Optional[str] = None
+        self._db_mtime_seen: Optional[float] = None
         self._hidden_root_specs: list[ScanRootSpec] = []
         self._schedule = SCHEDULE_OFF
         self._schedule_last_run: Optional[str] = None
@@ -268,12 +282,18 @@ class IndexerApp(tk.Tk):
         self._maybe_auto_collapse_folders()
         self._arm_schedule_timer()
         self._sync_folder_watch(initial=True)
+        self._arm_search_auto_refresh()
         if self._folders_ready():
             self.status_var.set(
                 self._(
                     "status_loaded_ini",
                     filename=self._instance_ini_path.name,
                 )
+            )
+        if self._settings_locked:
+            self.status_var.set(
+                (self.status_var.get() + " — " if self.status_var.get() else "")
+                + self._("settings_locked_status")
             )
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<Unmap>", self._on_minimize_event)
@@ -306,7 +326,11 @@ class IndexerApp(tk.Tk):
     def _apply_instance_ini(self, cfg: InstanceConfig) -> None:
         """Load last session paths/settings before the first widget build."""
         self._lang = normalize_lang(cfg.language)
-        self._can_index = bool(cfg.can_index)
+        self._settings_locked = bool(cfg.settings_locked) or is_settings_locked(
+            ini_path=self._instance_ini_path,
+            settings_locked_flag=bool(cfg.settings_locked),
+        )
+        self._can_index = bool(cfg.can_index) and not self._settings_locked
         self.lang_var.set(self._lang)
         self._schedule = normalize_schedule(cfg.schedule)
         self._schedule_last_run = cfg.schedule_last_run or None
@@ -318,6 +342,8 @@ class IndexerApp(tk.Tk):
         self.watch_var.set(bool(cfg.watch_folders))
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
+        self.search_auto_refresh_var.set(bool(cfg.search_auto_refresh))
+        self._search_auto_refresh_s = max(5, int(cfg.search_auto_refresh_s or 20))
         self.autostart_var.set(bool(cfg.autostart))
         self.autostart_via_var.set(
             self._autostart_via_label(normalize_autostart_via(cfg.autostart_via))
@@ -365,8 +391,11 @@ class IndexerApp(tk.Tk):
             green_roots=greens,
             yellow_roots=yellows,
             language=self._lang,
-            can_index=self._can_index,
-            ui_mode=ui_mode_from_can_index(self._can_index),
+            can_index=False if self._settings_locked else self._can_index,
+            settings_locked=self._settings_locked,
+            ui_mode=ui_mode_from_can_index(
+                False if self._settings_locked else self._can_index
+            ),
             schedule=self._schedule,
             schedule_last_run=self._schedule_last_run or "",
             incremental=bool(self.incremental_var.get()),
@@ -378,6 +407,8 @@ class IndexerApp(tk.Tk):
             close_to_tray=bool(self.close_to_tray_var.get()),
             minimize_to_tray=bool(self.minimize_to_tray_var.get()),
             newest_only=bool(self.newest_only_var.get()),
+            search_auto_refresh=bool(self.search_auto_refresh_var.get()),
+            search_auto_refresh_s=self._search_auto_refresh_s,
             geometry=geom,
             notes=self._ini_notes,
             path_remaps=self._collect_path_remaps(),
@@ -468,6 +499,12 @@ class IndexerApp(tk.Tk):
         self._quit_app()
 
     def _quit_app(self) -> None:
+        if self._auto_refresh_after_id is not None:
+            try:
+                self.after_cancel(self._auto_refresh_after_id)
+            except tk.TclError:
+                pass
+            self._auto_refresh_after_id = None
         self._stop_tray()
         self._stop_folder_watch(release=True)
         self._save_instance_ini()
@@ -685,6 +722,7 @@ class IndexerApp(tk.Tk):
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
+            "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
             "roots": list(self._scan_root_specs()),
@@ -773,6 +811,10 @@ class IndexerApp(tk.Tk):
             if preserved.get("watch_mode") is not None:
                 self._watch_mode = normalize_watch_mode(str(preserved.get("watch_mode")))
                 self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
+            if "search_auto_refresh" in preserved:
+                self.search_auto_refresh_var.set(
+                    bool(preserved.get("search_auto_refresh"))
+                )
             self.excel_var.set(bool(preserved.get("excel", True)))
             sort_col = preserved.get("sort_col")
             self._sort_col = str(sort_col) if sort_col else None
@@ -801,6 +843,7 @@ class IndexerApp(tk.Tk):
                 self._apply_more_filters_visibility()
         self._run_query_now()
         self._sync_folder_watch()
+        self._arm_search_auto_refresh()
 
     def _short_path(self, path: str, *, maxlen: int = 42) -> str:
         raw = (path or "").strip()
@@ -1300,6 +1343,9 @@ class IndexerApp(tk.Tk):
             row2, text=self._("scan_report"), command=self._open_scan_report
         ).pack(side=tk.LEFT)
         ttk.Button(
+            row2, text=self._("scan_history"), command=self._open_scan_history
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
             row2, text=self._("duplicates"), command=self._open_duplicates
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
@@ -1441,6 +1487,12 @@ class IndexerApp(tk.Tk):
         ttk.Button(
             row2, text=self._("clear_filters"), command=self._clear_filters
         ).pack(side=tk.LEFT, padx=4)
+        ttk.Checkbutton(
+            row2,
+            text=self._("search_auto_refresh"),
+            variable=self.search_auto_refresh_var,
+            command=self._on_search_auto_refresh_toggled,
+        ).pack(side=tk.LEFT, padx=(12, 0))
         if not simple:
             ttk.Button(
                 row2, text=self._("compare"), command=self._compare_selected
@@ -2674,6 +2726,9 @@ class IndexerApp(tk.Tk):
         auto: bool = False,
     ) -> None:
         try:
+            from datetime import datetime, timezone
+
+            scan_started = datetime.now(timezone.utc)
             aliases_path = default_aliases_path()
             local_path = local_aliases_path_for_target(target)
             alias_map = AliasMap.load_merged(aliases_path, local_path)
@@ -2682,16 +2737,19 @@ class IndexerApp(tk.Tk):
             db_path = target / DEFAULT_DB_NAME
             cache = None
             n_cached = 0
+            prior_paths: set[str] = set()
             if incremental and db_path.is_file():
                 try:
                     prior = open_db(db_path)
                     try:
                         cache = load_scan_cache(prior)
+                        prior_paths = prior_paths_from_cache(cache)
                     finally:
                         prior.close()
                 except Exception:  # noqa: BLE001
                     log.exception("load scan cache failed; falling back to full scan")
                     cache = None
+                    prior_paths = set()
             if root_specs:
                 result = scan_with_extra_roots(
                     backup,
@@ -2726,6 +2784,21 @@ class IndexerApp(tk.Tk):
             n_green = sum(1 for i in result.instances if i.provenance == PROVENANCE_BACKUP)
             n_yellow = sum(1 for i in result.instances if i.provenance == PROVENANCE_EXTRA)
             conn.close()
+            scan_finished = datetime.now(timezone.utc)
+            try:
+                entry = build_history_entry(
+                    run_id=run_id,
+                    backup_root=str(backup.resolve()),
+                    result=result,
+                    started_at=scan_started,
+                    finished_at=scan_finished,
+                    prior_paths=prior_paths,
+                    incremental=cache is not None,
+                    auto=auto,
+                )
+                append_scan_history(target, entry)
+            except Exception:  # noqa: BLE001
+                log.exception("append scan history failed")
             excel_note = ""
             if write_excel:
                 xlsx = target / "gcode_index.xlsx"
@@ -2811,11 +2884,48 @@ class IndexerApp(tk.Tk):
             self._last_scan_report = report
         self._refresh_filter_choices()
         self._clear_filters(status_prefix=message)
+        # Note DB mtime so auto-refresh doesn't immediately re-fire
+        self._note_db_mtime()
         if report is not None and not self._is_simple() and not auto:
             self._show_scan_report(report)
         if self._watch_rescan_pending and self._watch_enabled:
             self._watch_rescan_pending = False
             self.after(800, self._on_watch_change)
+
+    def _open_scan_history(self) -> None:
+        if self._is_simple():
+            messagebox.showinfo(
+                self._("scan_history"),
+                self._("scan_history_indexer_only"),
+            )
+            return
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showinfo(
+                self._("scan_history"),
+                self._("scan_history_empty"),
+            )
+            return
+        entries = load_scan_history(
+            history_path_for_target(target), limit=DEFAULT_HISTORY_LIMIT
+        )
+        ScanHistoryDialog(
+            self,
+            entries=entries,
+            title=self._("scan_history"),
+            empty_label=self._("scan_history_empty"),
+            close_label=self._("close"),
+            columns=(
+                self._("scan_history_when"),
+                self._("scan_history_duration"),
+                self._("scan_history_instances"),
+                self._("scan_history_added"),
+                self._("scan_history_updated"),
+                self._("scan_history_removed"),
+                self._("scan_history_cached"),
+                self._("scan_history_mode"),
+            ),
+        )
 
     def _open_scan_report(self) -> None:
         report = self._last_scan_report
@@ -3128,6 +3238,64 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 pass
         self._search_after_id = self.after(SEARCH_DEBOUNCE_MS, self._run_query_now)
+
+    def _on_search_auto_refresh_toggled(self) -> None:
+        self._save_instance_ini()
+        self._arm_search_auto_refresh()
+
+    def _note_db_mtime(self) -> None:
+        db_path = self._db_path()
+        if db_path is None or not db_path.is_file():
+            self._db_mtime_seen = None
+            return
+        try:
+            self._db_mtime_seen = db_path.stat().st_mtime
+        except OSError:
+            self._db_mtime_seen = None
+
+    def _arm_search_auto_refresh(self) -> None:
+        if self._auto_refresh_after_id is not None:
+            try:
+                self.after_cancel(self._auto_refresh_after_id)
+            except tk.TclError:
+                pass
+            self._auto_refresh_after_id = None
+        if not bool(self.search_auto_refresh_var.get()):
+            return
+        self._note_db_mtime()
+        ms = max(5, int(self._search_auto_refresh_s)) * 1000
+        self._auto_refresh_after_id = self.after(ms, self._search_auto_refresh_tick)
+
+    def _search_auto_refresh_tick(self) -> None:
+        self._auto_refresh_after_id = None
+        try:
+            if not bool(self.search_auto_refresh_var.get()):
+                return
+            if self._scan_busy:
+                return
+            db_path = self._db_path()
+            if db_path is None or not db_path.is_file():
+                return
+            try:
+                mtime = db_path.stat().st_mtime
+            except OSError:
+                return
+            prev = self._db_mtime_seen
+            if prev is None:
+                self._db_mtime_seen = mtime
+            elif mtime > prev + 0.01:
+                self._db_mtime_seen = mtime
+                # Soft refresh — keep filters, don't flash errors
+                self._run_query_now(status_prefix=self._("search_auto_refresh_done"))
+        finally:
+            if bool(self.search_auto_refresh_var.get()):
+                ms = max(5, int(self._search_auto_refresh_s)) * 1000
+                try:
+                    self._auto_refresh_after_id = self.after(
+                        ms, self._search_auto_refresh_tick
+                    )
+                except tk.TclError:
+                    self._auto_refresh_after_id = None
 
     def _run_query_now(self, status_prefix: Optional[str] = None) -> None:
         self._search_after_id = None
@@ -3777,6 +3945,92 @@ class CompareDiffDialog(tk.Toplevel):
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
         ttk.Button(btns, text="Close", command=self.destroy).pack(side=tk.RIGHT)
+
+
+class ScanHistoryDialog(tk.Toplevel):
+    """Last N index runs — when, duration, added/updated/removed/cached."""
+
+    def __init__(
+        self,
+        master: tk.Tk,
+        *,
+        entries: list,
+        title: str,
+        empty_label: str,
+        close_label: str,
+        columns: tuple[str, ...],
+    ) -> None:
+        super().__init__(master)
+        self.title(title)
+        self.minsize(720, 360)
+        self.geometry("900x420")
+        self.transient(master)
+        self.grab_set()
+
+        frame = ttk.Frame(self, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+        cols = ("when", "dur", "inst", "add", "upd", "rem", "cached", "mode")
+        tree = ttk.Treeview(frame, columns=cols, show="headings", height=14)
+        labels = {
+            "when": columns[0],
+            "dur": columns[1],
+            "inst": columns[2],
+            "add": columns[3],
+            "upd": columns[4],
+            "rem": columns[5],
+            "cached": columns[6],
+            "mode": columns[7],
+        }
+        widths = {
+            "when": 160,
+            "dur": 70,
+            "inst": 70,
+            "add": 70,
+            "upd": 70,
+            "rem": 70,
+            "cached": 70,
+            "mode": 110,
+        }
+        for key in cols:
+            tree.heading(key, text=labels[key])
+            tree.column(key, width=widths[key], stretch=key in ("when", "mode"))
+        sb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        if not entries:
+            tree.insert("", tk.END, values=(empty_label, "", "", "", "", "", "", ""))
+        else:
+            for entry in entries:
+                when = (entry.finished_at or entry.started_at or "")[:19].replace(
+                    "T", " "
+                )
+                mode = []
+                if entry.incremental:
+                    mode.append("incr")
+                else:
+                    mode.append("full")
+                if entry.auto:
+                    mode.append("auto")
+                tree.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        when,
+                        entry.duration_label(),
+                        entry.instance_count,
+                        entry.files_added,
+                        entry.files_updated,
+                        entry.files_removed,
+                        entry.files_cached,
+                        "+".join(mode),
+                    ),
+                )
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text=close_label, command=self.destroy).pack(side=tk.RIGHT)
 
 
 class ScanReportDialog(tk.Toplevel):

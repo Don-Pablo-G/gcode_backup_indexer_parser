@@ -104,6 +104,18 @@ Jak na kliencie hali, plus **Więcej filtrów**, **Porównaj…**, **Duplikaty�
 
 ---
 
+## Historia skanów
+
+**Historia skanów…** (tylko indeksator) — ostatnie przebiegi z `scan_history.json` obok bazy: kiedy, czas, programy, pliki **dodane / zmienione / usunięte / bez zmian**. Przydatne przy diagnostyce skoków sieci.
+
+## Blokada operatora
+
+Komputery na hali: `settings_locked = yes` w ini **albo** pusty plik `operator.lock` / `can_index.lock` obok ini. Wtedy `can_index` jest wymuszane na **no**.
+
+## Odświeżanie wyników
+
+Zaznacz **Odświeżaj wyniki**, aby ponowić bieżące wyszukiwanie, gdy zmieni się `gcode_index.sqlite` (mtime, domyślnie ~20 s). Zapis: `search_auto_refresh` w ini.
+
 ## Ustawienia instalacji
 
 `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, harmonogram, desktop i geometrię.  

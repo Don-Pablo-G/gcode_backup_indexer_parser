@@ -23,6 +23,10 @@ from gcode_index.path_remap import (
 )
 from gcode_index.autostart_win import VIA_STARTUP, normalize_autostart_via
 from gcode_index.folder_watch import DEFAULT_WATCH_MODE, normalize_watch_mode
+from gcode_index.operator_lock import (
+    is_settings_locked,
+    settings_locked_from_ini_value,
+)
 from gcode_index.schedule import SCHEDULE_OFF, normalize_schedule
 
 INSTANCE_INI_FILENAME = "gcode-index.ini"
@@ -41,6 +45,7 @@ class InstanceConfig:
     language: str = "pl"
     ui_mode: str = "simple"  # legacy mirror of can_index (simple|full)
     can_index: bool = False  # primary capability: indexer PC vs floor client
+    settings_locked: bool = False  # deploy lock: force retrieve-only / block dangerous flips
     schedule: str = SCHEDULE_OFF
     schedule_last_run: str = ""
     incremental: bool = True
@@ -48,6 +53,8 @@ class InstanceConfig:
     watch_mode: str = DEFAULT_WATCH_MODE  # hybrid | poll
     also_excel: bool = False
     newest_only: bool = False
+    search_auto_refresh: bool = False  # re-query when DB mtime changes
+    search_auto_refresh_s: int = 20  # poll interval for DB mtime (seconds)
     geometry: str = "1320x820"
     notes: str = ""
     # Client extract remaps: indexer prefix → local prefix (e.g. C:\\Share → Z:\\Share).
@@ -215,13 +222,26 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         ).strip()
 
     # Capabilities (primary). Migrate from legacy ui.mode when absent.
+    settings_locked_flag = False
     if parser.has_section("capabilities"):
+        settings_locked_flag = settings_locked_from_ini_value(
+            parser.get("capabilities", "settings_locked", fallback="")
+        )
+        cfg.settings_locked = settings_locked_flag
         cfg.can_index = normalize_can_index(
             parser.get("capabilities", "can_index", fallback=""),
             default=can_index_from_ui_mode(cfg.ui_mode),
         )
     else:
         cfg.can_index = can_index_from_ui_mode(cfg.ui_mode)
+
+    # Deploy-time lock file / flag forces retrieve-only (floor PCs).
+    locked = is_settings_locked(
+        ini_path=p, settings_locked_flag=settings_locked_flag
+    )
+    cfg.settings_locked = locked or cfg.settings_locked
+    if locked:
+        cfg.can_index = False
     cfg.ui_mode = ui_mode_from_can_index(cfg.can_index)
 
     if parser.has_section("scan"):
@@ -240,6 +260,23 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.watch_mode = normalize_watch_mode(
             parser.get("scan", "watch_mode", fallback=DEFAULT_WATCH_MODE)
         )
+        cfg.search_auto_refresh = _truthy(
+            parser.get("scan", "search_auto_refresh", fallback="no"), default=False
+        )
+        try:
+            cfg.search_auto_refresh_s = max(
+                5,
+                int(
+                    float(
+                        parser.get(
+                            "scan", "search_auto_refresh_s", fallback="20"
+                        ).strip()
+                        or "20"
+                    )
+                ),
+            )
+        except ValueError:
+            cfg.search_auto_refresh_s = 20
 
     if parser.has_section("window"):
         geom = parser.get("window", "geometry", fallback=cfg.geometry).strip()
@@ -296,7 +333,23 @@ def save_instance_ini(
         can_index = can_index_from_ui_mode(str(kwargs.get("ui_mode", base.ui_mode)))
     else:
         can_index = bool(base.can_index)
+
+    settings_locked_flag = bool(
+        kwargs.get("settings_locked", base.settings_locked)
+    )
+    # Lock file beside the ini always wins (deploy-time floor protection).
+    if is_settings_locked(ini_path=p, settings_locked_flag=settings_locked_flag):
+        settings_locked_flag = True
+        can_index = False
     ui_mode = ui_mode_from_can_index(can_index)
+
+    try:
+        refresh_s = int(
+            kwargs.get("search_auto_refresh_s", base.search_auto_refresh_s) or 20
+        )
+    except (TypeError, ValueError):
+        refresh_s = 20
+    refresh_s = max(5, refresh_s)
 
     data = InstanceConfig(
         backup=str(kwargs.get("backup", base.backup) or ""),
@@ -306,6 +359,7 @@ def save_instance_ini(
         yellow_roots=list(kwargs.get("yellow_roots", base.yellow_roots) or []),
         language=str(kwargs.get("language", base.language) or "pl"),
         can_index=can_index,
+        settings_locked=settings_locked_flag,
         ui_mode=ui_mode,
         schedule=normalize_schedule(
             str(kwargs.get("schedule", base.schedule) or SCHEDULE_OFF)
@@ -320,6 +374,10 @@ def save_instance_ini(
         ),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
+        search_auto_refresh=bool(
+            kwargs.get("search_auto_refresh", base.search_auto_refresh)
+        ),
+        search_auto_refresh_s=refresh_s,
         geometry=str(kwargs.get("geometry", base.geometry) or "1320x820"),
         notes=str(kwargs.get("notes", base.notes) or ""),
         path_remaps=normalize_remaps(
@@ -347,8 +405,8 @@ def save_instance_ini(
 ; Override path with env var {ENV_INI_PATH}=...
 ;
 ; Deploy tip:
-;   Shop / floor PCs  →  [capabilities] can_index = no
-;   Indexer PC        →  [capabilities] can_index = yes
+;   Shop / floor PCs  →  can_index = no  (+ optional operator.lock)
+;   Indexer PC        →  can_index = yes (no lock file)
 ;
 ; Edit this file in Notepad, or change folders in the GUI —
 ; the app rewrites this file when you browse / scan / change settings.
@@ -361,6 +419,10 @@ def save_instance_ini(
 ; no  = floor client: search + preview + extract only (open DB / remap / extract folder)
 ; Legacy [ui] mode=simple|full still loads when this key is absent (simple→no, full→yes).
 can_index = {yn(data.can_index)}
+; Deploy-time lock: yes = force retrieve-only (can_index ignored / forced no).
+; Same effect as placing an empty operator.lock (or can_index.lock) next to this ini.
+; Floor PCs: set yes OR drop operator.lock so nobody can elevate to indexer by editing can_index.
+settings_locked = {yn(data.settings_locked)}
 
 [folders]
 ; Main CNC backup tree (usually DATE\\MACHINE\\... dumps + .nc files)
@@ -409,6 +471,11 @@ watch_mode = {data.watch_mode}
 also_excel = {yn(data.also_excel)}
 ; yes/no — default "newest only" filter on startup
 newest_only = {yn(data.newest_only)}
+; yes/no — auto-refresh search results when the DB file changes (mtime)
+; Useful on floor clients sharing a network DB — no need to retype search.
+search_auto_refresh = {yn(data.search_auto_refresh)}
+; How often to check DB mtime while auto-refresh is on (seconds, min 5)
+search_auto_refresh_s = {data.search_auto_refresh_s}
 
 [window]
 ; Width x height in pixels (e.g. 1320x820)
