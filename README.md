@@ -45,11 +45,11 @@ Entry points:
 
 ## Instance settings (``gcode-index.ini``)
 
-The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening the app restores backup / database / extract / green & yellow scan roots / language / `can_index` / schedule / watch / desktop prefs without re-picking folders.
+**Ustawienia wracają po restarcie.** The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening restores backup / database / extract / green & yellow scan roots / language / `can_index` / schedule / watch / desktop prefs / last find-bar filters / sort / layout — without re-setup.
 
-- Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example)
+- Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example) (every key commented, including `[filters]` / `[session]`)
 - Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
-- The GUI also keeps copies next to the **database** folder (`extra_scan_roots.yaml`, `ui_settings.yaml`) so the index stays portable
+- Sidecars next to the **database** folder (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, `extra_scan_roots.yaml`, …) auto-load with the DB — tree/role/machine maps survive restart
 - **`target`** = database folder · **`extract`** = Wydobądź output (blank → same as `target`)
 
 ## Windows GUI (Phase 2)

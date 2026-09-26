@@ -126,3 +126,25 @@ def test_filter_presets_roundtrip(tmp_path: Path):
     save_presets(path, [a, FilterPreset(name="Yellow extras", provenance="yellow — extra (not run)")])
     names = {p.name for p in load_presets(path)}
     assert names == {"UMC week", "Yellow extras"}
+
+
+def test_preset_keeps_size_mtime_role(tmp_path: Path):
+    path = tmp_path / "filter_presets.yaml"
+    a = FilterPreset(
+        name="sized",
+        text="1",
+        size_min="10k",
+        size_max="1M",
+        mtime_from="01.01.2026",
+        mtime_to="02.01.2026",
+        role="fixture",
+        newest_only=True,
+    )
+    save_presets(path, [a])
+    loaded = load_presets(path)
+    assert len(loaded) == 1
+    pr = loaded[0]
+    assert pr.size_min == "10k"
+    assert pr.size_max == "1M"
+    assert pr.mtime_from == "01.01.2026"
+    assert pr.role == "fixture"

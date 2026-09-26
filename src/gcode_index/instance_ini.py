@@ -64,6 +64,27 @@ class InstanceConfig:
     autostart_via: str = VIA_STARTUP
     close_to_tray: bool = True
     minimize_to_tray: bool = True
+    # --- [filters] last find-bar state (restored on restart) ---
+    filter_text: str = ""
+    filter_machines: list[str] = field(default_factory=list)
+    filter_date_from: str = ""
+    filter_date_to: str = ""
+    filter_size_min: str = ""
+    filter_size_max: str = ""
+    filter_mtime_from: str = ""
+    filter_mtime_to: str = ""
+    filter_source_type: str = ""  # empty = (all)
+    filter_control: str = ""
+    filter_status: str = ""  # backup|extra|"" 
+    filter_role: str = ""  # role id or ""
+    filter_programmer: str = ""
+    # --- [session] chrome / layout ---
+    sort_col: str = ""
+    sort_reverse: bool = False
+    more_filters: bool = False
+    folders_expanded: Optional[bool] = None  # None = auto heuristic
+    pelny_view: str = "praca"  # praca | indeks
+    preview_find: str = ""
 
     def root_specs(self) -> list[ScanRootSpec]:
         specs: list[ScanRootSpec] = []
@@ -316,7 +337,70 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             parser.get("desktop", "minimize_to_tray", fallback="yes"), default=True
         )
 
+    if parser.has_section("filters"):
+        cfg.filter_text = parser.get("filters", "text", fallback="").strip()
+        cfg.filter_machines = _split_paths(
+            parser.get("filters", "machines", fallback="")
+        )
+        # Also accept comma-separated machines=
+        machines_raw = parser.get("filters", "machines", fallback="").strip()
+        if machines_raw and not cfg.filter_machines and "\n" not in machines_raw:
+            cfg.filter_machines = [
+                p.strip() for p in machines_raw.split(",") if p.strip()
+            ]
+        cfg.filter_date_from = parser.get("filters", "date_from", fallback="").strip()
+        cfg.filter_date_to = parser.get("filters", "date_to", fallback="").strip()
+        cfg.filter_size_min = parser.get("filters", "size_min", fallback="").strip()
+        cfg.filter_size_max = parser.get("filters", "size_max", fallback="").strip()
+        cfg.filter_mtime_from = parser.get("filters", "mtime_from", fallback="").strip()
+        cfg.filter_mtime_to = parser.get("filters", "mtime_to", fallback="").strip()
+        cfg.filter_source_type = _filter_all_to_empty(
+            parser.get("filters", "source_type", fallback="")
+        )
+        cfg.filter_control = _filter_all_to_empty(
+            parser.get("filters", "control", fallback="")
+        )
+        cfg.filter_status = _filter_all_to_empty(
+            parser.get("filters", "status", fallback="")
+            or parser.get("filters", "provenance", fallback="")
+        )
+        cfg.filter_role = _filter_all_to_empty(
+            parser.get("filters", "role", fallback="")
+        )
+        cfg.filter_programmer = _filter_all_to_empty(
+            parser.get("filters", "programmer", fallback="")
+        )
+
+    if parser.has_section("session"):
+        cfg.sort_col = parser.get("session", "sort_col", fallback="").strip()
+        cfg.sort_reverse = _truthy(
+            parser.get("session", "sort_reverse", fallback="no"), default=False
+        )
+        cfg.more_filters = _truthy(
+            parser.get("session", "more_filters", fallback="no"), default=False
+        )
+        fe_raw = parser.get("session", "folders_expanded", fallback="").strip()
+        if fe_raw == "":
+            cfg.folders_expanded = None
+        else:
+            cfg.folders_expanded = _truthy(fe_raw, default=True)
+        view = parser.get("session", "pelny_view", fallback="praca").strip().casefold()
+        cfg.pelny_view = view if view in ("praca", "indeks", "index") else "praca"
+        if cfg.pelny_view == "index":
+            cfg.pelny_view = "indeks"
+        cfg.preview_find = parser.get("session", "preview_find", fallback="").strip()
+
     return cfg
+
+
+def _filter_all_to_empty(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    low = raw.casefold()
+    if low in ("(all)", "(wszystkie)", "all", "wszystkie", "*"):
+        return ""
+    return raw
 
 
 def save_instance_ini(
@@ -396,6 +480,41 @@ def save_instance_ini(
         minimize_to_tray=bool(
             kwargs.get("minimize_to_tray", base.minimize_to_tray)
         ),
+        filter_text=str(kwargs.get("filter_text", base.filter_text) or ""),
+        filter_machines=list(
+            kwargs.get("filter_machines", base.filter_machines) or []
+        ),
+        filter_date_from=str(
+            kwargs.get("filter_date_from", base.filter_date_from) or ""
+        ),
+        filter_date_to=str(kwargs.get("filter_date_to", base.filter_date_to) or ""),
+        filter_size_min=str(kwargs.get("filter_size_min", base.filter_size_min) or ""),
+        filter_size_max=str(kwargs.get("filter_size_max", base.filter_size_max) or ""),
+        filter_mtime_from=str(
+            kwargs.get("filter_mtime_from", base.filter_mtime_from) or ""
+        ),
+        filter_mtime_to=str(kwargs.get("filter_mtime_to", base.filter_mtime_to) or ""),
+        filter_source_type=_filter_all_to_empty(
+            str(kwargs.get("filter_source_type", base.filter_source_type) or "")
+        ),
+        filter_control=_filter_all_to_empty(
+            str(kwargs.get("filter_control", base.filter_control) or "")
+        ),
+        filter_status=_filter_all_to_empty(
+            str(kwargs.get("filter_status", base.filter_status) or "")
+        ),
+        filter_role=_filter_all_to_empty(
+            str(kwargs.get("filter_role", base.filter_role) or "")
+        ),
+        filter_programmer=_filter_all_to_empty(
+            str(kwargs.get("filter_programmer", base.filter_programmer) or "")
+        ),
+        sort_col=str(kwargs.get("sort_col", base.sort_col) or ""),
+        sort_reverse=bool(kwargs.get("sort_reverse", base.sort_reverse)),
+        more_filters=bool(kwargs.get("more_filters", base.more_filters)),
+        folders_expanded=kwargs.get("folders_expanded", base.folders_expanded),
+        pelny_view=str(kwargs.get("pelny_view", base.pelny_view) or "praca"),
+        preview_find=str(kwargs.get("preview_find", base.preview_find) or ""),
     )
     p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -511,6 +630,55 @@ autostart_via = {data.autostart_via}
 close_to_tray = {yn(data.close_to_tray)}
 ; Minimize / iconify also hides to tray
 minimize_to_tray = {yn(data.minimize_to_tray)}
+
+[filters]
+; Last find-bar / search filters — restored on restart (no re-setup).
+; Empty / blank = no filter (same as UI “(all)”).
+; machines = one display name per indented line (or comma-separated).
+text = {data.filter_text}
+machines ={_format_paths(data.filter_machines)}
+date_from = {data.filter_date_from}
+date_to = {data.filter_date_to}
+size_min = {data.filter_size_min}
+size_max = {data.filter_size_max}
+mtime_from = {data.filter_mtime_from}
+mtime_to = {data.filter_mtime_to}
+; Source type code (loose_nc, haas_pgm_glued, …) or blank = all
+source_type = {data.filter_source_type}
+; Control family (haas / fanuc / sinumerik) or blank = all
+control = {data.filter_control}
+; Status: blank = all | backup = on-machine 🟢 | extra = not-run 🟡
+status = {data.filter_status}
+; Role catalogue id (production / wip / fixture / …) or blank = all
+role = {data.filter_role}
+; Programmer flag (LP1 / MS1) or blank = all
+programmer = {data.filter_programmer}
+
+[session]
+; Results sort column id (flag/program/part/machine/date/size/…) or blank
+sort_col = {data.sort_col}
+sort_reverse = {yn(data.sort_reverse)}
+; yes = “More filters” panel open
+more_filters = {yn(data.more_filters)}
+; Folders panel: yes = expanded path editors | no = collapsed summary | blank = auto
+folders_expanded = {("" if data.folders_expanded is None else yn(bool(data.folders_expanded)))}
+; Indexer primary nav: praca | indeks
+pelny_view = {data.pelny_view}
+; Preview “find in program” last string (optional)
+preview_find = {data.preview_find}
+
+; ------------------------------------------------------------
+; Sidecars next to the database folder (auto-loaded; do not delete):
+;   machine_folders.yaml       — Map folders… assignments
+;   aliases.local.yaml         — Machines & aliases…
+;   folder_colour_aliases.yaml — Folder roles… (catalogue + name aliases)
+;   folder_tree_map.yaml       — Map tree… (path machine/tags/exclude)
+;   extra_scan_roots.yaml      — mirror of green/yellow roots (INI is primary)
+;   filter_presets.yaml        — named filter presets (Save preset…)
+;   ui_settings.yaml           — schedule_last_run mirror (optional)
+;   scan_history.json          — scan run history
+; Ustawienia wracają po restarcie — everything above + this ini is reloaded on start.
+; ------------------------------------------------------------
 """
     p.write_text(text, encoding="utf-8", newline="\n")
     return p

@@ -151,7 +151,10 @@ Zaznacz **Odświeżaj wyniki**, aby **ponowić bieżące wyszukiwanie**, gdy zmi
 
 ## Ustawienia instalacji
 
-`gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, harmonogram, desktop i geometrię.  
+**Ustawienia wracają po restarcie:** `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, harmonogram, desktop, geometrię, przełączniki skanu, mapowanie ścieżek, **ostatnie filtry wyszukiwania** (tekst, maszyny, daty, status, role, …), sortowanie oraz widok Praca/Indeks.  
+
+Pliki pomocnicze obok bazy (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, …) wczytują się z folderem bazy — przypisania drzewa/ról/maszyn nie giną po restarcie.  
+
 Wszystkie klucze są opisane w `gcode-index.ini.example`.
 
 Wdrożenie:

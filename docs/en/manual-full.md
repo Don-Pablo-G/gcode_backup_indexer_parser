@@ -177,7 +177,10 @@ Tick **Auto-refresh results** / **Odświeżaj wyniki** to **re-run the current s
 
 ## Instance settings
 
-`gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, and window size.  
+**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, window size, scan toggles (incremental / Excel / watch), path remap, **last find-bar filters** (text, machines, dates, size, status, role, …), sort column, and Praca/Indeks layout.  
+
+Sidecars next to the database (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, …) auto-load with the DB folder — tree/role/machine assignments are never lost on restart.  
+
 Every available key is commented in `gcode-index.ini.example`. Override path with env `GCODE_INDEX_INI=…`.
 
 Deploy:

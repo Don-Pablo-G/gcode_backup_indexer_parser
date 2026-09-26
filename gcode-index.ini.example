@@ -3,6 +3,9 @@
 ; Copy next to gcode-index-gui.exe as: gcode-index.ini
 ;
 ; Every available setting is listed below with a short comment.
+; Ustawienia wracają po restarcie — the GUI reloads this file on start
+; and rewrites it when you change folders / filters / options.
+;
 ; Deploy tip:
 ;   Shop / floor PCs  →  can_index = no
 ;   Indexer PC        →  can_index = yes
@@ -27,7 +30,7 @@ settings_locked = no
 ; Required on the indexer; optional on floor clients that only open a shared DB.
 backup = D:\CNC\Backups
 ; Database folder — gcode_index.sqlite + sidecar yaml (machine_folders,
-; folder_tree_map, folder_colour_aliases, aliases.local, …)
+; folder_tree_map, folder_colour_aliases, aliases.local, filter_presets, …)
 target = D:\CNC\Index
 ; Extract / Wydobądź output folder. Leave blank to use the database folder.
 ; Legacy key extract_folder= is still accepted when loading.
@@ -36,6 +39,7 @@ extract = D:\CNC\Extracted
 [green_roots]
 ; ON-MACHINE catch folders (green flag). One full path per indented line.
 ; Subfolders are scanned recursively. Used when can_index=yes.
+; Also mirrored to extra_scan_roots.yaml next to the DB (INI is primary).
 paths =
     D:\CNC\MachineCatch
     D:\CNC\USB_Stick_Copy
@@ -81,17 +85,13 @@ newest_only = no
 ; yes/no — when filtering by machines, still show MACHINE UNKNOWN / unassigned (default yes)
 ; Floor clients (can_index=no / operator.lock) keep this on — control is disabled.
 include_unknown = yes
-; Folder roles + name aliases: folder_colour_aliases.yaml next to the database
-; (GUI: Folder roles… — define roles and folder-name → role/exclude rules).
-; Path tree map (machine + multi-tag roles + exclude): folder_tree_map.yaml
-; (GUI: Map tree… — lazy tree from backup + green/yellow roots; deepest path wins).
 ; yes/no — auto-refresh search when gcode_index.sqlite mtime changes (clients)
 search_auto_refresh = no
 ; Seconds between DB mtime checks while auto-refresh is on (minimum 5)
 search_auto_refresh_s = 20
 
 [window]
-; Width x height in pixels (e.g. 1320x820)
+; Width x height (+optional +X+Y). Saved on resize / quit / close-to-tray.
 geometry = 1320x820
 
 [notes]
@@ -117,3 +117,51 @@ autostart_via = startup
 close_to_tray = yes
 ; Minimize / iconify also hides to tray
 minimize_to_tray = yes
+
+[filters]
+; Last find-bar state — restored on every restart (no re-typing filters).
+; Blank = no filter / “(all)”. machines = one name per line (or comma-separated).
+text =
+machines =
+date_from =
+date_to =
+size_min =
+size_max =
+mtime_from =
+mtime_to =
+; Source type code (loose_nc, haas_pgm_glued, …) or blank
+source_type =
+; Control family (haas / fanuc / sinumerik) or blank
+control =
+; Status: blank = all | backup = on-machine 🟢 | extra = not-run 🟡
+status =
+; Role catalogue id (production / wip / fixture / …) or blank
+role =
+; Programmer flag (LP1 / MS1) or blank
+programmer =
+
+[session]
+; Results table sort column id (flag / program / part / machine / date / size / …)
+sort_col =
+sort_reverse = no
+; yes = More filters panel open
+more_filters = no
+; Folders panel: yes = path editors open | no = summary strip | blank = auto
+folders_expanded =
+; Indexer nav: praca | indeks
+pelny_view = praca
+; Preview “find in program” last string
+preview_find =
+
+; ------------------------------------------------------------
+; Sidecars next to the database folder (paths implied by [folders] target=).
+; Auto-loaded on start / scan / Map dialogs — never delete casually:
+;   machine_folders.yaml       — Map folders… (date/machine → machine id)
+;   aliases.local.yaml         — Machines & aliases…
+;   folder_colour_aliases.yaml — Folder roles… (catalogue + name→role/exclude)
+;   folder_tree_map.yaml       — Map tree… (path machine + multi-tags + exclude)
+;   extra_scan_roots.yaml      — mirror of green/yellow (INI [green_roots]/[yellow_roots] wins)
+;   filter_presets.yaml        — named presets (Save preset…)
+;   ui_settings.yaml           — optional schedule_last_run mirror
+;   scan_history.json          — scan run history
+; ------------------------------------------------------------

@@ -28,6 +28,7 @@ class FilterPreset:
     control: str = "(all)"
     provenance: str = "(all)"
     programmer: str = "(all)"
+    role: str = "(all)"
     newest_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -57,6 +58,7 @@ class FilterPreset:
             control=str(data.get("control") or "(all)"),
             provenance=str(data.get("provenance") or "(all)"),
             programmer=str(data.get("programmer") or "(all)"),
+            role=str(data.get("role") or "(all)"),
             newest_only=bool(data.get("newest_only") or False),
         )
 
@@ -116,10 +118,15 @@ def save_presets(path: Path | str, presets: Iterable[FilterPreset]) -> Path:
                 machines=list(pr.machines or []),
                 date_from=pr.date_from or "",
                 date_to=pr.date_to or "",
+                size_min=getattr(pr, "size_min", "") or "",
+                size_max=getattr(pr, "size_max", "") or "",
+                mtime_from=getattr(pr, "mtime_from", "") or "",
+                mtime_to=getattr(pr, "mtime_to", "") or "",
                 source_type=pr.source_type or "(all)",
                 control=pr.control or "(all)",
                 provenance=pr.provenance or "(all)",
                 programmer=pr.programmer or "(all)",
+                role=getattr(pr, "role", "") or "(all)",
                 newest_only=bool(pr.newest_only),
             )
         )

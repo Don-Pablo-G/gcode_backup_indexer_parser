@@ -208,3 +208,60 @@ paths =
     cfg = load_instance_ini(path)
     assert cfg.green_roots == ["/catch", "/also_green"]
     assert cfg.yellow_roots == ["/extra"]
+
+
+def test_filters_and_session_roundtrip(tmp_path: Path):
+    path = tmp_path / INSTANCE_INI_FILENAME
+    cfg = InstanceConfig(
+        backup="/bak",
+        target="/out",
+        filter_text="O1234",
+        filter_machines=["HAAS VF-2", "ST-20Y"],
+        filter_date_from="01.01.2026",
+        filter_date_to="31.01.2026",
+        filter_size_min="10k",
+        filter_size_max="2M",
+        filter_mtime_from="01.01.2026",
+        filter_mtime_to="15.01.2026",
+        filter_source_type="loose_nc",
+        filter_control="haas",
+        filter_status="backup",
+        filter_role="wip",
+        filter_programmer="LP1",
+        sort_col="date",
+        sort_reverse=True,
+        more_filters=True,
+        folders_expanded=False,
+        pelny_view="indeks",
+        preview_find="G0",
+    )
+    save_instance_ini(path, config=cfg)
+    text = path.read_text(encoding="utf-8")
+    assert "[filters]" in text
+    assert "[session]" in text
+    assert "role = wip" in text
+    assert "sort_col = date" in text
+    loaded = load_instance_ini(path)
+    assert loaded.filter_text == "O1234"
+    assert loaded.filter_machines == ["HAAS VF-2", "ST-20Y"]
+    assert loaded.filter_size_min == "10k"
+    assert loaded.filter_status == "backup"
+    assert loaded.filter_role == "wip"
+    assert loaded.sort_col == "date"
+    assert loaded.sort_reverse is True
+    assert loaded.more_filters is True
+    assert loaded.folders_expanded is False
+    assert loaded.pelny_view == "indeks"
+    assert loaded.preview_find == "G0"
+
+
+def test_filter_all_tokens_normalize_to_empty(tmp_path: Path):
+    path = tmp_path / INSTANCE_INI_FILENAME
+    path.write_text(
+        "[filters]\nsource_type = (all)\nrole = (wszystkie)\nstatus =\n",
+        encoding="utf-8",
+    )
+    loaded = load_instance_ini(path)
+    assert loaded.filter_source_type == ""
+    assert loaded.filter_role == ""
+    assert loaded.filter_status == ""

@@ -335,7 +335,11 @@ class IndexerApp(tk.Tk):
         self._build()
         # Seed machine list from aliases before any scan
         self._refresh_filter_choices()
-        self._maybe_auto_collapse_folders()
+        self._load_colour_catalog()
+        self._apply_session_from_ini()
+        # Only auto-collapse when session did not pin folders_expanded
+        if getattr(self, "_session_pinned_folders", False) is not True:
+            self._maybe_auto_collapse_folders()
         self._arm_schedule_timer()
         self._sync_folder_watch(initial=True)
         self._arm_search_auto_refresh()
@@ -364,10 +368,18 @@ class IndexerApp(tk.Tk):
             self.source_type_var,
             self.control_var,
             self.provenance_var,
+            self.role_var,
             self.programmer_var,
             self.newest_only_var,
         ):
             var.trace_add("write", self._on_filter_changed)
+        # Persist scan/option toggles immediately (also covered by quit save)
+        for var in (
+            self.excel_var,
+            self.incremental_var,
+            self.newest_only_var,
+        ):
+            var.trace_add("write", self._on_scan_option_changed)
         # Persist folder edits typed by hand (debounced)
         self.backup_var.trace_add("write", self._on_folder_path_changed)
         self.target_var.trace_add("write", self._on_folder_path_changed)
@@ -375,6 +387,9 @@ class IndexerApp(tk.Tk):
         self.remap_from_var.trace_add("write", self._on_remap_changed)
         self.remap_to_var.trace_add("write", self._on_remap_changed)
         self._folder_save_after_id: Optional[str] = None
+        self._filter_save_after_id: Optional[str] = None
+        self._geometry_save_after_id: Optional[str] = None
+        self.bind("<Configure>", self._on_window_configure)
 
     def _(self, key: str, **kwargs) -> str:
         return t(self._lang, key, **kwargs)
@@ -436,7 +451,95 @@ class IndexerApp(tk.Tk):
             settings = load_ui_settings(ui_settings_path_for_target(target))
             if not self._schedule_last_run and settings.get("schedule_last_run"):
                 self._schedule_last_run = settings["schedule_last_run"]
+        # Stash session/filters for apply after widgets exist
+        self._pending_session_cfg = cfg
 
+    def _apply_session_from_ini(self) -> None:
+        """Restore find-bar filters + session chrome after widgets are built."""
+        cfg = getattr(self, "_pending_session_cfg", None)
+        if cfg is None:
+            return
+        self._pending_session_cfg = None
+        self._filter_trace_lock = True
+        try:
+            self.search_var.set(cfg.filter_text or "")
+            self.date_from_var.set(cfg.filter_date_from or "")
+            self.date_to_var.set(cfg.filter_date_to or "")
+            self.size_min_var.set(cfg.filter_size_min or "")
+            self.size_max_var.set(cfg.filter_size_max or "")
+            self.mtime_from_var.set(cfg.filter_mtime_from or "")
+            self.mtime_to_var.set(cfg.filter_mtime_to or "")
+            self.source_type_var.set(
+                cfg.filter_source_type or self._all_token()
+            )
+            self.control_var.set(cfg.filter_control or self._all_token())
+            # Status
+            st = (cfg.filter_status or "").strip().casefold()
+            if st in ("backup", "green", "on_machine"):
+                self.provenance_var.set(self._("status_on_machine"))
+            elif st in ("extra", "yellow", "not_run"):
+                self.provenance_var.set(self._("status_not_run"))
+            else:
+                self.provenance_var.set(self._all_token())
+            # Role — prefer catalogue label for current language
+            role_id = (cfg.filter_role or "").strip()
+            if role_id:
+                catalog = getattr(self, "_colour_catalog", ColourCatalog())
+                c = catalog.get(role_id)
+                self.role_var.set(c.label(self._lang) if c else role_id)
+            else:
+                self.role_var.set(self._all_token())
+            self.programmer_var.set(
+                cfg.filter_programmer or self._all_token()
+            )
+            wanted = {
+                m.strip() for m in (cfg.filter_machines or []) if str(m).strip()
+            }
+            if wanted and getattr(self, "_machine_names", None):
+                self._machine_sel = {
+                    n for n in self._machine_names if n in wanted
+                }
+            elif wanted:
+                self._machine_sel = set(wanted)
+            else:
+                self._machine_sel = set()
+            if hasattr(self, "_update_machines_button"):
+                self._update_machines_button()
+            self._sort_col = (cfg.sort_col or "").strip() or None
+            self._sort_reverse = bool(cfg.sort_reverse)
+            if hasattr(self, "_refresh_heading_labels"):
+                self._refresh_heading_labels()
+            self._more_filters_open = bool(cfg.more_filters)
+            if hasattr(self, "_apply_more_filters_visibility"):
+                self._apply_more_filters_visibility()
+            if cfg.folders_expanded is not None and hasattr(
+                self, "_set_folders_expanded"
+            ):
+                self._session_pinned_folders = True
+                self._set_folders_expanded(
+                    bool(cfg.folders_expanded), persist=False
+                )
+            else:
+                self._session_pinned_folders = False
+            view = (cfg.pelny_view or "praca").strip().casefold()
+            if view in ("indeks", "index") and not self._is_simple():
+                self._pelny_view = "indeks"
+                if hasattr(self, "_show_pelny_view"):
+                    try:
+                        self._show_pelny_view("indeks")
+                    except Exception:  # noqa: BLE001
+                        pass
+            else:
+                self._pelny_view = "praca"
+            if cfg.preview_find and hasattr(self, "preview_find_var"):
+                self.preview_find_var.set(cfg.preview_find)
+        finally:
+            self._filter_trace_lock = False
+        # Kick a query so restored filters show results
+        try:
+            self.after(50, lambda: self._run_query_now(status_prefix=""))
+        except tk.TclError:
+            pass
     def _collect_instance_config(self) -> InstanceConfig:
         specs = self._scan_root_specs()
         greens = [s.path for s in specs if s.provenance == PROVENANCE_BACKUP]
@@ -474,7 +577,36 @@ class IndexerApp(tk.Tk):
             geometry=geom,
             notes=self._ini_notes,
             path_remaps=self._collect_path_remaps(),
+            filter_text=self.search_var.get().strip(),
+            filter_machines=self._selected_machines(),
+            filter_date_from=self.date_from_var.get().strip(),
+            filter_date_to=self.date_to_var.get().strip(),
+            filter_size_min=self.size_min_var.get().strip(),
+            filter_size_max=self.size_max_var.get().strip(),
+            filter_mtime_from=self.mtime_from_var.get().strip(),
+            filter_mtime_to=self.mtime_to_var.get().strip(),
+            filter_source_type=self._combo_filter_for_ini(self.source_type_var.get()),
+            filter_control=self._combo_filter_for_ini(self.control_var.get()),
+            filter_status=self._status_filter_value() or "",
+            filter_role=self._role_filter_value() or "",
+            filter_programmer=self._combo_filter_for_ini(self.programmer_var.get()),
+            sort_col=self._sort_col or "",
+            sort_reverse=bool(self._sort_reverse),
+            more_filters=bool(self._more_filters_open),
+            folders_expanded=bool(self._folders_expanded)
+            if hasattr(self, "_folders_expanded")
+            else None,
+            pelny_view=str(getattr(self, "_pelny_view", "praca") or "praca"),
+            preview_find=self.preview_find_var.get().strip()
+            if hasattr(self, "preview_find_var")
+            else "",
         )
+
+    def _combo_filter_for_ini(self, raw: str) -> str:
+        s = (raw or "").strip()
+        if not s or self._is_all_token(s):
+            return ""
+        return s
 
     def _sync_remap_vars_from_list(self) -> None:
         if self._path_remaps:
@@ -536,11 +668,35 @@ class IndexerApp(tk.Tk):
         box.columnconfigure(1, weight=1)
         return start_row + 1
 
+    def _on_scan_option_changed(self, *_args) -> None:
+        if self._filter_trace_lock:
+            return
+        self._save_instance_ini()
+
+    def _on_window_configure(self, event=None) -> None:
+        # Only top-level geometry changes
+        if event is not None and event.widget is not self:
+            return
+        if getattr(self, "_geometry_save_after_id", None):
+            try:
+                self.after_cancel(self._geometry_save_after_id)
+            except tk.TclError:
+                pass
+        self._geometry_save_after_id = self.after(1200, self._save_instance_ini)
+
     def _save_instance_ini(self) -> None:
         try:
             save_instance_ini(self._instance_ini_path, config=self._collect_instance_config())
         except OSError:
             log.exception("save instance ini failed: %s", self._instance_ini_path)
+
+    def _schedule_filter_ini_save(self) -> None:
+        if getattr(self, "_filter_save_after_id", None):
+            try:
+                self.after_cancel(self._filter_save_after_id)
+            except tk.TclError:
+                pass
+        self._filter_save_after_id = self.after(1000, self._save_instance_ini)
 
     def _on_folder_path_changed(self, *_args) -> None:
         if getattr(self, "_folder_save_after_id", None):
@@ -585,6 +741,8 @@ class IndexerApp(tk.Tk):
     def _hide_to_tray(self) -> None:
         if self._tray_hidden:
             return
+        # Persist filters / geometry / toggles before hiding (X does not quit)
+        self._save_instance_ini()
         if not self._ensure_tray():
             self._quit_app()
             return
@@ -1018,6 +1176,8 @@ class IndexerApp(tk.Tk):
             self._update_folders_summary()
             self._folders_summary_frame.pack(**pack_opts)
         self._sync_praca_path_from_summary()
+        if persist:
+            self._schedule_filter_ini_save()
 
     def _maybe_auto_collapse_folders(self) -> None:
         """Collapse only when folders are already complete (startup / scan).
@@ -1121,6 +1281,7 @@ class IndexerApp(tk.Tk):
     def _toggle_more_filters(self) -> None:
         self._more_filters_open = not self._more_filters_open
         self._apply_more_filters_visibility()
+        self._schedule_filter_ini_save()
 
     def _apply_more_filters_visibility(self) -> None:
         if not hasattr(self, "_more_filters_frame"):
@@ -1178,6 +1339,7 @@ class IndexerApp(tk.Tk):
         except tk.TclError:
             return
         self._refresh_pelny_nav_styles()
+        self._schedule_filter_ini_save()
 
     def _refresh_pelny_nav_styles(self) -> None:
         """Bold / accent selected segment; muted idle segment."""
@@ -2132,27 +2294,22 @@ class IndexerApp(tk.Tk):
         path = filedialog.askdirectory(title=self._("target_folder"))
         if path:
             self.target_var.set(path)
-            self._load_extra_roots_into_list()
+            # Prefer keeping current green/yellow list when already set (INI primary);
+            # otherwise load sidecar from the new database folder.
+            if not self._scan_root_specs():
+                self._load_extra_roots_into_list()
+            else:
+                self._persist_extra_roots()
             self._refresh_preset_combo()
             self._update_folders_summary()
+            # INI is primary for language/schedule; YAML only fills blank last-run.
             settings = load_ui_settings(ui_settings_path_for_target(path))
-            lang = settings["language"]
-            self._schedule_last_run = settings.get("schedule_last_run") or None
-            self._set_schedule(settings.get("schedule") or SCHEDULE_OFF, persist=False)
-            # can_index stays from this PC's gcode-index.ini (not from DB-side yaml).
-            if lang != self._lang:
-                preserved = self._snapshot_ui()
-                preserved["target"] = path
-                # Stay expanded so backup/extract can still be edited after DB pick
-                preserved["folders_expanded"] = True
-                preserved["schedule"] = self._schedule
-                self._lang = lang
-                self.lang_var.set(lang)
-                self._rebuild(preserved)
-                self._save_instance_ini()
-            else:
-                self._persist_ui_settings(path)
-                self._sync_folder_watch()
+            if not self._schedule_last_run and settings.get("schedule_last_run"):
+                self._schedule_last_run = settings.get("schedule_last_run") or None
+            self._load_colour_catalog()
+            self._save_instance_ini()
+            self._persist_ui_settings(path)
+            self._sync_folder_watch()
 
     def _pick_extract(self) -> None:
         path = filedialog.askdirectory(title=self._("extract_folder"))
@@ -3531,6 +3688,7 @@ class IndexerApp(tk.Tk):
             control=self.control_var.get().strip() or ALL,
             provenance=self.provenance_var.get().strip() or ALL,
             programmer=self.programmer_var.get().strip() or ALL,
+            role=self.role_var.get().strip() or ALL,
             newest_only=bool(self.newest_only_var.get()),
         )
 
@@ -3548,6 +3706,8 @@ class IndexerApp(tk.Tk):
             self.control_var.set(preset.control or ALL)
             self.provenance_var.set(preset.provenance or ALL)
             self.programmer_var.set(preset.programmer or ALL)
+            role_raw = getattr(preset, "role", "") or ALL
+            self.role_var.set(role_raw if role_raw else ALL)
             self.newest_only_var.set(bool(preset.newest_only))
             wanted = {m.strip() for m in (preset.machines or []) if m.strip()}
             self._machine_sel = {
@@ -3676,6 +3836,7 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 pass
         self._search_after_id = self.after(SEARCH_DEBOUNCE_MS, self._run_query_now)
+        self._schedule_filter_ini_save()
 
     def _on_search_auto_refresh_toggled(self) -> None:
         self._save_instance_ini()
@@ -4114,6 +4275,7 @@ class IndexerApp(tk.Tk):
             self._sort_reverse = column in {"date", "size", "mtime"}
         if not self._result_rows:
             self._refresh_heading_labels()
+            self._schedule_filter_ini_save()
             return
         if column == "src":
             # key 0 = missing; reverse=False → missing first
@@ -4127,6 +4289,7 @@ class IndexerApp(tk.Tk):
                 self._result_rows, column, reverse=self._sort_reverse
             )
         self._redraw_tree()
+        self._schedule_filter_ini_save()
 
     def _set_preview_body(self, header: str, body: str, *, is_error: bool = False) -> None:
         self.preview_header_var.set(header)
