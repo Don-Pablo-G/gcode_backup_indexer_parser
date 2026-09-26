@@ -1353,6 +1353,7 @@ class IndexerApp(tk.Tk):
             "remap_from": self.remap_from_var.get(),
             "remap_to": self.remap_to_var.get(),
             "path_remaps": list(self._path_remaps),
+            "extract_recent": list(getattr(self, "_extract_recent", []) or []),
             "search": self.search_var.get(),
             "date_from": self.date_from_var.get(),
             "date_to": self.date_to_var.get(),
@@ -1557,7 +1558,13 @@ class IndexerApp(tk.Tk):
                     self._path_remaps = (
                         normalize_remaps([PathRemap(fr, to)]) if fr and to else []
                     )
+                recent = preserved.get("extract_recent")
+                if recent is not None:
+                    self._extract_recent = [
+                        str(p).strip() for p in recent if str(p).strip()
+                    ][:8]
                 self._sync_remap_vars_from_list()
+                self._refresh_remap_listbox()
                 self.search_var.set(preserved.get("search") or "")
                 self.date_from_var.set(preserved.get("date_from") or "")
                 self.date_to_var.set(preserved.get("date_to") or "")
