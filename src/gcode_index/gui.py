@@ -264,65 +264,6 @@ def _tr(master, key: str, **kwargs) -> str:
 
 
 
-class _WrappingButtonBar(ttk.Frame):
-    """Left-to-right button bar that wraps onto new rows using available width.
-
-    Avoids ttk truncating long Polish/EN labels while empty space sits unused.
-    """
-
-    def __init__(self, master: tk.Misc, **kw) -> None:
-        super().__init__(master, **kw)
-        self._specs: list[tuple[tk.Widget, int]] = []
-        self._rows: list[ttk.Frame] = []
-        self._last_w = 0
-        self.bind("<Configure>", self._on_configure)
-
-    def add(self, widget: tk.Widget, *, padx: int = 4) -> None:
-        self._specs.append((widget, padx))
-
-    def finish(self) -> None:
-        """Initial layout after all buttons are added."""
-        self.update_idletasks()
-        self._reflow(max(self.winfo_width(), 200))
-
-    def _on_configure(self, event=None) -> None:
-        w = int(getattr(event, "width", 0) or self.winfo_width())
-        if w < 80:
-            return
-        if abs(w - self._last_w) < 12:
-            return
-        self._reflow(w)
-
-    def _reflow(self, width: int) -> None:
-        self._last_w = width
-        for row in self._rows:
-            try:
-                row.destroy()
-            except tk.TclError:
-                pass
-        self._rows.clear()
-        for widget, _padx in self._specs:
-            try:
-                widget.pack_forget()
-            except tk.TclError:
-                pass
-        row = ttk.Frame(self)
-        row.pack(fill=tk.X)
-        self._rows.append(row)
-        used = 0
-        for widget, padx in self._specs:
-            widget.update_idletasks()
-            need = max(int(widget.winfo_reqwidth()), 40) + padx * 2
-            if used > 0 and used + need > width - 4:
-                row = ttk.Frame(self)
-                row.pack(fill=tk.X, pady=(4, 0))
-                self._rows.append(row)
-                used = 0
-            widget.pack(in_=row, side=tk.LEFT, padx=padx)
-            used += need
-
-
-
 class IndexerApp(tk.Tk):
     """Main window: backup + database + extract folders, scan, live search, extract."""
 
@@ -1786,42 +1727,37 @@ class IndexerApp(tk.Tk):
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
 
-        row1 = ttk.Frame(actions)
-        row1.pack(fill=tk.X)
-        # Row 1 — primary tools; wrap so long PL/EN labels stay fully visible
-        bar = _WrappingButtonBar(row1)
-        bar.pack(fill=tk.X)
+        # Row 1 — index / scan actions (full labels, fixed height)
+        row_scan = ttk.Frame(actions)
+        row_scan.pack(fill=tk.X)
         self.scan_btn = self._make_primary_button(
-            bar, self._("run_scan"), self._start_scan
+            row_scan, self._("run_scan"), self._start_scan
         )
-        bar.add(self.scan_btn, padx=0)
-        btn_names = ttk.Button(
-            bar, text=self._("map_folders"), command=self._open_folder_map
-        )
-        bar.add(btn_names, padx=8)
-        btn_tree = ttk.Button(
-            bar, text=self._("map_tree"), command=self._open_folder_tree_map
-        )
-        bar.add(btn_tree, padx=4)
-        btn_alias = ttk.Button(
-            bar, text=self._("aliases"), command=self._open_alias_editor
-        )
-        bar.add(btn_alias, padx=4)
-        btn_roles = ttk.Button(
-            bar, text=self._("folder_colours"), command=self._open_folder_colour_editor
-        )
-        bar.add(btn_roles, padx=4)
-        btn_odb = ttk.Button(
-            bar, text=self._("odbiorcy"), command=self._open_odbiorca_editor
-        )
-        bar.add(btn_odb, padx=4)
-        btn_db = ttk.Button(
-            bar, text=self._("open_db"), command=self._pick_existing_db
-        )
-        bar.add(btn_db, padx=8)
-        bar.finish()
+        self.scan_btn.pack(side=tk.LEFT)
+        ttk.Button(
+            row_scan, text=self._("open_db"), command=self._pick_existing_db
+        ).pack(side=tk.LEFT, padx=8)
 
-        # Row 2 — secondary tools + scan options (incl. watch) + schedule
+        # Row 2 — mapping / naming tools (own row so PL/EN labels stay visible)
+        row_map = ttk.Frame(actions)
+        row_map.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(
+            row_map, text=self._("map_folders"), command=self._open_folder_map
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            row_map, text=self._("map_tree"), command=self._open_folder_tree_map
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            row_map, text=self._("aliases"), command=self._open_alias_editor
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            row_map, text=self._("folder_colours"), command=self._open_folder_colour_editor
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            row_map, text=self._("odbiorcy"), command=self._open_odbiorca_editor
+        ).pack(side=tk.LEFT, padx=4)
+
+        # Row 3 — secondary tools + scan options (incl. watch) + schedule
         row2 = ttk.Frame(actions)
         row2.pack(fill=tk.X, pady=(4, 0))
         sched = ttk.Frame(row2)
