@@ -84,10 +84,10 @@ Results Flag column shows **status + role badge(s)**. Use separate **Status** an
 
 ## Map folders and aliases
 
-1. **Map folders…** — discovers `<date>/<machine>` folders, auto-matches known aliases, and lists only unmatched names for manual assign. Map is saved as `machine_folders.yaml` (wins over aliases).
-2. **Map tree…** — lazy path tree for machine + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins).
-3. Optional: save assignments as **local aliases** (`aliases.local.yaml`) for later scans.
-4. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
+1. **Folder names…** — repeated folder names across the backup and extra roots (sorted by frequency); assign a machine and/or role alias to a name (everywhere). Writes `aliases.local.yaml` / `folder_colour_aliases` (exact name). Existing `machine_folders.yaml` is still read by the scanner.
+2. **Map tree…** — lazy path tree for machine + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins). Right-click a folder → same name alias as the name browser.
+3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
+4. **Folder roles…** — role catalogue (swatch, meaning) and name → role aliases.
 
 ### Loose `.nc` machine assignment
 

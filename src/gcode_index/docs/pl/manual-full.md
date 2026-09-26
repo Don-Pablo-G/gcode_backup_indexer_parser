@@ -84,10 +84,10 @@ Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **R
 
 ## Mapowanie folderów i aliasy
 
-1. **Mapuj foldery…** — wykrywa `<data>/<maszyna>`, dopasowuje aliasy, listuje tylko niedopasowane.
-2. **Mapuj drzewo…** — leniwe drzewo ścieżek: maszyna + wiele ról + wyklucz (`folder_tree_map.yaml`; najgłębsza ścieżka wygrywa).
-3. Opcjonalnie zapisz jako **lokalne aliasy** (`aliases.local.yaml`).
-4. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
+1. **Nazwy folderów…** — powtarzające się nazwy w kopii i dodatkowych korzeniach (sortowane wg częstości); przypisz alias maszyny i/lub roli do nazwy (wszędzie). Zapis: `aliases.local.yaml` / `folder_colour_aliases` (dokładna nazwa). Istniejący `machine_folders.yaml` nadal czyta skaner.
+2. **Mapuj drzewo…** — leniwe drzewo ścieżek: maszyna + wiele ról + wyklucz (`folder_tree_map.yaml`; najgłębsza ścieżka wygrywa). Prawy klik na folder → ten sam alias nazwy co w przeglądarce nazw.
+3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
+4. **Role folderów…** — katalog ról (barwa, znaczenie) oraz aliasy nazw → rola.
 
 ---
 

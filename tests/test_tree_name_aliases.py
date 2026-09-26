@@ -8,6 +8,7 @@ from gcode_index.aliases import AliasMap, normalize_folder_name
 from gcode_index.folder_colour_aliases import (
     FolderColourAliasMap,
     FolderColourRule,
+    collect_folder_name_frequencies,
     count_same_name_dirs,
     is_risky_alias_name,
 )
@@ -107,6 +108,29 @@ def test_count_same_name_dirs(tmp_path: Path):
     b.mkdir(parents=True)
     assert count_same_name_dirs([tmp_path], "Pawel") == 2
     assert normalize_folder_name("Pawel") == normalize_folder_name("pawel")
+
+
+def test_collect_folder_name_frequencies_sorts_by_count(tmp_path: Path):
+    bak = tmp_path / "bak"
+    extra = tmp_path / "extra"
+    # Pawel x3, Memory x2, Unique x1 — also case variants of Pawel
+    (bak / "15.09.2026" / "VF2" / "Pawel").mkdir(parents=True)
+    (bak / "16.09.2026" / "VF2" / "pawel").mkdir(parents=True)
+    (bak / "17.09.2026" / "UMC" / "Pawel").mkdir(parents=True)
+    (bak / "15.09.2026" / "VF2" / "Memory").mkdir(parents=True)
+    (extra / "Memory").mkdir(parents=True)
+    (extra / "UniqueOnly").mkdir(parents=True)
+    entries = collect_folder_name_frequencies([bak, extra])
+    by_key = {e.key: e for e in entries}
+    pawel_key = normalize_folder_name("Pawel")
+    assert by_key[pawel_key].count == 3
+    # Representative spelling is the most common (Pawel appears twice vs pawel once)
+    assert by_key[pawel_key].name == "Pawel"
+    assert by_key[normalize_folder_name("Memory")].count == 2
+    assert by_key[normalize_folder_name("UniqueOnly")].count == 1
+    # Sorted most frequent first
+    assert entries[0].key == pawel_key
+    assert entries[0].count >= entries[1].count
 
 
 def test_exclude_any_segment_drops(tmp_path: Path):

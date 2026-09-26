@@ -154,12 +154,53 @@ def test_old_seeds_demoted_customs_preserved(tmp_path: Path):
     fix = cat.get(ROLE_FIXTURE)
     assert fix is not None
     assert fix.builtin is True
-    assert fix.swatch == "#8E44AD"  # refreshed to purple seed
+    # Non-status user swatch on a seed is preserved (colour edits must stick)
+    assert fix.swatch == "#2980B9"
     q = cat.get("quarantine")
     assert q is not None
     assert q.swatch == "#111111"
     assert q.builtin is False
     assert {c.id for c in cat.colours} >= set(ROLE_SEED_IDS)
+
+
+def test_status_swatch_on_seed_resets_to_role_default(tmp_path: Path):
+    """Green/yellow status hex must not remain as a role seed swatch."""
+    path = tmp_path / "folder_colour_aliases.yaml"
+    path.write_text(
+        "colours:\n"
+        "  - id: fixture\n"
+        "    label_pl: Przyrząd\n"
+        "    swatch: '#1A7F37'\n"
+        "  - id: prototype\n"
+        "    swatch: '#B58900'\n",
+        encoding="utf-8",
+    )
+    cat = load_colour_catalog(path)
+    assert cat.get(ROLE_FIXTURE).swatch == "#8E44AD"
+    assert cat.get(ROLE_PROTOTYPE).swatch == "#2980B9"
+
+
+def test_edited_seed_swatch_persists(tmp_path: Path):
+    path = tmp_path / "folder_colour_aliases.yaml"
+    cat = ColourCatalog()
+    proto = cat.get(ROLE_PROTOTYPE)
+    assert proto is not None
+    edited = ColourDef(
+        id=proto.id,
+        label_pl=proto.label_pl,
+        label_en=proto.label_en,
+        swatch="#00AABB",
+        meaning_pl=proto.meaning_pl,
+        meaning_en=proto.meaning_en,
+        badge=proto.badge,
+        builtin=True,
+    )
+    others = [c for c in cat.colours if c.id != ROLE_PROTOTYPE]
+    save_colour_catalog(path, ColourCatalog(colours=[edited, *others], rules=[]))
+    loaded = load_colour_catalog(path)
+    b = loaded.get(ROLE_PROTOTYPE)
+    assert b is not None
+    assert b.swatch == "#00AABB"
 
 
 def test_custom_role_roundtrip(tmp_path: Path):

@@ -59,13 +59,11 @@ from gcode_index.folder_map import (
     UNKNOWN_ID,
     UNKNOWN_LABEL,
     FolderMachineMap,
-    FolderPartition,
     discover_machine_folders,
     display_for_machine,
     map_path_for_target,
     parse_machine_display,
     partition_folders,
-    suggest_assignments,
 )
 from gcode_index.folder_tree_map import (
     TREE_MAP_FILENAME,
@@ -103,6 +101,8 @@ from gcode_index.folder_colour_aliases import (
     ColourDef,
     FolderColourAliasMap,
     FolderColourRule,
+    FolderNameFreq,
+    collect_folder_name_frequencies,
     count_same_name_dirs,
     default_colours,
     folder_colour_aliases_path_for_target,
@@ -3017,6 +3017,12 @@ class IndexerApp(tk.Tk):
             return FolderMachineMap()
 
     def _open_folder_map(self) -> None:
+        """Open repeated folder-name browser (machine/role name aliases).
+
+        Replaces the old machine_folders.yaml mapper UI. Existing
+        ``machine_folders.yaml`` remains readable by the scanner; this dialog
+        writes name aliases (``aliases.local.yaml`` / ``folder_colour_aliases``).
+        """
         backup = self.backup_var.get().strip()
         target = self.target_var.get().strip()
         if not backup or not Path(backup).is_dir():
@@ -3034,47 +3040,43 @@ class IndexerApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror(self._("aliases_dialog_title"), str(exc))
             return
-        folders = discover_machine_folders(backup)
-        if not folders:
+        roots, skipped = collect_tree_map_roots(backup, self._scan_root_specs())
+        if not roots:
+            detail = self._("name_browser_no_roots")
+            if skipped:
+                detail = (
+                    detail
+                    + "\n\n"
+                    + self._("err_tree_map_roots_missing", paths="\n".join(skipped))
+                )
+            messagebox.showinfo(self._("map_folders"), detail)
+            return
+        entries = collect_folder_name_frequencies(roots)
+        if not entries:
             messagebox.showinfo(
                 self._("map_folders"),
-                self._("map_no_folders", path=backup),
+                self._("name_browser_empty"),
             )
             return
-        existing = self._load_folder_map()
-        part = partition_folders(folders, aliases, existing)
-        if not part.needs_manual:
-            auto_n = part.auto_count
-            prev_n = len(part.previously_mapped)
-            messagebox.showinfo(
-                self._("map_folders"),
-                self._("map_all_matched")
-                + f"\n\n{self._('map_summary', auto=auto_n, prev=prev_n, manual=0)}",
-            )
-            return
-        suggested = suggest_assignments(folders, aliases, existing)
-        suggested.backup_root = str(Path(backup).resolve())
-        dlg = FolderMapDialog(
+        colour_path = folder_colour_aliases_path_for_target(target)
+        catalog = load_colour_catalog(colour_path)
+        dlg = FolderNameBrowserDialog(
             self,
-            partition=part,
-            suggested=suggested,
-            existing_map=existing,
+            roots=roots,
+            entries=entries,
             aliases=aliases,
             machine_choices=[
                 display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
                 *aliases.known_machine_displays(),
             ],
-            save_path=map_path_for_target(target),
             local_aliases_path=local_aliases_path_for_target(target),
+            colour_save_path=colour_path,
+            catalog=catalog,
         )
         self.wait_window(dlg)
-        if dlg.saved:
-            bits = [self._("status_aliases_saved", filename=map_path_for_target(target).name)]
-            if dlg.aliases_saved:
-                bits.append(
-                    self._("status_aliases_saved", filename=LOCAL_ALIASES_FILENAME)
-                )
-            self.status_var.set("; ".join(bits))
+        if dlg.changed:
+            self._load_colour_catalog()
+            self.status_var.set(self._("name_browser_status_saved"))
 
     def _open_folder_tree_map(self) -> None:
         """Open lazy path-tree mapper (indexer). Show errors instead of failing silently."""
@@ -5922,158 +5924,401 @@ def _lang_of(master) -> str:
     return getattr(master, "_lang", None) or DEFAULT_LANG
 
 
-class FolderMapDialog(tk.Toplevel):
-    """Assign unmatched machine folders; auto-matched ones stay out of the way.
+class FolderNameBrowserDialog(tk.Toplevel):
+    """Browse repeated folder names across trees; assign machine/role name aliases.
 
-    On save, writes ``machine_folders.yaml`` and optionally shop-local aliases
-    (``aliases.local.yaml``) so the same folder names auto-match on later scans.
+    Writes ``aliases.local.yaml`` and/or ``folder_colour_aliases`` (exact name
+    rules) — same path as tree right-click. Does not write ``machine_folders.yaml``
+    (still readable by the scanner if present from older installs).
     """
 
     def __init__(
         self,
         master: tk.Tk,
         *,
-        partition: FolderPartition,
-        suggested: FolderMachineMap,
-        existing_map: FolderMachineMap,
+        roots: list[Path],
+        entries: list[FolderNameFreq],
         aliases: AliasMap,
         machine_choices: list[str],
-        save_path: Path,
         local_aliases_path: Path,
+        colour_save_path: Path,
+        catalog: ColourCatalog,
     ) -> None:
         super().__init__(master)
-        self.title(_tr(master, "map_dialog_title"))
-        self.minsize(560, 400)
-        self.geometry("680x520")
+        self.title(_tr(master, "name_browser_dialog_title"))
+        self.minsize(720, 480)
+        self.geometry("860x560")
         self.transient(master)
         self.grab_set()
-        self.saved = False
-        self.aliases_saved = False
-        self._save_path = Path(save_path)
-        self._local_aliases_path = Path(local_aliases_path)
-        self._suggested = suggested
-        self._existing = existing_map
-        self._partition = partition
+        self.changed = False
+        self._roots = list(roots)
+        self._entries = list(entries)
         self._aliases = aliases
         self._choices = list(machine_choices)
-        self._vars: dict[str, tk.StringVar] = {}
+        self._local_aliases_path = Path(local_aliases_path)
+        self._colour_save_path = Path(colour_save_path)
+        self._catalog = catalog
+        self._colour_map = FolderColourAliasMap(
+            catalog.rules, known_ids=catalog.colour_ids
+        )
+        self._iid_by_key: dict[str, str] = {}
 
-        summary = _tr(
-            master,
-            "map_summary",
-            auto=partition.auto_count,
-            prev=len(partition.previously_mapped),
-            manual=partition.manual_count,
-        )
-        ttk.Label(self, text=summary, wraplength=640).pack(
-            fill=tk.X, padx=12, pady=(12, 4)
-        )
         ttk.Label(
             self,
-            text=_tr(master, "map_hint"),
-            wraplength=640,
-        ).pack(fill=tk.X, padx=12, pady=(0, 6))
+            text=_tr(master, "name_browser_intro"),
+            wraplength=820,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
 
-        if partition.auto_matched:
-            auto_frame = ttk.LabelFrame(self, text=_tr(master, "map_auto_frame"))
-            auto_frame.pack(fill=tk.X, padx=12, pady=4)
-            preview = ", ".join(
-                f"{name}→{info.label or info.machine_id}"
-                for name, info in partition.auto_matched[:12]
-            )
-            if len(partition.auto_matched) > 12:
-                preview += ", " + _tr(
-                    master, "map_more", n=len(partition.auto_matched) - 12
-                )
-            ttk.Label(auto_frame, text=preview, wraplength=620).pack(
-                fill=tk.X, padx=8, pady=6
-            )
-
-        outer = ttk.Frame(self)
-        outer.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
-        canvas = tk.Canvas(outer, highlightthickness=0)
-        sb = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
-        inner = ttk.Frame(canvas)
-        inner.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        filt = ttk.Frame(self)
+        filt.pack(fill=tk.X, padx=12, pady=(0, 4))
+        ttk.Label(filt, text=_tr(master, "name_browser_filter")).pack(side=tk.LEFT)
+        self._filter_var = tk.StringVar()
+        self._filter_var.trace_add("write", lambda *_a: self._refresh_rows())
+        ttk.Entry(filt, textvariable=self._filter_var, width=28).pack(
+            side=tk.LEFT, padx=6
         )
-        canvas.create_window((0, 0), window=inner, anchor=tk.NW)
-        canvas.configure(yscrollcommand=sb.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._count_var = tk.StringVar()
+        ttk.Label(filt, textvariable=self._count_var).pack(side=tk.RIGHT)
+
+        body = ttk.Frame(self)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        cols = ("name", "count", "machine", "role")
+        self._tree = ttk.Treeview(
+            body, columns=cols, show="headings", selectmode="browse"
+        )
+        self._tree.heading("name", text=_tr(master, "name_browser_col_name"))
+        self._tree.heading("count", text=_tr(master, "name_browser_col_count"))
+        self._tree.heading("machine", text=_tr(master, "name_browser_col_machine"))
+        self._tree.heading("role", text=_tr(master, "name_browser_col_role"))
+        self._tree.column("name", width=220, stretch=True)
+        self._tree.column("count", width=80, anchor=tk.E, stretch=False)
+        self._tree.column("machine", width=220, stretch=True)
+        self._tree.column("role", width=180, stretch=True)
+        sb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self._tree.yview)
+        self._tree.configure(yscrollcommand=sb.set)
+        self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._tree.bind("<Double-Button-1>", lambda _e: self._assign_machine())
 
-        ttk.Label(inner, text=_tr(master, "map_col_folder")).grid(
-            row=0, column=0, sticky=tk.W, padx=4, pady=2
-        )
-        ttk.Label(inner, text=_tr(master, "map_col_machine")).grid(
-            row=0, column=1, sticky=tk.W, padx=4, pady=2
-        )
-
-        for i, folder in enumerate(partition.needs_manual, start=1):
-            a = suggested.get(folder)
-            mid = a.machine_id if a else UNKNOWN_ID
-            label = a.label if a else UNKNOWN_LABEL
-            initial = display_for_machine(mid, label)
-            if initial not in self._choices:
-                self._choices.append(initial)
-            var = tk.StringVar(value=initial)
-            self._vars[folder] = var
-            ttk.Label(inner, text=folder).grid(row=i, column=0, sticky=tk.W, padx=4, pady=3)
-            ttk.Combobox(
-                inner,
-                textvariable=var,
-                values=self._choices,
-                state="readonly",
-                width=42,
-            ).grid(row=i, column=1, sticky=tk.EW, padx=4, pady=3)
-        inner.columnconfigure(1, weight=1)
-
-        self._save_aliases_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            self,
-            text=_tr(master, "map_save_aliases_cb"),
-            variable=self._save_aliases_var,
-        ).pack(anchor=tk.W, padx=12, pady=(4, 0))
+        actions = ttk.Frame(self)
+        actions.pack(fill=tk.X, padx=12, pady=(4, 0))
+        ttk.Button(
+            actions,
+            text=_tr(master, "name_browser_assign_machine"),
+            command=self._assign_machine,
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            actions,
+            text=_tr(master, "name_browser_assign_role"),
+            command=self._assign_role,
+        ).pack(side=tk.LEFT, padx=8)
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
-        ttk.Button(btns, text=_tr(master, "map_save"), command=self._save).pack(
-            side=tk.RIGHT, padx=8
+        ttk.Button(
+            btns, text=_tr(master, "close"), command=self.destroy
+        ).pack(side=tk.RIGHT)
+
+        self._refresh_rows()
+
+    def _selected_entry(self) -> Optional[FolderNameFreq]:
+        sel = self._tree.selection()
+        if not sel:
+            return None
+        key = sel[0]
+        for e in self._entries:
+            if e.key == key:
+                return e
+        return None
+
+    def _machine_label_for(self, name: str) -> str:
+        info = self._aliases.resolve(name)
+        if not info.mapped:
+            return "—"
+        return info.label or info.machine_id or "—"
+
+    def _role_label_for(self, name: str) -> str:
+        rule = self._colour_map.rule_for_name(name)
+        if rule is None:
+            return "—"
+        if rule.colour == COLOUR_EXCLUDE:
+            return _tr(self.master, "flag_exclude")
+        c = self._catalog.get(rule.colour)
+        return c.label(_lang_of(self.master)) if c else rule.colour
+
+    def _refresh_rows(self) -> None:
+        needle = (self._filter_var.get() or "").strip().casefold()
+        for iid in self._tree.get_children():
+            self._tree.delete(iid)
+        self._iid_by_key.clear()
+        shown = 0
+        for e in self._entries:
+            if needle and needle not in e.name.casefold() and needle not in e.key:
+                continue
+            self._tree.insert(
+                "",
+                tk.END,
+                iid=e.key,
+                values=(
+                    e.name,
+                    e.count,
+                    self._machine_label_for(e.name),
+                    self._role_label_for(e.name),
+                ),
+            )
+            self._iid_by_key[e.key] = e.key
+            shown += 1
+        self._count_var.set(
+            _tr(self.master, "name_browser_shown", shown=shown, total=len(self._entries))
         )
 
-    def _save(self) -> None:
-        out = FolderMachineMap()
-        out.backup_root = self._suggested.backup_root or self._existing.backup_root
-        # Keep previous real mappings + auto-matched as explicit map entries
-        for folder, prev in self._partition.previously_mapped:
-            out.set(folder, prev.machine_id, prev.label)
-        for folder, info in self._partition.auto_matched:
-            out.set(folder, info.machine_id, info.label)
-        for folder, var in self._vars.items():
-            mid, label = parse_machine_display(var.get())
-            out.set(folder, mid, label)
-            if self._save_aliases_var.get() and mid not in {UNKNOWN_ID, ""}:
-                if not mid.startswith("unmapped:"):
-                    self._aliases.add_local_alias(folder, mid, label=label)
-        try:
-            out.save(self._save_path)
-        except OSError as exc:
-            messagebox.showerror(_tr(self.master, "map_save"), str(exc), parent=self)
+    def _refresh_row(self, entry: FolderNameFreq) -> None:
+        if entry.key not in self._iid_by_key:
+            self._refresh_rows()
             return
-        if self._save_aliases_var.get() and self._aliases.local_alias_count:
-            try:
-                self._aliases.save_local(self._local_aliases_path)
-                self.aliases_saved = True
-            except OSError as exc:
-                messagebox.showerror(
-                    _tr(self.master, "aliases_save_local"), str(exc), parent=self
+        self._tree.item(
+            entry.key,
+            values=(
+                entry.name,
+                entry.count,
+                self._machine_label_for(entry.name),
+                self._role_label_for(entry.name),
+            ),
+        )
+
+    def _alias_safety_ok(self, name: str) -> bool:
+        risky, reason = is_risky_alias_name(name)
+        if not risky:
+            return True
+        if reason == "short":
+            messagebox.showwarning(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_block_short", name=name),
+                parent=self,
+            )
+            return False
+        key = {
+            "date": "tree_alias_warn_date",
+            "memory": "tree_alias_warn_memory",
+        }.get(reason, "tree_alias_warn_date")
+        return bool(
+            messagebox.askyesno(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, key, name=name),
+                parent=self,
+            )
+        )
+
+    def _assign_machine(self) -> None:
+        entry = self._selected_entry()
+        if entry is None:
+            messagebox.showinfo(
+                _tr(self.master, "name_browser_dialog_title"),
+                _tr(self.master, "name_browser_select_row"),
+                parent=self,
+            )
+            return
+        name = entry.name
+        if not self._alias_safety_ok(name):
+            return
+        machines = []
+        for choice in self._choices:
+            if not choice:
+                continue
+            mid, _lab = parse_machine_display(choice)
+            if not mid or mid == UNKNOWN_ID:
+                continue
+            machines.append(choice)
+        if not machines:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_no_machines"),
+                parent=self,
+            )
+            return
+        pick = _pick_from_list(
+            self,
+            title=_tr(self.master, "tree_alias_machine_pick_title", name=name),
+            prompt=_tr(self.master, "tree_alias_machine_pick_prompt", name=name),
+            values=machines,
+        )
+        if not pick:
+            return
+        mid, _lab = parse_machine_display(pick)
+        if not mid:
+            return
+        hits = entry.count
+        existing = self._aliases.resolve(name)
+        if existing.mapped:
+            cur = existing.label or existing.machine_id
+            if existing.machine_id == mid:
+                messagebox.showinfo(
+                    _tr(self.master, "tree_alias_title"),
+                    _tr(
+                        self.master,
+                        "tree_alias_machine_already",
+                        name=name,
+                        target=cur,
+                    ),
+                    parent=self,
                 )
                 return
-        self.saved = True
-        self.destroy()
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_machine_replace",
+                    name=name,
+                    current=cur,
+                    new=pick,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_machine_confirm",
+                    name=name,
+                    target=pick,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        self._aliases.add_local_alias(name, mid)
+        try:
+            self._aliases.save_local(self._local_aliases_path)
+        except OSError as exc:
+            messagebox.showerror(
+                _tr(self.master, "tree_alias_title"), str(exc), parent=self
+            )
+            return
+        self.changed = True
+        self._refresh_row(entry)
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(self.master, "tree_alias_saved_reindex", name=name, target=pick),
+            parent=self,
+        )
 
+    def _assign_role(self) -> None:
+        entry = self._selected_entry()
+        if entry is None:
+            messagebox.showinfo(
+                _tr(self.master, "name_browser_dialog_title"),
+                _tr(self.master, "name_browser_select_row"),
+                parent=self,
+            )
+            return
+        name = entry.name
+        if not self._alias_safety_ok(name):
+            return
+        role_labels = []
+        role_by_label: dict[str, str] = {}
+        for c in self._catalog.colours:
+            lab = c.label(_lang_of(self.master))
+            role_labels.append(lab)
+            role_by_label[lab] = c.id
+        if not role_labels:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_need_roles"),
+                parent=self,
+            )
+            return
+        pick = _pick_from_list(
+            self,
+            title=_tr(self.master, "name_browser_role_pick_title", name=name),
+            prompt=_tr(self.master, "name_browser_role_pick_prompt", name=name),
+            values=role_labels,
+        )
+        if not pick:
+            return
+        role_id = role_by_label.get(pick)
+        if not role_id:
+            return
+        role_label = pick
+        hits = entry.count
+        existing = self._colour_map.rule_for_name(name)
+        path_roles = role_label  # name-wide; no single path context
+        if existing is not None:
+            cur_def = self._catalog.get(existing.colour)
+            cur_lab = (
+                cur_def.label(_lang_of(self.master))
+                if cur_def
+                else existing.colour
+            )
+            if existing.colour == role_id:
+                messagebox.showinfo(
+                    _tr(self.master, "tree_alias_title"),
+                    _tr(
+                        self.master,
+                        "tree_alias_role_already",
+                        name=name,
+                        target=cur_lab,
+                    ),
+                    parent=self,
+                )
+                return
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_role_replace",
+                    name=name,
+                    current=cur_lab,
+                    new=role_label,
+                    count=hits,
+                    path_roles=path_roles,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_role_confirm",
+                    name=name,
+                    target=role_label,
+                    count=hits,
+                    path_roles=path_roles,
+                ),
+                parent=self,
+            ):
+                return
+        self._colour_map.upsert_exact_role(name, role_id)
+        self._catalog = ColourCatalog(
+            colours=list(self._catalog.colours),
+            rules=list(self._colour_map.rules),
+        )
+        self._colour_map = FolderColourAliasMap(
+            self._catalog.rules, known_ids=self._catalog.colour_ids
+        )
+        try:
+            save_colour_catalog(self._colour_save_path, self._catalog)
+        except OSError as exc:
+            messagebox.showerror(
+                _tr(self.master, "tree_alias_title"), str(exc), parent=self
+            )
+            return
+        self.changed = True
+        self._refresh_row(entry)
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(
+                self.master,
+                "tree_alias_saved_reindex",
+                name=name,
+                target=role_label,
+            ),
+            parent=self,
+        )
 
 
 
@@ -6255,6 +6500,10 @@ class FolderColourAliasDialog(tk.Toplevel):
 
     def _set_swatch_colour(self, hex_colour: str) -> None:
         self._swatch_var.set(normalize_hex_colour(hex_colour))
+        # Persist into the in-memory catalogue immediately so a later Save
+        # (or row switch) cannot drop a colour pick that never hit Apply.
+        if self._cid_var.get().strip():
+            self._apply_colour_fields(silent=True)
 
     def _pick_swatch_colour(self) -> None:
         initial = normalize_hex_colour(self._swatch_var.get())
@@ -6291,6 +6540,10 @@ class FolderColourAliasDialog(tk.Toplevel):
                 pass
 
     def _on_colour_select(self, _evt=None) -> None:
+        # Flush in-progress edits before switching rows (colour pick alone used
+        # to vanish when navigating away without clicking Apply).
+        if self._cid_var.get().strip():
+            self._apply_colour_fields(silent=True)
         sel = self._colour_list.curselection()
         if not sel:
             return
@@ -6305,11 +6558,23 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._meaning_en.delete("1.0", tk.END)
         self._meaning_en.insert("1.0", c.meaning_en)
 
-    def _apply_colour_fields(self) -> None:
-        sel = self._colour_list.curselection()
-        if not sel:
+    def _apply_colour_fields(self, silent: bool = False) -> None:
+        cid = self._cid_var.get().strip()
+        if not cid:
+            if not silent:
+                return
             return
-        idx = int(sel[0])
+        # Prefer id match over list selection (selection can change mid-flush)
+        idx = None
+        for i, c in enumerate(self._catalog.colours):
+            if c.id == cid:
+                idx = i
+                break
+        if idx is None:
+            sel = self._colour_list.curselection()
+            if not sel:
+                return
+            idx = int(sel[0])
         old = self._catalog.colours[idx]
         updated = ColourDef(
             id=old.id,
@@ -6324,8 +6589,15 @@ class FolderColourAliasDialog(tk.Toplevel):
         colours = list(self._catalog.colours)
         colours[idx] = updated
         self._catalog = ColourCatalog(colours=colours, rules=list(self._catalog.rules))
+        # Re-read after merge to ensure UI matches persisted model
+        merged = self._catalog.get(old.id) or updated
+        self._swatch_var.set(merged.swatch)
         self._refresh_colour_list()
-        self._colour_list.selection_set(idx)
+        # Reselect by id (order may be stable but be safe)
+        for i, c in enumerate(self._catalog.colours):
+            if c.id == old.id:
+                self._colour_list.selection_set(i)
+                break
         self._sync_alias_colour_choices()
 
     def _add_colour(self) -> None:

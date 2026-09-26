@@ -369,10 +369,9 @@ class ColourCatalog:
 def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]:
     """Ensure role seeds exist; strip status ids; demote old seeds to customs.
 
-    - New seeds (prototype / personal / system_programs / fixture) are builtins
-      with the canonical swatches (blue / red / orange / purple).
-    - User label/meaning edits on seeds are preserved; seed swatches are refreshed
-      so yellow never remains a role colour and fixture is purple.
+    - New seeds (prototype / personal / system_programs / fixture) are builtins.
+    - User label / meaning / **swatch** edits on seeds are preserved (swatch is
+      only reset when missing or when it is a status green/yellow hex).
     - Legacy seeds (production / wip / test) are kept when present but not
       auto-added and not builtin — user customs are never wiped.
     """
@@ -387,12 +386,20 @@ def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]
             continue
         if c.id in defaults:
             d = defaults[c.id]
+            # Preserve user-edited swatch; only fall back to seed default when
+            # missing, or when the stored swatch is a status colour (green/yellow)
+            # that must not remain as a role colour.
+            user_swatch = normalize_hex_colour(c.swatch) if c.swatch else ""
+            status_swatches = {"#1A7F37", "#B58900"}  # green / yellow status
+            if user_swatch and user_swatch.upper() not in status_swatches:
+                swatch = user_swatch
+            else:
+                swatch = d.swatch
             by_id[c.id] = ColourDef(
                 id=c.id,
                 label_pl=c.label_pl or d.label_pl,
                 label_en=c.label_en or d.label_en,
-                # Canonical seed swatch (blue/red/orange/purple)
-                swatch=d.swatch,
+                swatch=swatch,
                 meaning_pl=c.meaning_pl if c.meaning_pl else d.meaning_pl,
                 meaning_en=c.meaning_en if c.meaning_en else d.meaning_en,
                 badge=c.badge or d.badge,
@@ -775,3 +782,63 @@ def count_same_name_dirs(
         except OSError:
             continue
     return n
+
+
+@dataclass(frozen=True)
+class FolderNameFreq:
+    """One distinct folder name (normalized) with a representative spelling + count."""
+
+    key: str
+    name: str
+    count: int
+
+
+def collect_folder_name_frequencies(
+    roots: Sequence[Path | str],
+    *,
+    max_dirs: int = 100_000,
+) -> list[FolderNameFreq]:
+    """Walk backup + extra roots; return distinct folder names sorted by frequency.
+
+    Names are grouped by ``normalize_folder_name``. The representative ``name`` is
+    the most common spelling in the trees (tie-break: casefold, then original).
+    Most frequent names come first — handy for assigning machine/role aliases.
+    """
+    # key → spelling → count
+    groups: dict[str, dict[str, int]] = {}
+    seen = 0
+    for root in roots:
+        try:
+            r = Path(root)
+            if not r.is_dir():
+                continue
+            for p in r.rglob("*"):
+                if seen >= max_dirs:
+                    break
+                try:
+                    if not p.is_dir():
+                        continue
+                except OSError:
+                    continue
+                seen += 1
+                spelling = p.name
+                key = normalize_folder_name(spelling)
+                if not key:
+                    continue
+                spellings = groups.setdefault(key, {})
+                spellings[spelling] = spellings.get(spelling, 0) + 1
+            if seen >= max_dirs:
+                break
+        except OSError:
+            continue
+
+    out: list[FolderNameFreq] = []
+    for key, spellings in groups.items():
+        # Representative: highest count, then casefold, then original spelling
+        name = sorted(
+            spellings.items(),
+            key=lambda kv: (-kv[1], kv[0].casefold(), kv[0]),
+        )[0][0]
+        out.append(FolderNameFreq(key=key, name=name, count=sum(spellings.values())))
+    out.sort(key=lambda e: (-e.count, e.name.casefold(), e.name))
+    return out
