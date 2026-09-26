@@ -53,6 +53,7 @@ class InstanceConfig:
     watch_mode: str = DEFAULT_WATCH_MODE  # hybrid | poll
     also_excel: bool = False
     newest_only: bool = False
+    include_unknown: bool = True  # sticky: keep MACHINE UNKNOWN when filtering machines
     search_auto_refresh: bool = False  # re-query when DB mtime changes
     search_auto_refresh_s: int = 20  # poll interval for DB mtime (seconds)
     geometry: str = "1320x820"
@@ -254,6 +255,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.newest_only = _truthy(
             parser.get("scan", "newest_only", fallback="no"), default=False
         )
+        cfg.include_unknown = _truthy(
+            parser.get("scan", "include_unknown", fallback="yes"), default=True
+        )
         cfg.watch_folders = _truthy(
             parser.get("scan", "watch_folders", fallback="no"), default=False
         )
@@ -374,6 +378,7 @@ def save_instance_ini(
         ),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
+        include_unknown=bool(kwargs.get("include_unknown", base.include_unknown)),
         search_auto_refresh=bool(
             kwargs.get("search_auto_refresh", base.search_auto_refresh)
         ),
@@ -471,6 +476,9 @@ watch_mode = {data.watch_mode}
 also_excel = {yn(data.also_excel)}
 ; yes/no — default "newest only" filter on startup
 newest_only = {yn(data.newest_only)}
+; yes/no — when filtering by machines, still show MACHINE UNKNOWN / unassigned
+; Default yes. Floor clients (can_index=no / operator.lock) keep this on.
+include_unknown = {yn(data.include_unknown)}
 ; yes/no — auto-refresh search results when the DB file changes (mtime)
 ; Useful on floor clients sharing a network DB — no need to retype search.
 search_auto_refresh = {yn(data.search_auto_refresh)}

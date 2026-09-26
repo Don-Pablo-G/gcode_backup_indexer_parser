@@ -231,6 +231,7 @@ class IndexerApp(tk.Tk):
         self.provenance_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
+        self.include_unknown_var = tk.BooleanVar(value=True)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
         self.watch_mode_var = tk.StringVar(value="")
@@ -375,6 +376,11 @@ class IndexerApp(tk.Tk):
         self.minimize_to_tray_var.set(bool(cfg.minimize_to_tray))
         self.excel_var.set(bool(cfg.also_excel))
         self.newest_only_var.set(bool(cfg.newest_only))
+        # Floor lock forces include-UNKNOWN on; indexer may load saved preference.
+        if self._is_simple() or self._settings_locked:
+            self.include_unknown_var.set(True)
+        else:
+            self.include_unknown_var.set(bool(cfg.include_unknown))
         self._watch_enabled = bool(cfg.watch_folders) and not self._is_simple()
         self._hidden_root_specs = list(cfg.root_specs())
         self._ini_notes = cfg.notes or ""
@@ -430,6 +436,7 @@ class IndexerApp(tk.Tk):
             close_to_tray=bool(self.close_to_tray_var.get()),
             minimize_to_tray=bool(self.minimize_to_tray_var.get()),
             newest_only=bool(self.newest_only_var.get()),
+            include_unknown=self._effective_include_unknown(),
             search_auto_refresh=bool(self.search_auto_refresh_var.get()),
             search_auto_refresh_s=self._search_auto_refresh_s,
             geometry=geom,
@@ -742,6 +749,7 @@ class IndexerApp(tk.Tk):
             "provenance": self.provenance_var.get(),
             "programmer": self.programmer_var.get(),
             "newest": bool(self.newest_only_var.get()),
+            "include_unknown": bool(self.include_unknown_var.get()),
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
@@ -831,6 +839,8 @@ class IndexerApp(tk.Tk):
             else:
                 self.provenance_var.set(self._all_token())
             self.newest_only_var.set(bool(preserved.get("newest")))
+            if "include_unknown" in preserved:
+                self.include_unknown_var.set(bool(preserved.get("include_unknown")))
             self.incremental_var.set(bool(preserved.get("incremental", True)))
             self.watch_var.set(bool(preserved.get("watch", False)))
             if preserved.get("watch_mode") is not None:
@@ -871,6 +881,7 @@ class IndexerApp(tk.Tk):
             view = str(preserved.get("pelny_view") or "").strip().casefold()
             if view in ("praca", "indeks") and not self._is_simple():
                 self._show_pelny_view(view)
+        self._sync_include_unknown_widget()
         self._run_query_now()
         self._sync_folder_watch()
         self._arm_search_auto_refresh()
@@ -1670,6 +1681,14 @@ class IndexerApp(tk.Tk):
         ttk.Button(
             row2, text=self._("clear_filters"), command=self._clear_filters
         ).pack(side=tk.LEFT, padx=4)
+        self._include_unknown_cb = ttk.Checkbutton(
+            row2,
+            text=self._("include_unknown"),
+            variable=self.include_unknown_var,
+            command=self._on_include_unknown_toggled,
+        )
+        self._include_unknown_cb.pack(side=tk.LEFT, padx=(12, 0))
+        self._sync_include_unknown_widget()
         ttk.Checkbutton(
             row2,
             text=self._("search_auto_refresh"),
@@ -3477,6 +3496,48 @@ class IndexerApp(tk.Tk):
         self._save_instance_ini()
         self._arm_search_auto_refresh()
 
+    def _include_unknown_locked(self) -> bool:
+        """Floor client / operator lock: include-UNKNOWN cannot be turned off."""
+        return self._is_simple() or bool(self._settings_locked)
+
+    def _effective_include_unknown(self) -> bool:
+        if self._include_unknown_locked():
+            return True
+        return bool(self.include_unknown_var.get())
+
+    def _sync_include_unknown_widget(self) -> None:
+        """Force ON + disable when floor/locked; otherwise leave editable."""
+        locked = self._include_unknown_locked()
+        if locked:
+            self.include_unknown_var.set(True)
+        cb = getattr(self, "_include_unknown_cb", None)
+        if cb is None:
+            return
+        try:
+            cb.configure(state=tk.DISABLED if locked else tk.NORMAL)
+        except tk.TclError:
+            pass
+
+    def _on_include_unknown_toggled(self) -> None:
+        if self._include_unknown_locked():
+            self.include_unknown_var.set(True)
+            self._sync_include_unknown_widget()
+            messagebox.showinfo(
+                self._("include_unknown"),
+                self._("include_unknown_locked"),
+            )
+            return
+        if not bool(self.include_unknown_var.get()):
+            if not messagebox.askyesno(
+                self._("include_unknown"),
+                self._("include_unknown_off_warn"),
+                parent=self,
+            ):
+                self.include_unknown_var.set(True)
+                return
+        self._save_instance_ini()
+        self._on_filter_changed()
+
     def _note_db_mtime(self) -> None:
         db_path = self._db_path()
         if db_path is None or not db_path.is_file():
@@ -3577,6 +3638,7 @@ class IndexerApp(tk.Tk):
                     provenance=provenance,
                     programmer=programmer_filter,
                     newest_only=bool(self.newest_only_var.get()),
+                    include_unknown=self._effective_include_unknown(),
                     limit=BROWSE_LIMIT,
                 )
                 total = conn.execute("SELECT COUNT(*) FROM program_instances").fetchone()[0]
@@ -3600,6 +3662,8 @@ class IndexerApp(tk.Tk):
             bits.append(f"text={text!r}")
         if machines:
             bits.append(f"machines={len(machines)}")
+            if self._effective_include_unknown():
+                bits.append(self._("status_include_unknown"))
         if date_from or date_to:
             bits.append(f"dates={date_from or '…'}→{date_to or '…'}")
         if size_min or size_max:

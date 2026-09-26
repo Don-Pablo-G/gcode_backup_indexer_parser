@@ -565,6 +565,7 @@ def query_instances(
     provenance: Optional[str] = None,
     programmer: Optional[str] = None,
     newest_only: bool = False,
+    include_unknown: bool = False,
     limit: int = 500,
 ) -> list[sqlite3.Row]:
     """Flexible filter/search for GUI and CLI.
@@ -585,6 +586,8 @@ def query_instances(
     ``provenance`` — ``backup`` (green / ran on machine) or ``extra`` (yellow).
     ``programmer`` — exact uppercase flag e.g. ``LP1`` (case-insensitive input).
     ``newest_only`` — keep newest row per program+machine after filtering.
+    ``include_unknown`` — when a machine multi-select is active, also keep
+    ``MACHINE UNKNOWN`` / ``unmapped:…`` rows (floor-client sticky default).
     """
     conn.row_factory = sqlite3.Row
     clauses: list[str] = []
@@ -646,6 +649,15 @@ def query_instances(
                 )"""
             )
             params.extend([m_fold, m_fold, m_fold, f"%{m_fold}%", f"%{m_fold}%"])
+        if include_unknown:
+            # Sticky "include unassigned": keep UNKNOWN even when filtering known machines
+            or_parts.append(
+                "("
+                "LOWER(machine_id) = 'unknown' "
+                "OR LOWER(machine_id) LIKE 'unmapped:%' "
+                "OR LOWER(IFNULL(machine_label,'')) = 'machine unknown'"
+                ")"
+            )
         clauses.append("(" + " OR ".join(or_parts) + ")")
 
     d_from = _normalize_date_bound(date_from, end=False)

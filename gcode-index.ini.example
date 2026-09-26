@@ -77,6 +77,9 @@ watch_mode = hybrid
 also_excel = no
 ; yes/no — default "newest only" (one row per program+machine) on startup
 newest_only = no
+; yes/no — when filtering by machines, still show MACHINE UNKNOWN / unassigned (default yes)
+; Floor clients (can_index=no / operator.lock) keep this on — control is disabled.
+include_unknown = yes
 ; yes/no — auto-refresh search when gcode_index.sqlite mtime changes (clients)
 search_auto_refresh = no
 ; Seconds between DB mtime checks while auto-refresh is on (minimum 5)
