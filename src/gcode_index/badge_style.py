@@ -14,8 +14,10 @@ from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
 if TYPE_CHECKING:
     import tkinter as tk
 
-# Solid disc — colour comes from widget foreground / tag, not from the font emoji.
+# Solid discs — colour via widget foreground / tag (not emoji glyphs).
+# LARGE is slightly bigger for status/role markers in the results table.
 DOT = "●"
+DOT_LARGE = "⬤"  # U+2B24 BLACK LARGE CIRCLE
 
 STATUS_SWATCH = {
     PROVENANCE_BACKUP: "#1A7F37",  # on machine / green
@@ -30,19 +32,19 @@ def status_swatch(prov: Optional[str]) -> str:
 
 def status_dot(prov: Optional[str] = None) -> str:
     """One status marker character (colour via Treeview tag / Label fg)."""
-    return DOT
+    return DOT_LARGE
 
 
 def role_dot(_badge: Optional[str] = None) -> str:
     """Role marker for lists/trees — ignore emoji badge; use colourable disc."""
-    return DOT
+    return DOT_LARGE
 
 
 def flag_text(prov: Optional[str], role_ids: Sequence[str] | None = None) -> str:
     """Flag-column text: status disc + one disc per role (all take row tag colour)."""
-    parts = [DOT]
+    parts = [DOT_LARGE]
     for _rid in role_ids or []:
-        parts.append(DOT)
+        parts.append(DOT_LARGE)
     return "".join(parts)
 
 
@@ -96,11 +98,46 @@ def pack_status_legend(
     frame = tk.Frame(parent)
     row = tk.Frame(frame)
     row.pack(anchor=tk.W, fill=tk.X)
-    make_swatch(row, STATUS_SWATCH[PROVENANCE_BACKUP]).pack(side=tk.LEFT, padx=(0, 4))
+    make_swatch(row, STATUS_SWATCH[PROVENANCE_BACKUP], width=4, height=1).pack(
+        side=tk.LEFT, padx=(0, 4)
+    )
     tk.Label(row, text=on_machine_text).pack(side=tk.LEFT, padx=(0, 12))
-    make_swatch(row, STATUS_SWATCH[PROVENANCE_EXTRA]).pack(side=tk.LEFT, padx=(0, 4))
+    make_swatch(row, STATUS_SWATCH[PROVENANCE_EXTRA], width=4, height=1).pack(
+        side=tk.LEFT, padx=(0, 4)
+    )
     tk.Label(row, text=not_run_text).pack(side=tk.LEFT)
     tk.Label(frame, text=explain_text, wraplength=wraplength, justify=tk.LEFT).pack(
         anchor=tk.W, fill=tk.X, pady=(6, 0)
     )
+    return frame
+
+
+def pack_compact_colour_legend(
+    parent: "tk.Misc",
+    *,
+    on_machine_text: str,
+    not_run_text: str,
+    role_items: Sequence[tuple[str, str]] | None = None,
+    roles_caption: str = "",
+) -> "tk.Frame":
+    """One-line status (+ optional role) legend for the results toolbar."""
+    import tkinter as tk
+
+    frame = tk.Frame(parent)
+    make_swatch(frame, STATUS_SWATCH[PROVENANCE_BACKUP], width=3, height=1, padx=3, pady=1).pack(
+        side=tk.LEFT, padx=(0, 3)
+    )
+    tk.Label(frame, text=on_machine_text).pack(side=tk.LEFT, padx=(0, 10))
+    make_swatch(frame, STATUS_SWATCH[PROVENANCE_EXTRA], width=3, height=1, padx=3, pady=1).pack(
+        side=tk.LEFT, padx=(0, 3)
+    )
+    tk.Label(frame, text=not_run_text).pack(side=tk.LEFT, padx=(0, 10))
+    if role_items:
+        if roles_caption:
+            tk.Label(frame, text=roles_caption).pack(side=tk.LEFT, padx=(4, 6))
+        for colour, label in list(role_items)[:6]:
+            make_swatch(frame, colour, width=3, height=1, padx=3, pady=1).pack(
+                side=tk.LEFT, padx=(0, 2)
+            )
+            tk.Label(frame, text=label).pack(side=tk.LEFT, padx=(0, 8))
     return frame

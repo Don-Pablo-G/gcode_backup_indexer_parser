@@ -65,11 +65,14 @@ def test_indexer_has_praca_indeks_and_preview_find(tmp_path: Path, monkeypatch):
         assert getattr(app, "_nav_indeks_btn", None) is not None
         assert getattr(app, "_praca_frame", None) is not None
         assert getattr(app, "_indeks_frame", None) is not None
-        assert hasattr(app, "preview_find_entry")
         app._show_pelny_view("indeks")
         assert app._pelny_view == "indeks"
         app._show_pelny_view("praca")
         assert app._pelny_view == "praca"
+        # Preview + find live in a popup (full-width results table)
+        app._open_preview_popup()
+        assert app._preview_widgets_alive()
+        assert app.preview_find_entry is not None
         app.preview_text.configure(state="normal")
         app.preview_text.delete("1.0", "end")
         app.preview_text.insert("1.0", "G0 X0\nG1 X1\nG0 Z0\n")

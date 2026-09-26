@@ -234,6 +234,8 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
         folders_expanded=False,
         pelny_view="indeks",
         preview_find="G0",
+        hidden_columns=["path", "location"],
+        preview_geometry="800x600+40+40",
     )
     save_instance_ini(path, config=cfg)
     text = path.read_text(encoding="utf-8")
@@ -241,6 +243,8 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert "[session]" in text
     assert "role = wip" in text
     assert "sort_col = date" in text
+    assert "hidden_columns = location,path" in text or "hidden_columns = path,location" in text
+    assert "preview_geometry = 800x600+40+40" in text
     loaded = load_instance_ini(path)
     assert loaded.filter_text == "O1234"
     assert loaded.filter_machines == ["HAAS VF-2", "ST-20Y"]
@@ -253,6 +257,10 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert loaded.folders_expanded is False
     assert loaded.pelny_view == "indeks"
     assert loaded.preview_find == "G0"
+    assert loaded.hidden_columns == ["path", "location"] or set(
+        loaded.hidden_columns
+    ) == {"path", "location"}
+    assert loaded.preview_geometry == "800x600+40+40"
 
 
 def test_filter_all_tokens_normalize_to_empty(tmp_path: Path):

@@ -12,6 +12,7 @@ import logging
 import re
 import sys
 import threading
+import time
 import tkinter as tk
 from collections import Counter
 from pathlib import Path
@@ -82,6 +83,7 @@ from gcode_index.badge_style import (
     flag_tag,
     flag_text,
     make_swatch,
+    pack_compact_colour_legend,
     pack_status_legend,
     role_dot,
     status_dot,
@@ -242,6 +244,24 @@ DEFAULT_DB_NAME = "gcode_index.sqlite"
 BROWSE_LIMIT = 500
 ALL = "(all)"
 ALL_TOKENS = frozenset({"(all)", "(wszystkie)"})
+
+# Results table column ids (order = default display order)
+RESULT_COLUMNS: tuple[str, ...] = (
+    "flag",
+    "src",
+    "program",
+    "part",
+    "programmer",
+    "machine",
+    "odbiorca",
+    "date",
+    "size",
+    "type",
+    "control",
+    "path",
+    "location",
+)
+DEFAULT_PREVIEW_GEOMETRY = "760x640"
 UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
 # Re-export theme colors for callers / tests that import from gui
@@ -328,6 +348,11 @@ class IndexerApp(tk.Tk):
 
         self._preview_find_matches: list[str] = []
         self._preview_find_index: int = -1
+        self._preview_body_cache: str = ""
+        self._preview_body_error: bool = False
+        self._preview_win: Optional[tk.Toplevel] = None
+        self._preview_geometry: str = DEFAULT_PREVIEW_GEOMETRY
+        self._hidden_columns: set[str] = set()
         self._pelny_view = "praca"
         self._search_after_id: Optional[str] = None
         self._schedule_after_id: Optional[str] = None
@@ -350,6 +375,10 @@ class IndexerApp(tk.Tk):
         self._rebuilding = False
         self._rebuild_after_id: Optional[str] = None
         self._pending_lang_persist = False
+        self._lang_switch_snapshot: Optional[dict] = None
+        self._lang_switching = False
+        self._nav_ignore_until: float = 0.0
+        self._nav_unlock_after_id: Optional[str] = None
         self._machine_names: list[str] = []
         self._last_scan_report: Optional[ScanReport] = None
         self._root_frame: Optional[ttk.Frame] = None
@@ -480,6 +509,13 @@ class IndexerApp(tk.Tk):
                 self.geometry(cfg.geometry)
             except tk.TclError:
                 pass
+        if (cfg.preview_geometry or "").strip():
+            self._preview_geometry = cfg.preview_geometry.strip()
+        self._hidden_columns = {
+            c.strip()
+            for c in (cfg.hidden_columns or [])
+            if str(c).strip() in RESULT_COLUMNS
+        }
         # Target-side YAML is a backup copy; INI wins when it already lists roots.
         target = (cfg.target or "").strip()
         if target and not self._hidden_root_specs:
@@ -579,13 +615,23 @@ class IndexerApp(tk.Tk):
                 self._pelny_view = "indeks"
                 if hasattr(self, "_show_pelny_view"):
                     try:
-                        self._show_pelny_view("indeks")
+                        self._show_pelny_view("indeks", force=True)
                     except Exception:  # noqa: BLE001
                         pass
             else:
                 self._pelny_view = "praca"
             if cfg.preview_find and hasattr(self, "preview_find_var"):
                 self.preview_find_var.set(cfg.preview_find)
+            hidden = [
+                c.strip()
+                for c in (cfg.hidden_columns or [])
+                if str(c).strip() in RESULT_COLUMNS
+            ]
+            self._hidden_columns = set(hidden)
+            if hasattr(self, "_apply_column_visibility"):
+                self._apply_column_visibility()
+            if (cfg.preview_geometry or "").strip():
+                self._preview_geometry = cfg.preview_geometry.strip()
         finally:
             self._filter_trace_lock = False
         # Kick a query so restored filters show results
@@ -653,6 +699,12 @@ class IndexerApp(tk.Tk):
             preview_find=self.preview_find_var.get().strip()
             if hasattr(self, "preview_find_var")
             else "",
+            hidden_columns=sorted(
+                c for c in getattr(self, "_hidden_columns", set()) if c in RESULT_COLUMNS
+            ),
+            preview_geometry=str(
+                getattr(self, "_preview_geometry", "") or ""
+            ).strip(),
         )
 
     def _combo_filter_for_ini(self, raw: str) -> str:
@@ -1080,6 +1132,16 @@ class IndexerApp(tk.Tk):
             "Key.TEntry",
             font=self._ui_font(size=11, bold=False),
         )
+        # Slightly taller rows so status/role discs read clearly
+        style.configure(
+            "Treeview",
+            rowheight=28,
+            font=self._ui_font(size=11),
+        )
+        style.configure(
+            "Treeview.Heading",
+            font=self._ui_font(size=10, bold=True),
+        )
 
     def _make_primary_button(self, parent: tk.Misc, text: str, command) -> tk.Button:
         """Colored primary CTA — tk.Button so accent survives Windows ttk themes."""
@@ -1168,6 +1230,11 @@ class IndexerApp(tk.Tk):
             "sort_reverse": bool(self._sort_reverse),
             "pelny_view": getattr(self, "_pelny_view", "praca"),
             "preview_find": self.preview_find_var.get(),
+            "hidden_columns": sorted(self._hidden_columns),
+            "preview_geometry": getattr(
+                self, "_preview_geometry", DEFAULT_PREVIEW_GEOMETRY
+            )
+            or DEFAULT_PREVIEW_GEOMETRY,
         }
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
@@ -1192,6 +1259,10 @@ class IndexerApp(tk.Tk):
         finish before the language Combobox is destroyed — destroying it from
         inside its own event handler freezes / corrupts Tk packing (empty Indeks
         pane with only Praca/Indeks buttons left).
+
+        Snapshot + nav lock freeze Praca/Indeks across the idle gap and the
+        brief post-rebuild window so Combobox click-through / ButtonRelease
+        cannot synthesize a phantom Indeks activation.
         """
         code = normalize_lang(lang)
         if code == self._lang and self._root_frame is not None:
@@ -1200,6 +1271,9 @@ class IndexerApp(tk.Tk):
             self._lang = code
             self._pending_lang_persist = bool(persist)
             return
+        # Freeze chrome state now — before dropdown close can ghost-click nav.
+        self._lang_switch_snapshot = self._snapshot_ui()
+        self._lang_switching = True
         self._lang = code
         self._pending_lang_persist = bool(persist)
         if getattr(self, "_rebuild_after_id", None):
@@ -1213,8 +1287,8 @@ class IndexerApp(tk.Tk):
         self._rebuild_after_id = None
         if getattr(self, "_rebuilding", False):
             return
-        # Snapshot now so Praca/Indeks clicks during the idle gap are kept.
-        preserved = self._snapshot_ui()
+        preserved = self._lang_switch_snapshot or self._snapshot_ui()
+        self._lang_switch_snapshot = None
         try:
             self.lang_var.set(self._lang)
         except tk.TclError:
@@ -1222,7 +1296,31 @@ class IndexerApp(tk.Tk):
         if self._pending_lang_persist:
             self._persist_ui_settings(preserved.get("target"))
             self._pending_lang_persist = False
-        self._rebuild(preserved)
+        try:
+            self._rebuild(preserved)
+        finally:
+            self._lang_switching = False
+            self._arm_nav_ignore(350)
+
+    def _arm_nav_ignore(self, ms: int = 350) -> None:
+        """Ignore Praca/Indeks button activations briefly (absorb click-through)."""
+        self._nav_ignore_until = time.monotonic() + max(0, ms) / 1000.0
+        aid = getattr(self, "_nav_unlock_after_id", None)
+        if aid:
+            try:
+                self.after_cancel(aid)
+            except tk.TclError:
+                pass
+        try:
+            self._nav_unlock_after_id = self.after(
+                max(ms, 1), self._clear_nav_ignore
+            )
+        except tk.TclError:
+            self._nav_unlock_after_id = None
+
+    def _clear_nav_ignore(self) -> None:
+        self._nav_unlock_after_id = None
+        self._nav_ignore_until = 0.0
 
     def _cancel_pending_ui_afters(self) -> None:
         """Drop deferred saves/loads/queries before tearing down widgets."""
@@ -1236,6 +1334,7 @@ class IndexerApp(tk.Tk):
             "_indexer_settings_load_after_id",
             "_schedule_amount_debounce_id",
             "_auto_refresh_after_id",
+            "_nav_unlock_after_id",
         ):
             aid = getattr(self, attr, None)
             if not aid:
@@ -1252,6 +1351,7 @@ class IndexerApp(tk.Tk):
         self._rebuilding = True
         self._cancel_pending_ui_afters()
         try:
+            self._close_preview_popup(persist=True)
             self._rebuild_body(preserved)
         finally:
             self._rebuilding = False
@@ -1276,6 +1376,16 @@ class IndexerApp(tk.Tk):
             raw = str(preserved.get("pelny_view") or "").strip().casefold()
             if raw in ("praca", "indeks"):
                 desired_view = raw
+            hidden = preserved.get("hidden_columns")
+            if hidden is not None:
+                self._hidden_columns = {
+                    str(c).strip()
+                    for c in hidden
+                    if str(c).strip() in RESULT_COLUMNS
+                }
+            geom = str(preserved.get("preview_geometry") or "").strip()
+            if geom:
+                self._preview_geometry = geom
 
         self._build(initial_view=desired_view)
 
@@ -1390,9 +1500,11 @@ class IndexerApp(tk.Tk):
             # never stays as an empty host under the nav strip.
             view = str(preserved.get("pelny_view") or "").strip().casefold()
             if view in ("praca", "indeks") and not self._is_simple():
-                self._show_pelny_view(view)
+                self._show_pelny_view(view, force=True)
             elif not self._is_simple():
-                self._show_pelny_view(getattr(self, "_pelny_view", "praca") or "praca")
+                self._show_pelny_view(
+                    getattr(self, "_pelny_view", "praca") or "praca", force=True
+                )
         self._sync_include_unknown_widget()
         self._run_query_now()
         self._sync_folder_watch()
@@ -1620,16 +1732,27 @@ class IndexerApp(tk.Tk):
     def _goto_praca_tab(self) -> None:
         self._show_pelny_view("praca")
 
-    def _show_pelny_view(self, which: str) -> None:
+    def _show_pelny_view(self, which: str, *, force: bool = False) -> None:
         """Switch indexer primary nav between Praca and Indeks.
 
         Always remounts the active pane (pack_forget both, then pack one).
         Relying on ``winfo_ismapped()`` can leave ``_pelny_content`` empty under
         the nav strip after a language rebuild or corrupted pack state — Indeks
         then shows only the Praca/Indeks buttons with no toolbar/panels.
+
+        ``force=True`` is for internal remount during rebuild. User/nav clicks
+        are ignored while a language switch is in flight and briefly afterward
+        so Combobox click-through cannot synthesize a phantom Indeks activation.
         """
         if self._is_simple():
             return
+        if not force:
+            if getattr(self, "_lang_switching", False) and not getattr(
+                self, "_rebuilding", False
+            ):
+                return
+            if time.monotonic() < float(getattr(self, "_nav_ignore_until", 0.0) or 0.0):
+                return
         praca = getattr(self, "_praca_frame", None)
         indeks = getattr(self, "_indeks_frame", None)
         if praca is None or indeks is None:
@@ -1822,11 +1945,11 @@ class IndexerApp(tk.Tk):
 
             # Restore view after language rebuild, else default by folder readiness
             if initial_view in ("praca", "indeks"):
-                self._show_pelny_view(initial_view)
+                self._show_pelny_view(initial_view, force=True)
             elif self._folders_ready():
-                self._show_pelny_view("praca")
+                self._show_pelny_view("praca", force=True)
             else:
-                self._show_pelny_view("indeks")
+                self._show_pelny_view("indeks", force=True)
                 self._set_folders_expanded(True, persist=False)
 
         status = ttk.Label(root, textvariable=self.status_var, anchor=tk.W)
@@ -2412,33 +2535,31 @@ class IndexerApp(tk.Tk):
 
 
     def _build_results_preview(self, parent, pad: dict, *, simple: bool) -> None:
-        """Results table with full-height preview dock on the right."""
-        cols = (
-            "flag",
-            "src",
-            "program",
-            "part",
-            "programmer",
-            "machine",
-            "odbiorca",
-            "date",
-            "size",
-            "type",
-            "control",
-            "path",
-            "location",
-        )
-        results_pane = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
-        results_pane.pack(fill=tk.BOTH, expand=True, **pad)
-        self._results_pane = results_pane
+        """Full-width results table; preview opens in a popup (with find)."""
+        cols = RESULT_COLUMNS
+        wrap = ttk.Frame(parent)
+        wrap.pack(fill=tk.BOTH, expand=True, **pad)
 
-        tree_frame = ttk.Frame(results_pane)
-        results_pane.add(tree_frame, weight=3)
+        bar = ttk.Frame(wrap)
+        bar.pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(
+            bar, text=self._("preview_open"), command=self._open_preview_popup
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            bar, text=self._("columns_menu"), command=self._open_columns_menu
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        legend_host = ttk.Frame(bar)
+        legend_host.pack(side=tk.RIGHT)
+        self._pack_results_colour_legend(legend_host)
+
+        tree_frame = ttk.Frame(wrap)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+        self._results_pane = None  # legacy paned split removed
         self.tree = ttk.Treeview(
             tree_frame, columns=cols, show="headings", selectmode="extended"
         )
         headings = {
-            "flag": (self._("col_flag"), 72),
+            "flag": (self._("col_flag"), 88),
             "src": (self._("col_src"), 64),
             "program": (self._("col_program"), 90),
             "part": (self._("col_part"), 130),
@@ -2449,7 +2570,7 @@ class IndexerApp(tk.Tk):
             "size": (self._("col_size"), 70),
             "type": (self._("col_type"), 100),
             "control": (self._("col_control"), 70),
-            "path": (self._("col_path"), 240),
+            "path": (self._("col_path"), 280),
             "location": (self._("col_location"), 120),
         }
         self._heading_labels = {k: label for k, (label, _w) in headings.items()}
@@ -2459,6 +2580,7 @@ class IndexerApp(tk.Tk):
             )
             stretch = key in ("path", "part")
             self.tree.column(key, width=width, stretch=stretch, minwidth=40)
+        self._apply_column_visibility()
         self._refresh_heading_labels()
         self.tree.tag_configure("flag_backup", foreground=STATUS_SWATCH[PROVENANCE_BACKUP])
         self.tree.tag_configure("flag_extra", foreground=STATUS_SWATCH[PROVENANCE_EXTRA])
@@ -2481,17 +2603,151 @@ class IndexerApp(tk.Tk):
             self.tree.bind("<Button-2>", self._on_tree_context)
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
 
-        preview_frame = ttk.LabelFrame(
-            results_pane,
-            text=self._("preview"),
-            padding=4,
-            style="Primary.TLabelframe",
+        # Preview widgets live in the popup; clear stale refs from a prior build.
+        self.preview_text = None  # type: ignore[assignment]
+        self.preview_find_entry = None  # type: ignore[assignment]
+
+        self._ctx_menu = tk.Menu(self, tearoff=0)
+        self._ctx_menu.add_command(
+            label=self._("ctx_extract"), command=self._extract_selected
         )
-        results_pane.add(preview_frame, weight=2)
-        ttk.Label(preview_frame, textvariable=self.preview_header_var).pack(
+        if not simple:
+            self._ctx_menu.add_command(
+                label=self._("ctx_compare"), command=self._compare_selected
+            )
+        self._ctx_menu.add_command(
+            label=self._("ctx_open"), command=self._open_selected_folder
+        )
+        self._ctx_menu.add_command(
+            label=self._("ctx_copy"), command=self._copy_selected_path
+        )
+        self._ctx_menu.add_separator()
+        self._ctx_menu.add_command(
+            label=self._("preview_open"), command=self._open_preview_popup
+        )
+        self._ctx_menu.add_command(
+            label=self._("columns_menu"), command=self._open_columns_menu
+        )
+
+    def _pack_results_colour_legend(self, parent) -> None:
+        """Status + role colour chips beside the results toolbar."""
+        roles: list[tuple[str, str]] = []
+        catalog = getattr(self, "_colour_catalog", None)
+        if catalog is not None:
+            for c in list(catalog.colours)[:6]:
+                roles.append((c.swatch, c.label(self._lang)))
+        pack_compact_colour_legend(
+            parent,
+            on_machine_text=self._("status_on_machine"),
+            not_run_text=self._("status_unknown"),
+            role_items=roles or None,
+            roles_caption=self._("colour_legend_roles") if roles else "",
+        ).pack(side=tk.RIGHT)
+
+    def _apply_column_visibility(self) -> None:
+        if not hasattr(self, "tree"):
+            return
+        hidden = {
+            c for c in getattr(self, "_hidden_columns", set()) if c in RESULT_COLUMNS
+        }
+        visible = [c for c in RESULT_COLUMNS if c not in hidden]
+        if not visible:
+            visible = ["program"]
+            hidden.discard("program")
+            self._hidden_columns = set(hidden)
+        try:
+            self.tree.configure(displaycolumns=visible)
+        except tk.TclError:
+            pass
+
+    def _set_column_visible(self, col: str, visible: bool) -> None:
+        if col not in RESULT_COLUMNS:
+            return
+        if visible:
+            self._hidden_columns.discard(col)
+        else:
+            remaining = [
+                c for c in RESULT_COLUMNS if c != col and c not in self._hidden_columns
+            ]
+            if not remaining:
+                return
+            self._hidden_columns.add(col)
+        self._apply_column_visibility()
+        self._schedule_filter_ini_save()
+
+    def _open_columns_menu(self, event=None) -> None:
+        """Post a checkbutton menu to show/hide results columns."""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=self._("columns_menu_title"), state=tk.DISABLED)
+        menu.add_separator()
+        self._column_menu_vars = {}
+        for col in RESULT_COLUMNS:
+            label = self._heading_labels.get(col) or self._(f"col_{col}")
+            var = tk.BooleanVar(value=col not in self._hidden_columns)
+            self._column_menu_vars[col] = var
+
+            def _on_toggle(c=col, v=var) -> None:
+                self._set_column_visible(c, bool(v.get()))
+
+            menu.add_checkbutton(
+                label=label,
+                variable=var,
+                command=_on_toggle,
+            )
+        try:
+            if event is not None:
+                menu.tk_popup(event.x_root, event.y_root)
+            else:
+                menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+        finally:
+            try:
+                menu.grab_release()
+            except tk.TclError:
+                pass
+
+    def _preview_widgets_alive(self) -> bool:
+        text = getattr(self, "preview_text", None)
+        if text is None:
+            return False
+        try:
+            return bool(text.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _open_preview_popup(self) -> None:
+        """Show (or focus) the preview + find-in-preview popup."""
+        win = getattr(self, "_preview_win", None)
+        if win is not None:
+            try:
+                if win.winfo_exists():
+                    win.deiconify()
+                    win.lift()
+                    win.focus_force()
+                    self._refresh_preview()
+                    return
+            except tk.TclError:
+                pass
+            self._preview_win = None
+
+        win = tk.Toplevel(self)
+        win.title(self._("preview_window_title"))
+        geom = (
+            getattr(self, "_preview_geometry", "") or DEFAULT_PREVIEW_GEOMETRY
+        ).strip() or DEFAULT_PREVIEW_GEOMETRY
+        try:
+            win.geometry(geom)
+        except tk.TclError:
+            win.geometry(DEFAULT_PREVIEW_GEOMETRY)
+        win.minsize(420, 320)
+        self._preview_win = win
+        win.protocol("WM_DELETE_WINDOW", self._close_preview_popup)
+
+        body = ttk.Frame(win, padding=8)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(body, textvariable=self.preview_header_var).pack(
             fill=tk.X, padx=2, pady=(0, 2)
         )
-        find_row = ttk.Frame(preview_frame)
+        find_row = ttk.Frame(body)
         find_row.pack(fill=tk.X, padx=2, pady=(0, 4))
         ttk.Label(find_row, text=self._("preview_find"), style="Muted.TLabel").pack(
             side=tk.LEFT
@@ -2504,15 +2760,22 @@ class IndexerApp(tk.Tk):
         self.preview_find_entry.bind("<Shift-Return>", self._preview_find_prev)
         self.preview_find_entry.bind("<KeyRelease>", self._on_preview_find_typed)
         ttk.Button(
-            find_row, text=self._("preview_find_prev"), width=3, command=self._preview_find_prev
+            find_row,
+            text=self._("preview_find_prev"),
+            width=3,
+            command=self._preview_find_prev,
         ).pack(side=tk.LEFT)
         ttk.Button(
-            find_row, text=self._("preview_find_next"), width=3, command=self._preview_find_next
+            find_row,
+            text=self._("preview_find_next"),
+            width=3,
+            command=self._preview_find_next,
         ).pack(side=tk.LEFT, padx=(2, 0))
         ttk.Label(
             find_row, textvariable=self.preview_find_status_var, style="Muted.TLabel"
         ).pack(side=tk.LEFT, padx=(6, 0))
-        prev_inner = ttk.Frame(preview_frame)
+
+        prev_inner = ttk.Frame(body)
         prev_inner.pack(fill=tk.BOTH, expand=True)
         self.preview_text = tk.Text(
             prev_inner,
@@ -2542,21 +2805,40 @@ class IndexerApp(tk.Tk):
         prev_inner.rowconfigure(0, weight=1)
         prev_inner.columnconfigure(0, weight=1)
 
-        self._ctx_menu = tk.Menu(self, tearoff=0)
-        self._ctx_menu.add_command(
-            label=self._("ctx_extract"), command=self._extract_selected
-        )
-        if not simple:
-            self._ctx_menu.add_command(
-                label=self._("ctx_compare"), command=self._compare_selected
-            )
-        self._ctx_menu.add_command(
-            label=self._("ctx_open"), command=self._open_selected_folder
-        )
-        self._ctx_menu.add_command(
-            label=self._("ctx_copy"), command=self._copy_selected_path
+        foot = ttk.Frame(body)
+        foot.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(foot, text=self._("close"), command=self._close_preview_popup).pack(
+            side=tk.RIGHT
         )
 
+        def _on_configure(_event=None) -> None:
+            try:
+                if win.winfo_exists():
+                    self._preview_geometry = win.geometry()
+            except tk.TclError:
+                pass
+
+        win.bind("<Configure>", _on_configure)
+        self._refresh_preview()
+        try:
+            self.preview_find_entry.focus_set()
+        except tk.TclError:
+            pass
+
+    def _close_preview_popup(self, *_args, persist: bool = True) -> None:
+        win = getattr(self, "_preview_win", None)
+        if win is not None:
+            try:
+                if win.winfo_exists():
+                    self._preview_geometry = win.geometry()
+                    win.destroy()
+            except tk.TclError:
+                pass
+        self._preview_win = None
+        self.preview_text = None  # type: ignore[assignment]
+        self.preview_find_entry = None  # type: ignore[assignment]
+        if persist and not getattr(self, "_rebuilding", False):
+            self._schedule_filter_ini_save()
 
     def _build_menubar(self) -> None:
         menubar = tk.Menu(self)
@@ -4781,6 +5063,10 @@ class IndexerApp(tk.Tk):
 
     def _set_preview_body(self, header: str, body: str, *, is_error: bool = False) -> None:
         self.preview_header_var.set(header)
+        self._preview_body_cache = body
+        self._preview_body_error = bool(is_error)
+        if not self._preview_widgets_alive():
+            return
         self.preview_text.configure(state=tk.NORMAL)
         self.preview_text.delete("1.0", tk.END)
         self.preview_text.insert("1.0", body)
@@ -4827,7 +5113,7 @@ class IndexerApp(tk.Tk):
         self._preview_find_reapply(keep_index=False)
 
     def _preview_find_clear_tags(self) -> None:
-        if not hasattr(self, "preview_text"):
+        if not self._preview_widgets_alive():
             return
         try:
             self.preview_text.tag_remove("preview_find_hit", "1.0", tk.END)
@@ -4837,7 +5123,7 @@ class IndexerApp(tk.Tk):
 
     def _preview_find_reapply(self, *, keep_index: bool = True) -> None:
         """Recompute match list from current needle + preview body; update highlights."""
-        if not hasattr(self, "preview_text"):
+        if not self._preview_widgets_alive():
             return
         needle = (self.preview_find_var.get() or "").strip()
         self._preview_find_clear_tags()
@@ -4880,7 +5166,7 @@ class IndexerApp(tk.Tk):
 
     def _preview_find_goto(self, index: int) -> None:
         matches = self._preview_find_matches
-        if not matches or not hasattr(self, "preview_text"):
+        if not matches or not self._preview_widgets_alive():
             return
         n = len(matches)
         idx = index % n

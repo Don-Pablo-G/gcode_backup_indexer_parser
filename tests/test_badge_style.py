@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from gcode_index.badge_style import (
     DOT,
+    DOT_LARGE,
     STATUS_SWATCH,
     flag_tag,
     flag_text,
@@ -22,10 +23,11 @@ def test_status_swatches_are_hex_green_yellow():
 
 
 def test_dots_are_monochrome_disc_not_emoji():
-    assert status_dot() == DOT == "●"
-    assert role_dot("🔴") == "●"
+    assert status_dot() == DOT_LARGE == "⬤"
+    assert role_dot("🔴") == "⬤"
     assert "🟢" not in flag_text(PROVENANCE_BACKUP, ["wip"])
-    assert flag_text(PROVENANCE_BACKUP, ["wip", "fixture"]) == "●●●"
+    assert flag_text(PROVENANCE_BACKUP, ["wip", "fixture"]) == "⬤⬤⬤"
+    assert DOT == "●"  # compact disc still available for labels
 
 
 def test_flag_tag_prefers_first_role():

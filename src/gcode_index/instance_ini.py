@@ -85,6 +85,10 @@ class InstanceConfig:
     folders_expanded: Optional[bool] = None  # None = auto heuristic
     pelny_view: str = "praca"  # praca | indeks
     preview_find: str = ""
+    # Comma-separated results-table column ids to hide (empty = show all)
+    hidden_columns: list[str] = field(default_factory=list)
+    # Preview popup WxH[+X+Y]; empty = default
+    preview_geometry: str = ""
 
     def root_specs(self) -> list[ScanRootSpec]:
         specs: list[ScanRootSpec] = []
@@ -307,6 +311,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         geom = parser.get("window", "geometry", fallback=cfg.geometry).strip()
         if geom:
             cfg.geometry = geom
+        prev_geom = parser.get("window", "preview_geometry", fallback="").strip()
+        if prev_geom:
+            cfg.preview_geometry = prev_geom
 
     if parser.has_section("notes"):
         cfg.notes = parser.get("notes", "text", fallback="").strip()
@@ -389,6 +396,16 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         if cfg.pelny_view == "index":
             cfg.pelny_view = "indeks"
         cfg.preview_find = parser.get("session", "preview_find", fallback="").strip()
+        hidden_raw = parser.get("session", "hidden_columns", fallback="").strip()
+        if hidden_raw:
+            cfg.hidden_columns = [
+                p.strip() for p in hidden_raw.replace(";", ",").split(",") if p.strip()
+            ]
+        else:
+            cfg.hidden_columns = []
+        session_prev = parser.get("session", "preview_geometry", fallback="").strip()
+        if session_prev:
+            cfg.preview_geometry = session_prev
 
     return cfg
 
@@ -515,6 +532,12 @@ def save_instance_ini(
         folders_expanded=kwargs.get("folders_expanded", base.folders_expanded),
         pelny_view=str(kwargs.get("pelny_view", base.pelny_view) or "praca"),
         preview_find=str(kwargs.get("preview_find", base.preview_find) or ""),
+        hidden_columns=list(
+            kwargs.get("hidden_columns", base.hidden_columns) or []
+        ),
+        preview_geometry=str(
+            kwargs.get("preview_geometry", base.preview_geometry) or ""
+        ),
     )
     p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -607,6 +630,8 @@ search_auto_refresh_s = {data.search_auto_refresh_s}
 [window]
 ; Width x height in pixels (e.g. 1320x820)
 geometry = {data.geometry}
+; Preview popup size/position (e.g. 760x640+120+80); blank = default
+preview_geometry = {data.preview_geometry}
 
 [notes]
 ; Free-form note for this PC / shop (optional)
@@ -666,6 +691,10 @@ folders_expanded = {("" if data.folders_expanded is None else yn(bool(data.folde
 pelny_view = {data.pelny_view}
 ; Preview “find in program” last string (optional)
 preview_find = {data.preview_find}
+; Results columns to hide (comma-separated ids: flag,src,program,part,…)
+hidden_columns = {",".join(data.hidden_columns)}
+; Preview popup geometry (also written under [window]; kept here for older readers)
+preview_geometry = {data.preview_geometry}
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (auto-loaded; do not delete):
