@@ -140,6 +140,13 @@ from gcode_index.instance_ini import (
     save_instance_ini,
     ui_mode_from_can_index,
 )
+from gcode_index.indexer_settings import (
+    INDEXER_SETTINGS_FILENAME,
+    IndexerSettings,
+    indexer_settings_path_for_target,
+    load_indexer_settings,
+    save_indexer_settings,
+)
 from gcode_index.i18n import (
     DEFAULT_LANG,
     load_ui_settings,
@@ -483,6 +490,8 @@ class IndexerApp(tk.Tk):
             settings = load_ui_settings(ui_settings_path_for_target(target))
             if not self._schedule_last_run and settings.get("schedule_last_run"):
                 self._schedule_last_run = settings["schedule_last_run"]
+            # Shop pack defaults (scan/schedule/watch) — never can_index
+            self._apply_indexer_settings_from_target(target, persist_local=False)
         # Stash session/filters for apply after widgets exist
         self._pending_session_cfg = cfg
 
@@ -709,10 +718,155 @@ class IndexerApp(tk.Tk):
         box.columnconfigure(1, weight=1)
         return start_row + 1
 
+
+    # --- indexer_settings.yaml (shop pack defaults) ---------------------------
+
+    def _reload_indexer_settings_from_target_field(self) -> None:
+        self._indexer_settings_load_after_id = None
+        target = self.target_var.get().strip()
+        if not target:
+            return
+        self._apply_indexer_settings_from_target(target, persist_local=False)
+
+    def _collect_indexer_settings(self) -> IndexerSettings:
+        greens = [
+            s.path
+            for s in self._scan_root_specs()
+            if s.provenance == PROVENANCE_BACKUP
+        ]
+        yellows = [
+            s.path
+            for s in self._scan_root_specs()
+            if s.provenance == PROVENANCE_EXTRA
+        ]
+        return IndexerSettings(
+            incremental=bool(self.incremental_var.get()),
+            also_excel=bool(self.excel_var.get()),
+            newest_only=bool(self.newest_only_var.get()),
+            include_unknown=self._effective_include_unknown(),
+            schedule=self._schedule,
+            watch_folders=bool(self.watch_var.get()),
+            watch_mode=self._watch_mode,
+            backup_hint=self.backup_var.get().strip(),
+            green_root_hints=greens,
+            yellow_root_hints=yellows,
+        )
+
+    def _persist_indexer_settings(self) -> None:
+        """Write shop defaults next to the DB folder (never includes can_index)."""
+        if getattr(self, "_applying_indexer_settings", False):
+            return
+        if self._settings_locked:
+            return
+        target = self.target_var.get().strip()
+        if not target:
+            return
+        try:
+            save_indexer_settings(
+                indexer_settings_path_for_target(target),
+                self._collect_indexer_settings(),
+            )
+        except OSError:
+            log.exception("save indexer settings failed")
+
+    def _apply_indexer_settings_from_target(
+        self, target: str, *, persist_local: bool = False
+    ) -> bool:
+        """Load pack defaults into scan/schedule/watch. Returns True if applied."""
+        dest = (target or "").strip()
+        if not dest:
+            return False
+        settings = load_indexer_settings(indexer_settings_path_for_target(dest))
+        if settings is None:
+            return False
+        return self._apply_indexer_settings(settings, persist_local=persist_local)
+
+    def _apply_indexer_settings(
+        self, settings: IndexerSettings, *, persist_local: bool = False
+    ) -> bool:
+        self._applying_indexer_settings = True
+        try:
+            self.incremental_var.set(bool(settings.incremental))
+            self.excel_var.set(bool(settings.also_excel))
+            self.newest_only_var.set(bool(settings.newest_only))
+            if not (self._is_simple() or self._settings_locked):
+                self.include_unknown_var.set(bool(settings.include_unknown))
+            self._set_schedule(settings.schedule, persist=False)
+            self.watch_var.set(bool(settings.watch_folders))
+            self._watch_enabled = bool(settings.watch_folders) and not self._is_simple()
+            self._set_watch_mode(settings.watch_mode, persist=False)
+        finally:
+            self._applying_indexer_settings = False
+        if persist_local:
+            self._save_instance_ini()
+        return True
+
+    def _open_prepare_indexer(self) -> None:
+        if self._settings_locked:
+            messagebox.showinfo(
+                self._("prepare_indexer"),
+                self._("prepare_indexer_locked"),
+                parent=self,
+            )
+            return
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showinfo(
+                self._("prepare_indexer"),
+                self._("prepare_indexer_need_target"),
+                parent=self,
+            )
+            return
+        dlg = PrepareIndexerDialog(self)
+        self.wait_window(dlg)
+        if not dlg.result:
+            return
+        self._finish_prepare_indexer(dlg.result)
+
+    def _finish_prepare_indexer(self, result: dict) -> None:
+        """Apply checklist: paths, pack defaults, can_index=yes, optional watch."""
+        was_client = self._is_simple()
+        self.backup_var.set(str(result.get("backup") or "").strip())
+        self.extract_var.set(str(result.get("extract") or "").strip())
+        remaps = result.get("path_remaps")
+        if remaps is not None:
+            self._path_remaps = normalize_remaps(remaps)
+            self._sync_remap_vars_from_list()
+        if result.get("apply_pack_defaults"):
+            applied = self._apply_indexer_settings_from_target(
+                self.target_var.get().strip(), persist_local=False
+            )
+            if not applied and result.get("pack_missing_ok"):
+                pass
+        if result.get("enable_watch"):
+            self.watch_var.set(True)
+            self._watch_enabled = True
+        self._can_index = True
+        self._save_instance_ini()
+        self._persist_indexer_settings()
+        self._persist_ui_settings()
+        if was_client:
+            preserved = self._snapshot_ui()
+            self._rebuild(preserved)
+        else:
+            self._sync_include_unknown_widget()
+            self._update_folders_summary()
+        self._arm_schedule_timer()
+        self._sync_folder_watch()
+        self.status_var.set(self._("prepare_indexer_done"))
+        messagebox.showinfo(
+            self._("prepare_indexer"),
+            self._("prepare_indexer_done_detail"),
+            parent=self,
+        )
+
     def _on_scan_option_changed(self, *_args) -> None:
         if self._filter_trace_lock:
             return
+        if getattr(self, "_applying_indexer_settings", False):
+            return
         self._save_instance_ini()
+        self._persist_indexer_settings()
 
     def _on_window_configure(self, event=None) -> None:
         # Only top-level geometry changes
@@ -753,6 +907,14 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 pass
         self._colour_load_after_id = self.after(400, self._load_colour_catalog)
+        if getattr(self, "_indexer_settings_load_after_id", None):
+            try:
+                self.after_cancel(self._indexer_settings_load_after_id)
+            except tk.TclError:
+                pass
+        self._indexer_settings_load_after_id = self.after(
+            500, self._reload_indexer_settings_from_target_field
+        )
 
     def _on_close(self) -> None:
         if (
@@ -1718,6 +1880,11 @@ class IndexerApp(tk.Tk):
         )
         self.open_db_btn.pack(side=tk.LEFT)
         ttk.Button(
+            row1,
+            text=self._("prepare_indexer"),
+            command=self._open_prepare_indexer,
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Button(
             row1, text=self._("clear_filters"), command=self._clear_filters
         ).pack(side=tk.LEFT, padx=8)
 
@@ -1737,6 +1904,11 @@ class IndexerApp(tk.Tk):
         self.scan_btn.pack(side=tk.LEFT)
         ttk.Button(
             row_scan, text=self._("open_db"), command=self._pick_existing_db
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Button(
+            row_scan,
+            text=self._("prepare_indexer"),
+            command=self._open_prepare_indexer,
         ).pack(side=tk.LEFT, padx=8)
 
         # Row 2 — mapping / naming tools (own row so PL/EN labels stay visible)
@@ -2272,6 +2444,12 @@ class IndexerApp(tk.Tk):
 
     def _build_menubar(self) -> None:
         menubar = tk.Menu(self)
+        tools = tk.Menu(menubar, tearoff=0)
+        tools.add_command(
+            label=self._("prepare_indexer"),
+            command=self._open_prepare_indexer,
+        )
+        menubar.add_cascade(label=self._("menu_tools"), menu=tools)
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(
             label=self._("help_manual_simple"),
@@ -2373,8 +2551,10 @@ class IndexerApp(tk.Tk):
             if not self._schedule_last_run and settings.get("schedule_last_run"):
                 self._schedule_last_run = settings.get("schedule_last_run") or None
             self._load_colour_catalog()
+            self._apply_indexer_settings_from_target(path, persist_local=True)
             self._save_instance_ini()
             self._persist_ui_settings(path)
+            self._persist_indexer_settings()
             self._sync_folder_watch()
 
     def _pick_extract(self) -> None:
@@ -2406,7 +2586,11 @@ class IndexerApp(tk.Tk):
         # clients collapse via Gotowe when ready.
         if not self._is_simple():
             self._set_folders_expanded(True, persist=False)
+        self._apply_indexer_settings_from_target(str(db.parent), persist_local=True)
         self._save_instance_ini()
+        self._persist_indexer_settings()
+        self._sync_folder_watch()
+        self._arm_schedule_timer()
 
     def _scan_root_specs(self) -> list[ScanRootSpec]:
         if hasattr(self, "extra_list"):
@@ -2617,6 +2801,8 @@ class IndexerApp(tk.Tk):
         if persist:
             self._persist_ui_settings()
             self._save_instance_ini()
+            if not getattr(self, "_applying_indexer_settings", False):
+                self._persist_indexer_settings()
         self._update_schedule_status()
         self._arm_schedule_timer()
 
@@ -2779,6 +2965,8 @@ class IndexerApp(tk.Tk):
         self._refresh_watch_mode_styles()
         if persist:
             self._save_instance_ini()
+            if not getattr(self, "_applying_indexer_settings", False):
+                self._persist_indexer_settings()
         # Restart watcher so event vs poll roots rebind
         if self._watch_enabled and not self._is_simple():
             self._stop_folder_watch(release=False)
@@ -2910,6 +3098,8 @@ class IndexerApp(tk.Tk):
     def _on_watch_toggled(self) -> None:
         self._watch_enabled = bool(self.watch_var.get()) and not self._is_simple()
         self._save_instance_ini()
+        if not getattr(self, "_applying_indexer_settings", False):
+            self._persist_indexer_settings()
         self._sync_folder_watch()
 
     def _stop_folder_watch(self, *, release: bool = False) -> None:
@@ -4005,6 +4195,8 @@ class IndexerApp(tk.Tk):
                 self.include_unknown_var.set(True)
                 return
         self._save_instance_ini()
+        if not getattr(self, "_applying_indexer_settings", False):
+            self._persist_indexer_settings()
         self._on_filter_changed()
 
     def _note_db_mtime(self) -> None:
@@ -4889,6 +5081,192 @@ class IndexerApp(tk.Tk):
                 conn.close()
         except Exception:  # noqa: BLE001
             return None
+
+
+class PrepareIndexerDialog(tk.Toplevel):
+    """Final-mile checklist: paths, pack defaults, can_index=yes, optional watch."""
+
+    def __init__(self, master: "IndexerApp") -> None:
+        super().__init__(master)
+        self.title(_tr(master, "prepare_indexer_title"))
+        self.transient(master)
+        self.grab_set()
+        self.minsize(560, 420)
+        self.geometry("640x520")
+        self.result: Optional[dict] = None
+        self._app = master
+
+        pack = load_indexer_settings(
+            indexer_settings_path_for_target(master.target_var.get().strip())
+        )
+        has_pack = pack is not None
+
+        ttk.Label(
+            self,
+            text=_tr(master, "prepare_indexer_intro"),
+            wraplength=600,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        body = ttk.Frame(self, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        body.columnconfigure(1, weight=1)
+
+        self.backup_var = tk.StringVar(value=master.backup_var.get())
+        self.extract_var = tk.StringVar(value=master.extract_var.get())
+        self.remap_from_var = tk.StringVar(value=master.remap_from_var.get())
+        self.remap_to_var = tk.StringVar(value=master.remap_to_var.get())
+        self.apply_pack_var = tk.BooleanVar(value=has_pack)
+        self.enable_watch_var = tk.BooleanVar(
+            value=bool(pack.watch_folders) if pack else bool(master.watch_var.get())
+        )
+
+        row = 0
+        ttk.Label(body, text=_tr(master, "backup_folder")).grid(
+            row=row, column=0, sticky=tk.W
+        )
+        ttk.Entry(body, textvariable=self.backup_var).grid(
+            row=row, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        ttk.Button(
+            body, text=_tr(master, "browse"), command=self._pick_backup
+        ).grid(row=row, column=2, pady=2)
+        row += 1
+
+        ttk.Label(body, text=_tr(master, "extract_folder")).grid(
+            row=row, column=0, sticky=tk.W
+        )
+        ttk.Entry(body, textvariable=self.extract_var).grid(
+            row=row, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        ttk.Button(
+            body, text=_tr(master, "browse"), command=self._pick_extract
+        ).grid(row=row, column=2, pady=2)
+        row += 1
+
+        ttk.Label(body, text=_tr(master, "path_remap_from")).grid(
+            row=row, column=0, sticky=tk.W
+        )
+        ttk.Entry(body, textvariable=self.remap_from_var).grid(
+            row=row, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        row += 1
+        ttk.Label(body, text=_tr(master, "path_remap_to")).grid(
+            row=row, column=0, sticky=tk.W
+        )
+        ttk.Entry(body, textvariable=self.remap_to_var).grid(
+            row=row, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        ttk.Button(
+            body, text=_tr(master, "browse"), command=self._pick_remap_to
+        ).grid(row=row, column=2, pady=2)
+        row += 1
+
+        pack_text = (
+            _tr(master, "prepare_indexer_apply_pack")
+            if has_pack
+            else _tr(master, "prepare_indexer_no_pack")
+        )
+        ttk.Checkbutton(
+            body,
+            text=pack_text,
+            variable=self.apply_pack_var,
+            state=tk.NORMAL if has_pack else tk.DISABLED,
+        ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(10, 2))
+        row += 1
+        if has_pack and pack is not None:
+            summary = _tr(
+                master,
+                "prepare_indexer_pack_summary",
+                schedule=pack.schedule,
+                watch=("yes" if pack.watch_folders else "no"),
+                mode=pack.watch_mode,
+            )
+            ttk.Label(
+                body, text=summary, style="Muted.TLabel", wraplength=560
+            ).grid(row=row, column=0, columnspan=3, sticky=tk.W)
+            row += 1
+
+        ttk.Checkbutton(
+            body,
+            text=_tr(master, "prepare_indexer_enable_watch"),
+            variable=self.enable_watch_var,
+        ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(8, 2))
+        row += 1
+
+        ttk.Label(
+            body,
+            text=_tr(master, "prepare_indexer_can_index_note"),
+            wraplength=560,
+        ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(8, 2))
+        row += 1
+        ttk.Label(
+            body,
+            text=_tr(master, "prepare_indexer_floor_hint"),
+            style="Muted.TLabel",
+            wraplength=560,
+        ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(4, 0))
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(
+            btns, text=_tr(master, "cancel"), command=self.destroy
+        ).pack(side=tk.RIGHT)
+        ttk.Button(
+            btns, text=_tr(master, "prepare_indexer_apply"), command=self._ok
+        ).pack(side=tk.RIGHT, padx=8)
+
+    def _pick_backup(self) -> None:
+        path = filedialog.askdirectory(title=_tr(self.master, "pick_backup_title"))
+        if path:
+            self.backup_var.set(path)
+
+    def _pick_extract(self) -> None:
+        path = filedialog.askdirectory(title=_tr(self.master, "extract_folder"))
+        if path:
+            self.extract_var.set(path)
+
+    def _pick_remap_to(self) -> None:
+        path = filedialog.askdirectory(title=_tr(self.master, "path_remap_to"))
+        if path:
+            self.remap_to_var.set(path)
+
+    def _ok(self) -> None:
+        backup = self.backup_var.get().strip()
+        if not backup:
+            messagebox.showinfo(
+                _tr(self.master, "prepare_indexer"),
+                _tr(self.master, "prepare_indexer_need_backup"),
+                parent=self,
+            )
+            return
+        if not Path(backup).is_dir():
+            messagebox.showwarning(
+                _tr(self.master, "prepare_indexer"),
+                _tr(self.master, "prepare_indexer_backup_missing", path=backup),
+                parent=self,
+            )
+            return
+        fr = self.remap_from_var.get().strip()
+        to = self.remap_to_var.get().strip()
+        remaps: list[PathRemap] = []
+        if fr and to:
+            remaps = normalize_remaps([PathRemap(fr, to)])
+        elif fr or to:
+            messagebox.showinfo(
+                _tr(self.master, "prepare_indexer"),
+                _tr(self.master, "prepare_indexer_remap_pair"),
+                parent=self,
+            )
+            return
+        self.result = {
+            "backup": backup,
+            "extract": self.extract_var.get().strip(),
+            "path_remaps": remaps,
+            "apply_pack_defaults": bool(self.apply_pack_var.get()),
+            "enable_watch": bool(self.enable_watch_var.get()),
+            "pack_missing_ok": True,
+        }
+        self.destroy()
 
 
 class ManualViewerDialog(tk.Toplevel):

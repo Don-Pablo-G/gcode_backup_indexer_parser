@@ -178,7 +178,9 @@ Tick **Auto-refresh results** / **Odświeżaj wyniki** to **re-run the current s
 
 ## Instance settings
 
-**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, window size, scan toggles (incremental / Excel / watch), path remap, **last find-bar filters** (text, machines, dates, size, status, role, …), sort column, and Praca/Indeks layout.  
+**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, desktop prefs, window size, path remap, **last find-bar filters**, sort column, and Praca/Indeks layout. Next to the DB: `indexer_settings.yaml` — **shared shop defaults** for scan / schedule / watch (data pack; does **not** force `can_index`). The indexer updates this file when those toggles change.
+
+**Prepare indexer…** (Tools / Index): confirm backup and extract paths plus remap, apply pack defaults, set `can_index=yes`, optionally enable watch. Floor clients stay on `can_index=no` (plus optional `operator.lock`).  
 
 Sidecars next to the database (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, …) auto-load with the DB folder — tree/role/machine assignments are never lost on restart.  
 

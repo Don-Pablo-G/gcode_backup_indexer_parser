@@ -677,6 +677,7 @@ preview_find = {data.preview_find}
 ;   extra_scan_roots.yaml      — mirror of green/yellow roots (INI is primary)
 ;   filter_presets.yaml        — named filter presets (Save preset…)
 ;   ui_settings.yaml           — schedule_last_run mirror (optional)
+;   indexer_settings.yaml      — shop scan/schedule/watch defaults (not can_index)
 ;   scan_history.json          — scan run history
 ; Ustawienia wracają po restarcie — everything above + this ini is reloaded on start.
 ; ------------------------------------------------------------

@@ -84,7 +84,7 @@ Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **R
 
 ## Mapowanie folderów i aliasy
 
-1. **Nazwy folderów…** — powtarzające się nazwy w kopii i dodatkowych korzeniach (sortowane wg częstości); przypisz alias maszyny, roli i/lub **odbiorcy** do nazwy (wszędzie). Zapis: `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml` (dokładna nazwa). Istniejący `machine_folders.yaml` nadal czyta skaner.
+1. **Nazwy folderów…** — hub wiązania nazw: lista z kopii i dodatkowych korzeni (od najczęstszych), **chipy** maszyna / funkcja / odbiorca gdy przypisane. **Prawy klik** (lub podwójny) → nowy odbiorca/maszyna/funkcja z tą nazwą albo alias do istniejącego (etykieta i alias wstępnie z pisowni folderu). Katalogi Odbiorcy / Maszyny / Role służą do utrzymania list. Zapis: `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml`.
 2. **Mapuj drzewo…** — leniwe drzewo ścieżek: maszyna + odbiorca + wiele ról + wyklucz (`folder_tree_map.yaml`; najgłębsza ścieżka wygrywa). Prawy klik na folder → alias nazwy wszędzie (maszyna / rola / odbiorca).
 3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
 4. **Role folderów…** — katalog ról (barwa, znaczenie) oraz aliasy nazw → rola.
@@ -152,7 +152,9 @@ Zaznacz **Odświeżaj wyniki**, aby **ponowić bieżące wyszukiwanie**, gdy zmi
 
 ## Ustawienia instalacji
 
-**Ustawienia wracają po restarcie:** `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, harmonogram, desktop, geometrię, przełączniki skanu, mapowanie ścieżek, **ostatnie filtry wyszukiwania** (tekst, maszyny, daty, status, role, …), sortowanie oraz widok Praca/Indeks.  
+**Ustawienia wracają po restarcie:** `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, desktop, geometrię, mapowanie ścieżek, **ostatnie filtry** oraz widok Praca/Indeks. Obok bazy: `indexer_settings.yaml` — **wspólne domyślne** skanu / harmonogramu / obserwacji (pakiet sklepu; **nie** wymusza `can_index`). Indeksator zapisuje ten plik przy zmianie tych przełączników.
+
+**Przygotuj indeksator…** (Narzędzia / Indeks): potwierdź ścieżkę kopii i wydobycia oraz mapowanie, zastosuj domyślne z pakietu, ustaw `can_index=yes`, opcjonalnie włącz obserwację. Klienci hali zostają na `can_index=no` (+ opcjonalnie `operator.lock`).  
 
 Pliki pomocnicze obok bazy (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, …) wczytują się z folderem bazy — przypisania drzewa/ról/maszyn nie giną po restarcie.  
 

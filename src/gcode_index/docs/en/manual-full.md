@@ -84,7 +84,7 @@ Results Flag column shows **status + role badge(s)**. Use separate **Status** an
 
 ## Map folders and aliases
 
-1. **Folder names…** — repeated folder names across the backup and extra roots (sorted by frequency); assign a machine, role and/or **recipient (odbiorca)** alias to a name (everywhere). Writes `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml` (exact name). Existing `machine_folders.yaml` is still read by the scanner.
+1. **Folder names…** — name-binding hub: list from the backup and extra roots (most frequent first), **chips** for machine / function / recipient when bound. **Right-click** (or double-click) → new recipient/machine/function from this name or alias to an existing entry (label and alias prefilled from the folder spelling). Recipients / Machines / Roles catalogues stay for maintenance. Writes `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml`.
 2. **Map tree…** — lazy path tree for machine + recipient + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins). Right-click a folder → name alias everywhere (machine / role / recipient).
 3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
 4. **Folder roles…** — role catalogue (swatch, meaning) and name → role aliases.
@@ -178,7 +178,9 @@ Tick **Auto-refresh results** / **Odświeżaj wyniki** to **re-run the current s
 
 ## Instance settings
 
-**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, schedule, desktop prefs, window size, scan toggles (incremental / Excel / watch), path remap, **last find-bar filters** (text, machines, dates, size, status, role, …), sort column, and Praca/Indeks layout.  
+**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, desktop prefs, window size, path remap, **last find-bar filters**, sort column, and Praca/Indeks layout. Next to the DB: `indexer_settings.yaml` — **shared shop defaults** for scan / schedule / watch (data pack; does **not** force `can_index`). The indexer updates this file when those toggles change.
+
+**Prepare indexer…** (Tools / Index): confirm backup and extract paths plus remap, apply pack defaults, set `can_index=yes`, optionally enable watch. Floor clients stay on `can_index=no` (plus optional `operator.lock`).  
 
 Sidecars next to the database (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, …) auto-load with the DB folder — tree/role/machine assignments are never lost on restart.  
 

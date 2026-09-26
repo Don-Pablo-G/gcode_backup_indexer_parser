@@ -152,7 +152,9 @@ Zaznacz **Odświeżaj wyniki**, aby **ponowić bieżące wyszukiwanie**, gdy zmi
 
 ## Ustawienia instalacji
 
-**Ustawienia wracają po restarcie:** `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, harmonogram, desktop, geometrię, przełączniki skanu, mapowanie ścieżek, **ostatnie filtry wyszukiwania** (tekst, maszyny, daty, status, role, …), sortowanie oraz widok Praca/Indeks.  
+**Ustawienia wracają po restarcie:** `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, desktop, geometrię, mapowanie ścieżek, **ostatnie filtry** oraz widok Praca/Indeks. Obok bazy: `indexer_settings.yaml` — **wspólne domyślne** skanu / harmonogramu / obserwacji (pakiet sklepu; **nie** wymusza `can_index`). Indeksator zapisuje ten plik przy zmianie tych przełączników.
+
+**Przygotuj indeksator…** (Narzędzia / Indeks): potwierdź ścieżkę kopii i wydobycia oraz mapowanie, zastosuj domyślne z pakietu, ustaw `can_index=yes`, opcjonalnie włącz obserwację. Klienci hali zostają na `can_index=no` (+ opcjonalnie `operator.lock`).  
 
 Pliki pomocnicze obok bazy (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, …) wczytują się z folderem bazy — przypisania drzewa/ról/maszyn nie giną po restarcie.  
 
