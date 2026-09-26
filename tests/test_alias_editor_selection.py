@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("tkinter")
+from tests.tk_util import require_working_tk
+
+require_working_tk()
 
 import tkinter as tk  # noqa: E402
 

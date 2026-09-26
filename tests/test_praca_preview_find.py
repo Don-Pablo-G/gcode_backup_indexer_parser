@@ -46,7 +46,9 @@ def test_full_manual_mentions_praca_indeks():
     reason="No DISPLAY for Tk on this Linux host",
 )
 def test_indexer_has_praca_indeks_and_preview_find(tmp_path: Path, monkeypatch):
-    pytest.importorskip("tkinter")
+    from tests.tk_util import require_working_tk
+
+    require_working_tk()
     ini = tmp_path / "gcode-index.ini"
     save_instance_ini(ini, can_index=True)
     monkeypatch.setenv("GCODE_INDEX_INI", str(ini))

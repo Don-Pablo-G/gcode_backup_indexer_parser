@@ -42,7 +42,7 @@ jobs:
         run: python -m pip install -e ".[dev,build]"
 
       - name: Run tests (non-GUI)
-        run: python -m pytest -q -k "not gui"
+        run: python -m pytest -q -k "not gui and not praca_preview and not alias_editor"
 
       - name: Build Windows GUI (PyInstaller onedir)
         run: scripts\build_windows.bat

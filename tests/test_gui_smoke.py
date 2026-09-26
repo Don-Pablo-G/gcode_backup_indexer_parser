@@ -12,7 +12,9 @@ import pytest
     reason="No DISPLAY for Tk on this Linux host",
 )
 def test_indexer_app_constructs():
-    pytest.importorskip("tkinter")
+    from tests.tk_util import require_working_tk
+
+    require_working_tk()
     from gcode_index.gui import IndexerApp
 
     app = IndexerApp()
