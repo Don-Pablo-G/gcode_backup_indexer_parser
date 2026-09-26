@@ -338,6 +338,7 @@ class IndexerApp(tk.Tk):
         self.watch_var = tk.BooleanVar(value=False)
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
         self.o9_system_programs_role_var = tk.BooleanVar(value=True)
+        self.role_colours_overshadow_status_var = tk.BooleanVar(value=False)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
@@ -471,6 +472,7 @@ class IndexerApp(tk.Tk):
             self.newest_only_var,
             self.odbiorca_from_header_var,
             self.o9_system_programs_role_var,
+            self.role_colours_overshadow_status_var,
         ):
             var.trace_add("write", self._on_scan_option_changed)
         # Persist folder edits typed by hand (debounced)
@@ -506,6 +508,9 @@ class IndexerApp(tk.Tk):
         self.watch_var.set(bool(cfg.watch_folders))
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
         self.o9_system_programs_role_var.set(bool(cfg.o9_system_programs_role))
+        self.role_colours_overshadow_status_var.set(
+            bool(cfg.role_colours_overshadow_status)
+        )
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
         self.search_auto_refresh_var.set(bool(cfg.search_auto_refresh))
@@ -704,6 +709,9 @@ class IndexerApp(tk.Tk):
             also_excel=bool(self.excel_var.get()),
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
             o9_system_programs_role=bool(self.o9_system_programs_role_var.get()),
+            role_colours_overshadow_status=bool(
+                self.role_colours_overshadow_status_var.get()
+            ),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
             close_to_tray=bool(self.close_to_tray_var.get()),
@@ -1398,6 +1406,9 @@ class IndexerApp(tk.Tk):
             "watch_mode": self._watch_mode,
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
             "o9_system_programs_role": bool(self.o9_system_programs_role_var.get()),
+            "role_colours_overshadow_status": bool(
+                self.role_colours_overshadow_status_var.get()
+            ),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
@@ -1648,6 +1659,10 @@ class IndexerApp(tk.Tk):
                 if "o9_system_programs_role" in preserved:
                     self.o9_system_programs_role_var.set(
                         bool(preserved.get("o9_system_programs_role"))
+                    )
+                if "role_colours_overshadow_status" in preserved:
+                    self.role_colours_overshadow_status_var.set(
+                        bool(preserved.get("role_colours_overshadow_status"))
                     )
                 if preserved.get("watch_mode") is not None:
                     self._watch_mode = normalize_watch_mode(
@@ -2428,6 +2443,12 @@ class IndexerApp(tk.Tk):
             text=self._("o9_system_programs_role"),
             variable=self.o9_system_programs_role_var,
             command=self._schedule_filter_ini_save,
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Checkbutton(
+            row2,
+            text=self._("role_colours_overshadow_status"),
+            variable=self.role_colours_overshadow_status_var,
+            command=self._on_role_overshadow_toggled,
         ).pack(side=tk.LEFT, padx=8)
         ttk.Checkbutton(
             row2,
@@ -5406,7 +5427,18 @@ class IndexerApp(tk.Tk):
         """Return Flag-column text + tree tag (swatch colour, not emoji)."""
         status = prov or PROVENANCE_BACKUP
         tags = roles_from_db(role)
-        return flag_text(status, tags), flag_tag(status, tags)
+        overshadow = bool(
+            getattr(self, "role_colours_overshadow_status_var", None)
+            and self.role_colours_overshadow_status_var.get()
+        )
+        return flag_text(status, tags), flag_tag(
+            status, tags, role_overshadow_status=overshadow
+        )
+
+    def _on_role_overshadow_toggled(self) -> None:
+        self._schedule_filter_ini_save()
+        if hasattr(self, "tree") and getattr(self, "_result_rows", None) is not None:
+            self._redraw_tree()
 
     def _provenance_filter_value(self) -> Optional[str]:
         return self._status_filter_value()

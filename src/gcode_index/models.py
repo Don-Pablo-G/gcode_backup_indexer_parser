@@ -55,18 +55,30 @@ COLOUR_EXCLUDE = "exclude"
 
 
 def is_o9_system_program(program_number: Optional[str]) -> bool:
-    """True when program number is any ``O9…`` (case-insensitive O, then 9).
+    """True when program number is **O9000–O9099** (case-insensitive O).
 
     Accepts stored forms with or without a leading ``O`` (locators usually store
-    digits only). Does not require a fixed digit count — any suffix after ``9``
-    that the parser already kept is fine.
+    digits only). Leading zeros after ``O`` are fine (``O09001`` → 9001).
+    Numbers outside 9000–9099 (e.g. O9, O9100, O99999) do **not** match.
     """
     raw = (program_number or "").strip()
     if not raw:
         return False
     if raw[0] in "Oo":
         raw = raw[1:].lstrip()
-    return bool(raw) and raw[0] == "9"
+    digits = []
+    for ch in raw:
+        if ch.isdigit():
+            digits.append(ch)
+        else:
+            break
+    if not digits:
+        return False
+    try:
+        n = int("".join(digits))
+    except ValueError:
+        return False
+    return 9000 <= n <= 9099
 
 
 @dataclass

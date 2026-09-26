@@ -87,6 +87,12 @@ newest_only = no
 ; yes/no — when filtering by machines, still show MACHINE UNKNOWN / unassigned (default yes)
 ; Floor clients (can_index=no / operator.lock) keep this on — control is disabled.
 include_unknown = yes
+; yes/no — auto-add role system_programs for program numbers O9000–O9099 (accumulate)
+; Reindex to backfill / drop old broad O9… tags outside that range
+o9_system_programs_role = yes
+; yes/no — when yes, function/role colours overshadow green/yellow for the results row
+; Default no: status (on-machine / unknown) always colours the row / primary flag
+role_colours_overshadow_status = no
 ; yes/no — auto-refresh search when gcode_index.sqlite mtime changes (clients)
 search_auto_refresh = no
 ; Seconds between DB mtime checks while auto-refresh is on (minimum 5)

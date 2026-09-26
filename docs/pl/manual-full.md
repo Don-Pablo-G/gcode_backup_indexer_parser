@@ -96,7 +96,7 @@ Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **R
 
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
 2. Zielony **Indeksuj / skanuj**.
-3. Opcje: **Przyrostowo**, **Zapisz też Excel**, **Odbiorca z nagłówka**, **O9 → programy systemowe**, **Obserwuj foldery**.
+3. Opcje: **Przyrostowo**, **Zapisz też Excel**, **Odbiorca z nagłówka**, **O9000–O9099 → programy systemowe**, **Kolor roli nad statusem**, **Obserwuj foldery**.
 4. Pasek postępu + **Raport skanu** po zakończeniu.
 
 ### Auto-indeks
@@ -135,7 +135,7 @@ Jak na kliencie hali, plus:
 
 - **Uwzględniaj nieprzypisane** / **Include unassigned** (domyślnie **ON**) — przy aktywnym filtrze maszyn zostawia w wynikach **MACHINE UNKNOWN** / `unmapped:…`. Wyłączenie pokazuje ostrzeżenie. Zapis: `[scan] include_unknown` w `gcode-index.ini`. Na kliencie hali i przy blokadzie zawsze **ON** (kontrolka wyłączona).
 - **Więcej filtrów** — typ źródła, sterowanie, status, rola, odbiorca, programista, **widoki** (`views.yaml` obok bazy), rozmiar / data pliku
-- **Jakość indeksu…** — UNKNOWN, brak odbiorcy, programy systemowe (O9…), konflikty kolorów; klik → filtr wyników
+- **Jakość indeksu…** — UNKNOWN, brak odbiorcy, programy systemowe (O9000–O9099), konflikty kolorów; klik → filtr wyników
 - **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; odznaki kolorów przy członkach; **Konflikt kolorów**, gdy to samo ciało ma ≥2 kolory — filtr „Tylko konflikt kolorów”; po aktualizacji **przeskanuj** ponownie)
 - Prawy przycisk → **Wydobądź do…** — wybór folderu (ostatnie foldery w ini). Wydobycie sprawdza SHA całego pliku (`content_sha256`) + rozmiar ze skanu.
 

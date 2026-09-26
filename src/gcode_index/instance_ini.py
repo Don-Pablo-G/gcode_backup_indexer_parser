@@ -63,8 +63,10 @@ class InstanceConfig:
     include_unknown: bool = True  # sticky: keep MACHINE UNKNOWN when filtering machines
     # Match odbiorca aliases against header-window paren comments when folder/path unset
     odbiorca_from_header: bool = True
-    # Auto-tag O9… program numbers with role system_programs
+    # Auto-tag O9000–O9099 program numbers with role system_programs
     o9_system_programs_role: bool = True
+    # When True, role/function colours colour the results row instead of status
+    role_colours_overshadow_status: bool = False
     search_auto_refresh: bool = False  # re-query when DB mtime changes
     search_auto_refresh_s: int = 20  # poll interval for DB mtime (seconds)
     geometry: str = "1320x820"
@@ -305,6 +307,10 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.o9_system_programs_role = _truthy(
             parser.get("scan", "o9_system_programs_role", fallback="yes"), default=True
         )
+        cfg.role_colours_overshadow_status = _truthy(
+            parser.get("scan", "role_colours_overshadow_status", fallback="no"),
+            default=False,
+        )
         cfg.watch_folders = _truthy(
             parser.get("scan", "watch_folders", fallback="no"), default=False
         )
@@ -513,6 +519,12 @@ def save_instance_ini(
         o9_system_programs_role=bool(
             kwargs.get("o9_system_programs_role", base.o9_system_programs_role)
         ),
+        role_colours_overshadow_status=bool(
+            kwargs.get(
+                "role_colours_overshadow_status",
+                base.role_colours_overshadow_status,
+            )
+        ),
         search_auto_refresh=bool(
             kwargs.get("search_auto_refresh", base.search_auto_refresh)
         ),
@@ -662,9 +674,13 @@ include_unknown = {yn(data.include_unknown)}
 ; yes/no — when folder/path left odbiorca empty, match aliases in header paren comments
 ; (O-header window only — not the full toolpath body). Reindex to backfill.
 odbiorca_from_header = {yn(data.odbiorca_from_header)}
-; yes/no — auto-add role system_programs when program_number is any O9… (accumulate)
-; Reindex to backfill. Does not change status / machine / odbiorca.
+; yes/no — auto-add role system_programs when program_number is O9000–O9099
+; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
+; old broad O9… tags outside that range. Does not change status / machine / odbiorca.
 o9_system_programs_role = {yn(data.o9_system_programs_role)}
+; yes/no — when yes, function/role colours overshadow green/yellow for the
+; results-row / primary flag colour. Default no: status (backup/extra) always wins.
+role_colours_overshadow_status = {yn(data.role_colours_overshadow_status)}
 ; yes/no — auto-refresh search results when the DB file changes (mtime)
 ; Useful on floor clients sharing a network DB — no need to retype search.
 search_auto_refresh = {yn(data.search_auto_refresh)}

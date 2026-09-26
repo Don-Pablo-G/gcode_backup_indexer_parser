@@ -41,28 +41,38 @@ def role_dot(_badge: Optional[str] = None) -> str:
 
 
 def flag_text(prov: Optional[str], role_ids: Sequence[str] | None = None) -> str:
-    """Flag-column text: one disc per unique role, or a status disc when none.
+    """Flag-column text: status disc + one disc per unique role (alongside).
 
-    Roles are a set — duplicate ids never produce extra chips. When roles are
-    present the row tag is role-coloured, so a separate status disc would look
-    like a second copy of the same role chip; show roles only in that case.
+    Roles are a set — duplicate ids never produce extra chips. Status is always
+    present as the first disc; role discs are extras, not a replacement.
     """
     from gcode_index.folder_tree_map import normalize_roles_list
 
     roles = normalize_roles_list(list(role_ids or []))
-    if roles:
-        return "".join(DOT_LARGE for _ in roles)
-    return DOT_LARGE
+    parts = [DOT_LARGE]  # status
+    parts.extend(DOT_LARGE for _ in roles)
+    return "".join(parts)
 
 
-def flag_tag(prov: Optional[str], role_ids: Sequence[str] | None = None) -> str:
-    """Treeview tag name: prefer first unique role id, else status."""
+def flag_tag(
+    prov: Optional[str],
+    role_ids: Sequence[str] | None = None,
+    *,
+    role_overshadow_status: bool = False,
+) -> str:
+    """Treeview tag name for row/flag colour.
+
+    Default: **status** wins (green backup / yellow extra). When
+    ``role_overshadow_status`` is True and roles exist, the first role id
+    colours the row instead.
+    """
     from gcode_index.folder_tree_map import normalize_roles_list
 
-    roles = normalize_roles_list(list(role_ids or []))
-    if roles:
-        return f"flag_{roles[0]}"
     status = (prov or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP
+    if role_overshadow_status:
+        roles = normalize_roles_list(list(role_ids or []))
+        if roles:
+            return f"flag_{roles[0]}"
     return f"flag_{status}"
 
 

@@ -526,11 +526,15 @@ def scan_with_extra_roots(
 
 
 def _apply_o9_system_programs_role(result: ScanResult) -> None:
-    """Add ``system_programs`` when program_number is any O9… (accumulate).
+    """Add ``system_programs`` when program_number is O9000–O9099 (accumulate).
 
     Never changes status, machine, or odbiorca. Runs after folder/path roles so
     tree-map replacements still receive the O9 tag. Role ids are a set — never
     append when the canonical id is already present.
+
+    Reindex rebuilds roles from path rules + this pass: numbers outside
+    9000–9099 that only had the old broad auto-tag lose it unless a folder
+    alias / tree rule still applies.
     """
     n = 0
     for inst in result.instances:

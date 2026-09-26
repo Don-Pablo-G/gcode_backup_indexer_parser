@@ -127,7 +127,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    The **Preview** pane beside the results shows the selected program body (**In preview** find with next/prev + highlight). Large programs are truncated in the pane only.
    Select **exactly two** rows → **Compare…** for a unified diff (also on right-click).
 10. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.
-    **Index quality…** summarizes UNKNOWN machines, missing odbiorca, `system_programs` (O9…), and colour conflicts — click a row to filter results.
+    **Index quality…** summarizes UNKNOWN machines, missing odbiorca, `system_programs` (O9000–O9099), and colour conflicts — click a row to filter results.
 11. **Duplicates…** finds **exact** copies by **program-body** SHA-256 (`program_sha256` — normalized extract form, so a glued ALL-FLDR / `.pgm` slice can match a loose `.nc` with the same body) and **near**-duplicates (same program # + similar size, different body hash). Groups show each member’s **colour badge**; when the same body appears under ≥2 colours you get a **colour conflict** banner (**Konflikt kolorów**) and a **Colour conflicts only** filter. Whole-file `content_sha256` stays for extract integrity. After upgrading, **re-scan** so older rows get `program_sha256`. **Show in results** loads a group into the main table.
 
 Path remaps: several `FROM => TO` rules in `[path_remap]` (UI add/edit/remove); **longest prefix wins** for extract/preview.

@@ -104,7 +104,8 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
    - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
    - **Also write Excel** — export workbook next to the DB after scan
    - **Odbiorca from header** — when folder/path left odbiorca empty, match aliases in header paren comments (O##### window only)
-   - **O9 → system programs** — auto-add role `system_programs` when program number is any O9… (accumulates with other roles; reindex to backfill)
+   - **O9000–O9099 → system programs** — auto-add role `system_programs` when program number is O9000–O9099 (accumulates with other roles; reindex to backfill / drop old broad O9 tags outside that range)
+   - **Role colour over status** — when on, function/role colours overshadow green/yellow for the results row (default off: status always wins)
    - **Watch folders** — see below
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
 
@@ -154,7 +155,7 @@ Same find bar as the floor client, plus:
 - **More filters** — source type, control, flag (green/yellow), role, odbiorca, programmer, **views** (named filter sets in `views.yaml` next to the DB), **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
 - Click any **results column header** to sort ascending/descending
 - **Compare…** — unified diff of exactly two selected rows
-- **Index quality…** — UNKNOWN machines, missing odbiorca, `system_programs` (O9…), colour conflicts; click a row to filter results
+- **Index quality…** — UNKNOWN machines, missing odbiorca, `system_programs` (O9000–O9099), colour conflicts; click a row to filter results
 - **Duplicates…** — exact groups use **program-body** SHA-256 (`program_sha256`: normalized extract text with `%` frame + LF newlines), so glued dump slices can match loose `.nc` / `.nc.copy` with the same body. Members show **colour badges**; groups with ≥2 colours for the same body are flagged as **colour conflicts** (**Konflikt kolorów**) with a filter to show only those. Near-duplicates: same program # + similar size, different body hash. Whole-file `content_sha256` is unchanged for extract integrity. **Re-scan** after upgrade to fill `program_sha256` on older rows.
 - **Open folder** / **Copy path** on the source file
 - Right-click → **Extract to…** — pick a folder (recent destinations remembered in the ini)
