@@ -10,6 +10,7 @@ from typing import List, Optional
 from gcode_index import PARSER_VERSION
 from gcode_index.birthtime import file_birth_or_mtime, file_mtime
 from gcode_index.integrity import file_sha256
+from gcode_index.program_hash import program_sha256_slice
 from gcode_index.locators import (
     decode_header_line,
     first_paren_comment,
@@ -204,6 +205,7 @@ def _locate_fanuc_glued(
                 source_mtime=mtime,
                 source_size=size,
                 content_sha256=digest,
+                program_sha256=program_sha256_slice(p, hit.byte_start, byte_end),
                 parser_id=parser_id,
                 parser_version=PARSER_VERSION,
                 parse_status="ok",

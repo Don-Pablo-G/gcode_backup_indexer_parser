@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS program_instances (
   source_mtime TEXT,
   source_size INTEGER,
   content_sha256 TEXT,
+  program_sha256 TEXT,
   indexed_at TEXT NOT NULL,
   parser_id TEXT,
   parser_version TEXT,
@@ -117,6 +118,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
     if "content_sha256" not in cols:
         conn.execute("ALTER TABLE program_instances ADD COLUMN content_sha256 TEXT")
+    if "program_sha256" not in cols:
+        conn.execute("ALTER TABLE program_instances ADD COLUMN program_sha256 TEXT")
     if "provenance" not in cols:
         conn.execute(
             "ALTER TABLE program_instances ADD COLUMN provenance TEXT NOT NULL DEFAULT 'backup'"
@@ -130,6 +133,9 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pi_programmer ON program_instances(programmer)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pi_program_sha ON program_instances(program_sha256)"
     )
     conn.commit()
 
@@ -178,6 +184,7 @@ def write_scan_result(
                 _iso(inst.source_mtime),
                 inst.source_size,
                 inst.content_sha256,
+                inst.program_sha256,
                 indexed_at,
                 inst.parser_id,
                 inst.parser_version or PARSER_VERSION,
@@ -198,10 +205,11 @@ def write_scan_result(
           machine_folder_raw, date_folder_raw, backup_date, file_ctime, date_source,
           source_path, line_start, line_end, byte_start, byte_end, source_type,
           folder_path, control_family, source_mtime, source_size, content_sha256,
+          program_sha256,
           indexed_at, parser_id, parser_version, parse_status, error_message,
           header_kind, provenance, scan_root, programmer, run_id
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
         """,
         rows,
@@ -393,6 +401,7 @@ _INSTANCE_SELECT = """
                machine_folder_raw, date_folder_raw, backup_date, file_ctime,
                source_path, line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_mtime, source_size, content_sha256,
+               program_sha256,
                provenance, scan_root, programmer
         FROM program_instances
 """

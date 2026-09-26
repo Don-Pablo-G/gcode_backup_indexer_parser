@@ -57,7 +57,10 @@ class ProgramInstance:
     control_family: Optional[str] = None
     source_mtime: Optional[datetime] = None
     source_size: Optional[int] = None
+    # Whole source-file SHA-256 (integrity stamp for extract)
     content_sha256: Optional[str] = None
+    # Normalized extracted program-body SHA-256 (duplicates / cross-source match)
+    program_sha256: Optional[str] = None
     parser_id: Optional[str] = None
     parser_version: Optional[str] = None
     parse_status: str = "ok"

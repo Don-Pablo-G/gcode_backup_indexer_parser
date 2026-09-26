@@ -121,7 +121,7 @@ def load_scan_cache(conn: sqlite3.Connection) -> ScanCache:
                machine_folder_raw, date_folder_raw, backup_date, date_source,
                source_path, line_start, line_end, byte_start, byte_end,
                source_type, folder_path, control_family, source_mtime, source_size,
-               content_sha256, parser_id, parser_version, parse_status,
+               content_sha256, program_sha256, parser_id, parser_version, parse_status,
                error_message, header_kind, provenance, scan_root, programmer
         FROM program_instances
         WHERE run_id = ?
@@ -153,6 +153,8 @@ def load_scan_cache(conn: sqlite3.Connection) -> ScanCache:
                 instances=[],
             )
         backup_date = _parse_iso(row["backup_date"]) or datetime.now(timezone.utc)
+        keys = row.keys()
+        prog_sha = row["program_sha256"] if "program_sha256" in keys else None
         grouped[key].instances.append(
             ProgramInstance(
                 program_number=str(row["program_number"] or ""),
@@ -174,6 +176,7 @@ def load_scan_cache(conn: sqlite3.Connection) -> ScanCache:
                 source_mtime=_parse_iso(row["source_mtime"]),
                 source_size=row["source_size"],
                 content_sha256=row["content_sha256"],
+                program_sha256=prog_sha,
                 parser_id=row["parser_id"],
                 parser_version=row["parser_version"],
                 parse_status=str(row["parse_status"] or "ok"),

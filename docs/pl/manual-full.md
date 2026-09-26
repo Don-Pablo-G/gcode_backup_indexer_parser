@@ -123,7 +123,7 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 Jak na kliencie hali, plus:
 
 - **Uwzględniaj nieprzypisane** / **Include unassigned** (domyślnie **ON**) — przy aktywnym filtrze maszyn zostawia w wynikach **MACHINE UNKNOWN** / `unmapped:…`. Wyłączenie pokazuje ostrzeżenie. Zapis: `[scan] include_unknown` w `gcode-index.ini`. Na kliencie hali i przy blokadzie zawsze **ON** (kontrolka wyłączona).
-- **Więcej filtrów**, **Porównaj…**, **Duplikaty…**. Wydobycie sprawdza SHA-256 + rozmiar ze skanu.
+- **Więcej filtrów**, **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; po aktualizacji **przeskanuj** ponownie). Wydobycie sprawdza SHA całego pliku (`content_sha256`) + rozmiar ze skanu.
 
 ---
 

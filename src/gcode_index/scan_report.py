@@ -314,14 +314,20 @@ def find_exact_duplicate_groups(
     *,
     limit_groups: int = 200,
 ) -> list[DuplicateGroup]:
-    """Groups sharing the same non-empty ``content_sha256`` (2+ members)."""
+    """Groups sharing the same non-empty ``program_sha256`` (2+ members).
+
+    Falls back to ``content_sha256`` only when ``program_sha256`` is absent
+    (pre-reindex DBs) — that fallback is whole-file and will not cross glued↔.nc.
+    """
     conn.row_factory = sqlite3.Row
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
+    sha_col = "program_sha256" if "program_sha256" in cols else "content_sha256"
     sha_rows = conn.execute(
-        """
-        SELECT content_sha256, COUNT(*) AS n
+        f"""
+        SELECT {sha_col} AS body_sha, COUNT(*) AS n
         FROM program_instances
-        WHERE content_sha256 IS NOT NULL AND content_sha256 != ''
-        GROUP BY content_sha256
+        WHERE {sha_col} IS NOT NULL AND {sha_col} != ''
+        GROUP BY {sha_col}
         HAVING n >= 2
         ORDER BY n DESC
         LIMIT ?
@@ -331,26 +337,41 @@ def find_exact_duplicate_groups(
 
     groups: list[DuplicateGroup] = []
     for hit in sha_rows:
-        sha = hit["content_sha256"]
+        sha = hit["body_sha"]
         members = list(
             conn.execute(
-                """
+                f"""
                 SELECT instance_id, program_number, part_number, machine_id, machine_label,
                        machine_folder_raw, date_folder_raw, backup_date, source_path,
                        line_start, line_end, byte_start, byte_end, source_type,
                        folder_path, control_family, source_size, content_sha256,
+                       program_sha256,
                        provenance, scan_root, programmer
                 FROM program_instances
-                WHERE content_sha256 = ?
+                WHERE {sha_col} = ?
                 ORDER BY backup_date DESC, machine_id, program_number
                 """,
                 (sha,),
             )
         )
-        short = sha[:12] + "…" if len(sha) > 12 else sha
-        progs = sorted({str(m["program_number"] or "") for m in members})
-        prog_note = progs[0] if len(progs) == 1 else f"{len(progs)} program #s"
-        label = f"Exact SHA {short} · {len(members)} copies · {prog_note}"
+        if len(members) < 2:
+            continue
+        # Build label
+        machines = sorted(
+            {
+                _machine_display(m["machine_id"], m["machine_label"])
+                for m in members
+            }
+        )
+        types = sorted({str(m["source_type"] or "") for m in members})
+        mach_note = ", ".join(machines[:4])
+        if len(machines) > 4:
+            mach_note += f", +{len(machines) - 4}"
+        type_note = "/".join(t for t in types if t)[:40]
+        label = (
+            f"Exact body · {len(members)} · {sha[:12]}… · {mach_note}"
+            + (f" · {type_note}" if type_note else "")
+        )
         groups.append(DuplicateGroup(kind="exact", label=label, members=members))
     return groups
 
@@ -362,20 +383,30 @@ def find_near_duplicate_groups(
     size_abs: int = DEFAULT_NEAR_SIZE_ABS,
     limit_groups: int = 200,
 ) -> list[DuplicateGroup]:
-    """Same program #, different content hash, similar ``source_size``.
+    """Same program #, different program-body hash, similar ``source_size``.
 
     Catches copies/drift across machines or dates that are not byte-identical.
     """
     conn.row_factory = sqlite3.Row
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
+    has_prog = "program_sha256" in cols
     # Pull candidates grouped by casefold program number
     by_prog: dict[str, list] = defaultdict(list)
-    for row in conn.execute(
-        """
+    sel = """
         SELECT instance_id, program_number, part_number, machine_id, machine_label,
                machine_folder_raw, date_folder_raw, backup_date, source_path,
                line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_size, content_sha256,
                provenance, scan_root, programmer
+    """
+    if has_prog:
+        sel = sel.replace(
+            "content_sha256,",
+            "content_sha256, program_sha256,",
+        )
+    for row in conn.execute(
+        sel
+        + """
         FROM program_instances
         WHERE program_number IS NOT NULL AND program_number != ''
         ORDER BY program_number, backup_date DESC
@@ -384,18 +415,24 @@ def find_near_duplicate_groups(
         key = str(row["program_number"]).casefold()
         by_prog[key].append(row)
 
+    def _body_sha(row) -> str:
+        keys = row.keys()
+        if "program_sha256" in keys and row["program_sha256"]:
+            return str(row["program_sha256"]).strip()
+        return str(row["content_sha256"] or "").strip()
+
     groups: list[DuplicateGroup] = []
     for prog_key, rows in by_prog.items():
         if len(rows) < 2:
             continue
-        # Cluster by similar size; require at least two distinct SHA (or missing)
+        # Cluster by similar size; require at least two distinct body SHA (or missing)
         used: set[int] = set()
         for i, a in enumerate(rows):
             if i in used:
                 continue
             cluster = [a]
             used.add(i)
-            sha_a = (a["content_sha256"] or "").strip()
+            sha_a = _body_sha(a)
             size_a = a["source_size"]
             for j in range(i + 1, len(rows)):
                 if j in used:
@@ -405,7 +442,7 @@ def find_near_duplicate_groups(
                     size_a, b["source_size"], ratio=size_ratio, abs_slack=size_abs
                 ):
                     continue
-                sha_b = (b["content_sha256"] or "").strip()
+                sha_b = _body_sha(b)
                 # Skip if both have same non-empty SHA (those belong in exact)
                 if sha_a and sha_b and sha_a == sha_b:
                     continue
@@ -413,7 +450,7 @@ def find_near_duplicate_groups(
                 used.add(j)
             if len(cluster) < 2:
                 continue
-            shas = {(m["content_sha256"] or "").strip() for m in cluster}
+            shas = {_body_sha(m) for m in cluster}
             # Need genuine near-dup signal: not all identical SHA
             non_empty = {s for s in shas if s}
             if len(non_empty) <= 1 and "" not in shas:

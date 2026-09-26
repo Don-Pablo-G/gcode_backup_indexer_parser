@@ -32,6 +32,7 @@ def _inst(
     label: str | None = None,
     source_type: str = "loose_nc",
     date: str = "2026-09-15T00:00:00+00:00",
+    program_sha: str | None = None,
 ) -> ProgramInstance:
     return ProgramInstance(
         program_number=program,
@@ -44,6 +45,7 @@ def _inst(
         source_type=source_type,
         source_size=size,
         content_sha256=sha,
+        program_sha256=program_sha if program_sha is not None else sha,
         control_family="haas",
     )
 
@@ -178,7 +180,7 @@ def test_exact_and_near_duplicates(tmp_path: Path):
     assert len(exact) == 1
     assert exact[0].kind == "exact"
     assert len(exact[0].members) == 2
-    assert "Exact SHA" in exact[0].label
+    assert "Exact body" in exact[0].label
 
     near = find_near_duplicate_groups(conn)
     assert len(near) == 1

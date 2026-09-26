@@ -4683,7 +4683,13 @@ class DuplicatesDialog(tk.Toplevel):
             return
         group = self._groups[sel[0]]
         for i, m in enumerate(group.members):
-            sha = str(m["content_sha256"] or "")
+            keys = m.keys()
+            if "program_sha256" in keys and m["program_sha256"]:
+                sha = str(m["program_sha256"])
+            elif "content_sha256" in keys:
+                sha = str(m["content_sha256"] or "")
+            else:
+                sha = ""
             sha_short = (sha[:12] + "…") if len(sha) > 12 else sha
             size = m["source_size"]
             size_s = str(size) if size is not None else ""

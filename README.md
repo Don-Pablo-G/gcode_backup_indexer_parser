@@ -127,7 +127,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    The **Preview** pane beside the results shows the selected program body (**In preview** find with next/prev + highlight). Large programs are truncated in the pane only.
    Select **exactly two** rows → **Compare…** for a unified diff (also on right-click).
 10. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.
-11. **Duplicates…** finds **exact** copies (same content SHA-256) and **near**-duplicates (same program # + similar size, different hash) across machines/dates; **Show in results** loads a group into the main table.
+11. **Duplicates…** finds **exact** copies by **program-body** SHA-256 (`program_sha256` — normalized extract form, so a glued ALL-FLDR / `.pgm` slice can match a loose `.nc` with the same body) and **near**-duplicates (same program # + similar size, different body hash). Whole-file `content_sha256` stays for extract integrity. After upgrading, **re-scan** so older rows get `program_sha256`. **Show in results** loads a group into the main table.
 
 While **Run index / scan** is running, a progress bar shows file count and ETA. You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar. Floor clients with **Auto-refresh results** re-query when this PC’s incremental scan updates the shared sqlite.
 
