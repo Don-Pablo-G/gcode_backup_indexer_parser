@@ -14,16 +14,37 @@ SOURCE_TYPES = (
     "loose_nc",
 )
 
-# Provenance / run flag:
-# backup = green (ran on machine / catch);
-# extra = yellow (additional folder, not from backup);
-# wip = red (work-in-progress / not production-ready)
-PROVENANCE_BACKUP = "backup"
-PROVENANCE_EXTRA = "extra"
-PROVENANCE_WIP = "wip"
+# ---------------------------------------------------------------------------
+# Status = ran on machine? Derived from scan roots only (never folder aliases).
+# Internal ids stay ``backup`` / ``extra`` for DB / root YAML compatibility.
+# ---------------------------------------------------------------------------
+STATUS_ON_MACHINE = "backup"  # 🟢 on_machine
+STATUS_NOT_RUN = "extra"  # 🟡 not_run
+STATUS_VALUES = (STATUS_ON_MACHINE, STATUS_NOT_RUN)
+
+# Legacy aliases (pre-0.2.64 single-flag era)
+PROVENANCE_BACKUP = STATUS_ON_MACHINE
+PROVENANCE_EXTRA = STATUS_NOT_RUN
+PROVENANCE_WIP = "wip"  # now a *role* id, not a status
 PROVENANCE_VALUES = (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP)
 
-# Path-colour rule that skips indexing a folder branch (not stored on rows)
+# ---------------------------------------------------------------------------
+# Role = production / WIP / fixture / … Editable catalogue + folder aliases.
+# ---------------------------------------------------------------------------
+ROLE_PRODUCTION = "production"
+ROLE_FIXTURE = "fixture"
+ROLE_WIP = "wip"
+ROLE_TEST = "test"
+ROLE_PERSONAL = "personal"
+ROLE_SEED_IDS = (
+    ROLE_PRODUCTION,
+    ROLE_FIXTURE,
+    ROLE_WIP,
+    ROLE_TEST,
+    ROLE_PERSONAL,
+)
+
+# Path-role rule that skips indexing a folder branch (not stored on rows)
 COLOUR_EXCLUDE = "exclude"
 
 
@@ -66,8 +87,10 @@ class ProgramInstance:
     parse_status: str = "ok"
     error_message: Optional[str] = None
     header_kind: Optional[str] = None
-    # backup = green; extra = yellow; wip = red (WIP / not production)
-    provenance: str = PROVENANCE_BACKUP
+    # Status (ran on machine?): backup=on_machine 🟢, extra=not_run 🟡 — from roots only
+    provenance: str = STATUS_ON_MACHINE
+    # Role (production / wip / …) — from folder-role aliases; None = unset
+    role: Optional[str] = None
     scan_root: Optional[str] = None
     # Next-line comment (LP1) / (MS1); null if absent or non-matching
     programmer: Optional[str] = None

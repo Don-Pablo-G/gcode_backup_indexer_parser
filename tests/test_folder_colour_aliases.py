@@ -1,4 +1,4 @@
-"""Folder colour catalog + path aliases (custom colours, migrate v1)."""
+"""Folder role catalog + path aliases (status is separate from scan roots)."""
 
 from __future__ import annotations
 
@@ -17,8 +17,10 @@ from gcode_index.folder_colour_aliases import (
 from gcode_index.models import (
     COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
-    PROVENANCE_EXTRA,
-    PROVENANCE_WIP,
+    ROLE_FIXTURE,
+    ROLE_PRODUCTION,
+    ROLE_SEED_IDS,
+    ROLE_WIP,
 )
 from gcode_index.scanner import scan_backup_tree
 
@@ -31,36 +33,61 @@ def _write_nc(path: Path, ono: str = "O6001") -> Path:
     return path
 
 
-def test_default_catalog_seeds_three_colours():
+def test_default_catalog_seeds_roles():
     cat = ColourCatalog()
     ids = [c.id for c in cat.colours]
-    assert ids[:3] == [PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP]
+    assert ids[:5] == list(ROLE_SEED_IDS)
+    # Status ids must not appear as roles
+    assert PROVENANCE_BACKUP not in ids
+    assert "extra" not in ids
 
 
 def test_v1_rules_only_migrates_on_load(tmp_path: Path):
     path = tmp_path / "folder_colour_aliases.yaml"
-    # Legacy v1: rules only, colour names green/yellow/red
-    save_folder_colour_rules(
-        path,
-        [
-            FolderColourRule(alias="Pawel", colour="red"),
-            FolderColourRule(alias="scrap", colour="exclude"),
-        ],
-    )
-    # Force rewrite as v1-looking file (rules only, no colours key)
+    # Legacy: red → wip role; green/yellow rules remap to production/fixture
     path.write_text(
-        "rules:\n  - alias: Pawel\n    colour: red\n  - alias: scrap\n    colour: exclude\n",
+        "rules:\n"
+        "  - alias: Pawel\n"
+        "    colour: red\n"
+        "  - alias: Prod\n"
+        "    colour: green\n"
+        "  - alias: scrap\n"
+        "    colour: exclude\n",
         encoding="utf-8",
     )
     cat = load_colour_catalog(path)
-    assert len(cat.colours) >= 3
-    assert {c.id for c in cat.colours} >= {PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP}
+    assert {c.id for c in cat.colours} >= set(ROLE_SEED_IDS)
     by = {r.alias: r.colour for r in cat.rules}
-    assert by["Pawel"] == PROVENANCE_WIP
+    assert by["Pawel"] == ROLE_WIP
+    assert by["Prod"] == ROLE_PRODUCTION
     assert by["scrap"] == COLOUR_EXCLUDE
 
 
-def test_custom_colour_roundtrip(tmp_path: Path):
+def test_legacy_status_colours_stripped_from_catalog(tmp_path: Path):
+    path = tmp_path / "folder_colour_aliases.yaml"
+    path.write_text(
+        "colours:\n"
+        "  - id: backup\n"
+        "    label_pl: Zielona\n"
+        "  - id: extra\n"
+        "    label_pl: Zolta\n"
+        "  - id: wip\n"
+        "    label_pl: WIP\n"
+        "rules:\n"
+        "  - alias: X\n"
+        "    colour: backup\n",
+        encoding="utf-8",
+    )
+    cat = load_colour_catalog(path)
+    ids = {c.id for c in cat.colours}
+    assert "backup" not in ids
+    assert "extra" not in ids
+    assert ROLE_WIP in ids
+    assert ROLE_PRODUCTION in ids
+    assert cat.rules[0].colour == ROLE_PRODUCTION  # backup rule → production
+
+
+def test_custom_role_roundtrip(tmp_path: Path):
     path = tmp_path / "folder_colour_aliases.yaml"
     cat = ColourCatalog(
         colours=list(ColourCatalog().colours)
@@ -86,43 +113,60 @@ def test_custom_colour_roundtrip(tmp_path: Path):
     assert loaded.rules[0].colour == "quarantine"
 
 
-def test_custom_colour_applied_in_scan(tmp_path: Path):
+def test_role_alias_does_not_override_status(tmp_path: Path):
     bak = tmp_path / "bak"
     hit = _write_nc(bak / "15.09.2026" / "OddMill" / "Q" / "x.nc", "O6101")
     other = _write_nc(bak / "15.09.2026" / "OddMill" / "ok.nc", "O6102")
     am = AliasMap.load(ALIASES)
     colours = FolderColourAliasMap(
         [FolderColourRule(alias="Q", colour="quarantine")],
-        known_ids={"quarantine", PROVENANCE_BACKUP},
+        known_ids={"quarantine", ROLE_PRODUCTION},
     )
     result = scan_backup_tree(bak, am, colour_map=colours)
     by = {
         (Path(i.scan_root or "") / i.source_path).resolve(): i
         for i in result.instances
     }
-    assert by[hit.resolve()].provenance == "quarantine"
+    # Status stays on-machine (backup); role set from alias
+    assert by[hit.resolve()].provenance == PROVENANCE_BACKUP
+    assert by[hit.resolve()].role == "quarantine"
     assert by[other.resolve()].provenance == PROVENANCE_BACKUP
+    assert by[other.resolve()].role is None
 
 
-def test_edited_meaning_persists(tmp_path: Path):
+def test_edited_role_meaning_persists(tmp_path: Path):
     path = tmp_path / "folder_colour_aliases.yaml"
     cat = ColourCatalog()
-    backup = cat.get(PROVENANCE_BACKUP)
-    assert backup is not None
+    prod = cat.get(ROLE_PRODUCTION)
+    assert prod is not None
     edited = ColourDef(
-        id=backup.id,
-        label_pl="Na maszynie",
-        label_en=backup.label_en,
-        swatch=backup.swatch,
+        id=prod.id,
+        label_pl="Seria",
+        label_en=prod.label_en,
+        swatch=prod.swatch,
         meaning_pl="Zmienione znaczenie",
         meaning_en="Changed meaning",
-        badge=backup.badge,
+        badge=prod.badge,
         builtin=True,
     )
-    others = [c for c in cat.colours if c.id != PROVENANCE_BACKUP]
+    others = [c for c in cat.colours if c.id != ROLE_PRODUCTION]
     save_colour_catalog(path, ColourCatalog(colours=[edited, *others], rules=[]))
     loaded = load_colour_catalog(path)
-    b = loaded.get(PROVENANCE_BACKUP)
+    b = loaded.get(ROLE_PRODUCTION)
     assert b is not None
-    assert b.label_pl == "Na maszynie"
+    assert b.label_pl == "Seria"
     assert b.meaning_pl == "Zmienione znaczenie"
+
+
+def test_wip_role_from_alias(tmp_path: Path):
+    bak = tmp_path / "bak"
+    hit = _write_nc(bak / "15.09.2026" / "OddMill" / "Pawel" / "x.nc", "O6201")
+    am = AliasMap.load(ALIASES)
+    colours = FolderColourAliasMap([FolderColourRule(alias="Pawel", colour="wip")])
+    result = scan_backup_tree(bak, am, colour_map=colours)
+    by = {
+        (Path(i.scan_root or "") / i.source_path).resolve(): i
+        for i in result.instances
+    }
+    assert by[hit.resolve()].provenance == PROVENANCE_BACKUP
+    assert by[hit.resolve()].role == ROLE_WIP

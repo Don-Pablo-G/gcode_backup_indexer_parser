@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS program_instances (
   error_message TEXT,
   header_kind TEXT,
   provenance TEXT NOT NULL DEFAULT 'backup',
+  role TEXT,
   scan_root TEXT,
   programmer TEXT,
   run_id TEXT,
@@ -124,12 +125,17 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE program_instances ADD COLUMN provenance TEXT NOT NULL DEFAULT 'backup'"
         )
+    if "role" not in cols:
+        conn.execute("ALTER TABLE program_instances ADD COLUMN role TEXT")
     if "scan_root" not in cols:
         conn.execute("ALTER TABLE program_instances ADD COLUMN scan_root TEXT")
     if "programmer" not in cols:
         conn.execute("ALTER TABLE program_instances ADD COLUMN programmer TEXT")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pi_provenance ON program_instances(provenance)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pi_role ON program_instances(role)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pi_programmer ON program_instances(programmer)"
@@ -192,6 +198,7 @@ def write_scan_result(
                 inst.error_message,
                 inst.header_kind,
                 inst.provenance or "backup",
+                inst.role,
                 inst.scan_root,
                 inst.programmer,
                 run_id,
@@ -207,9 +214,9 @@ def write_scan_result(
           folder_path, control_family, source_mtime, source_size, content_sha256,
           program_sha256,
           indexed_at, parser_id, parser_version, parse_status, error_message,
-          header_kind, provenance, scan_root, programmer, run_id
+          header_kind, provenance, role, scan_root, programmer, run_id
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
         """,
         rows,
@@ -402,7 +409,7 @@ _INSTANCE_SELECT = """
                source_path, line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_mtime, source_size, content_sha256,
                program_sha256,
-               provenance, scan_root, programmer
+               provenance, role, scan_root, programmer
         FROM program_instances
 """
 
@@ -453,7 +460,13 @@ def format_display_size(nbytes: Optional[int]) -> str:
 
 # Column id → sort key (used by GUI header clicks, #3)
 _SORT_KEY_FNS = {
-    "flag": lambda r: str(r["provenance"] or "").casefold(),
+    "flag": lambda r: (
+        f"{r['provenance'] or ''}|{r['role'] if 'role' in r.keys() else ''}"
+    ).casefold(),
+    "status": lambda r: str(r["provenance"] or "").casefold(),
+    "role": lambda r: str(
+        r["role"] if "role" in r.keys() else ""
+    ).casefold(),
     "program": lambda r: str(r["program_number"] or "").casefold(),
     "part": lambda r: str(r["part_number"] or "").casefold(),
     "programmer": lambda r: str(r["programmer"] or "").casefold(),
@@ -572,6 +585,7 @@ def query_instances(
     source_type: Optional[str] = None,
     control_family: Optional[str] = None,
     provenance: Optional[str] = None,
+    role: Optional[str] = None,
     programmer: Optional[str] = None,
     newest_only: bool = False,
     include_unknown: bool = False,
@@ -728,6 +742,13 @@ def query_instances(
     }:
         clauses.append("IFNULL(provenance,'backup') = ?")
         params.append(str(provenance).strip())
+
+    if role is not None and str(role).strip() and str(role).strip() not in {
+        "(all)",
+        "(wszystkie)",
+    }:
+        clauses.append("IFNULL(role,'') = ?")
+        params.append(str(role).strip())
 
     if programmer is not None and str(programmer).strip() and str(programmer).strip() not in {
         "(all)",

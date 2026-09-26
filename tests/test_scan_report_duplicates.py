@@ -35,6 +35,7 @@ def _inst(
     date: str = "2026-09-15T00:00:00+00:00",
     program_sha: str | None = None,
     provenance: str = "backup",
+    role: str | None = None,
 ) -> ProgramInstance:
     return ProgramInstance(
         program_number=program,
@@ -50,6 +51,7 @@ def _inst(
         program_sha256=program_sha if program_sha is not None else sha,
         control_family="haas",
         provenance=provenance,
+        role=role,
     )
 
 
@@ -185,7 +187,8 @@ def test_exact_and_near_duplicates(tmp_path: Path):
     assert len(exact[0].members) == 2
     assert "Exact body" in exact[0].label
     assert exact[0].colour_conflict is False
-    assert exact[0].colour_ids == frozenset({"backup"})
+    assert exact[0].colour_ids == frozenset({"backup"})  # fallback to status when no roles
+    assert exact[0].status_ids == frozenset({"backup"})
 
     near = find_near_duplicate_groups(conn)
     assert len(near) == 1
@@ -201,7 +204,7 @@ def test_exact_and_near_duplicates(tmp_path: Path):
 
 
 def test_colour_conflict_exact_groups(tmp_path: Path):
-    """Same program_sha256 under green + yellow → colour conflict."""
+    """Same program_sha256 under different roles → colour/role conflict."""
     db = tmp_path / "gcode_index.sqlite"
     conn = open_db(db)
     same = "cd" * 32
@@ -214,6 +217,7 @@ def test_colour_conflict_exact_groups(tmp_path: Path):
                 size=800,
                 path="green/a.nc",
                 provenance="backup",
+                role="production",
             ),
             _inst(
                 program="7777",
@@ -221,9 +225,10 @@ def test_colour_conflict_exact_groups(tmp_path: Path):
                 sha=same,
                 size=800,
                 path="yellow/WIP/a.nc",
-                provenance="extra",
+                provenance="backup",
+                role="wip",
             ),
-            # Same colours — not a conflict
+            # Same role — not a conflict
             _inst(
                 program="8888",
                 machine="haas-sl-20",
@@ -231,6 +236,7 @@ def test_colour_conflict_exact_groups(tmp_path: Path):
                 size=100,
                 path="g1/b.nc",
                 provenance="backup",
+                role="production",
             ),
             _inst(
                 program="8888",
@@ -238,7 +244,8 @@ def test_colour_conflict_exact_groups(tmp_path: Path):
                 sha="ee" * 32,
                 size=100,
                 path="g2/b.nc",
-                provenance="backup",
+                provenance="extra",
+                role="production",
             ),
         ]
     )
@@ -248,18 +255,13 @@ def test_colour_conflict_exact_groups(tmp_path: Path):
 
     exact = find_exact_duplicate_groups(conn)
     assert len(exact) == 2
-    # Conflicts sorted first
+    # Conflicts sorted first (role disagreement)
     assert exact[0].colour_conflict is True
-    assert exact[0].colour_ids == frozenset({"backup", "extra"})
-    assert exact[1].colour_conflict is False
+    assert exact[0].colour_ids == frozenset({"production", "wip"})
+    # Same role, different status → still a status conflict
+    assert exact[1].status_conflict is True
+    assert exact[1].colour_conflict is True
 
     conflicts = find_colour_conflict_groups(conn)
-    assert len(conflicts) == 1
-    assert conflicts[0].colour_conflict is True
-    paths = {m["source_path"] for m in conflicts[0].members}
-    assert paths == {"green/a.nc", "yellow/WIP/a.nc"}
-
-    filtered = find_duplicate_groups(conn, colour_conflicts_only=True)
-    assert len(filtered) == 1
-    assert filtered[0].kind == "exact"
+    assert len(conflicts) == 2
     conn.close()

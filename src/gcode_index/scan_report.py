@@ -49,10 +49,13 @@ class DuplicateGroup:
     kind: str  # "exact" | "near"
     label: str
     members: list  # sqlite3.Row or mapping
-    # Distinct provenance / colour ids among members (exact groups)
+    # Distinct role ids among members (exact groups); empty string = unset
     colour_ids: frozenset[str] = field(default_factory=frozenset)
-    # True when exact body hash is shared across ≥2 colours
+    # True when exact body hash is shared across ≥2 roles (or status if no roles)
     colour_conflict: bool = False
+    # Distinct status (provenance) ids
+    status_ids: frozenset[str] = field(default_factory=frozenset)
+    status_conflict: bool = False
 
 
 def _machine_display(machine_id: Optional[str], machine_label: Optional[str]) -> str:
@@ -63,15 +66,26 @@ def _machine_display(machine_id: Optional[str], machine_label: Optional[str]) ->
     return mid
 
 
-def _member_provenance(row) -> str:
+def _member_role(row) -> str:
+    keys = row.keys() if hasattr(row, "keys") else ()
+    if "role" in keys and row["role"]:
+        return str(row["role"]).strip()
+    return ""
+
+
+def _member_status(row) -> str:
     keys = row.keys() if hasattr(row, "keys") else ()
     if "provenance" in keys and row["provenance"]:
         return str(row["provenance"]).strip() or "backup"
     return "backup"
 
 
-def _group_colour_ids(members: list) -> frozenset[str]:
-    return frozenset(_member_provenance(m) for m in members)
+def _group_role_ids(members: list) -> frozenset[str]:
+    return frozenset(_member_role(m) for m in members if _member_role(m))
+
+
+def _group_status_ids(members: list) -> frozenset[str]:
+    return frozenset(_member_status(m) for m in members)
 
 
 def _is_copy_type(source_type: Optional[str]) -> bool:
@@ -365,7 +379,7 @@ def find_exact_duplicate_groups(
                        line_start, line_end, byte_start, byte_end, source_type,
                        folder_path, control_family, source_size, content_sha256,
                        program_sha256,
-                       provenance, scan_root, programmer
+                       provenance, role, scan_root, programmer
                 FROM program_instances
                 WHERE {sha_col} = ?
                 ORDER BY backup_date DESC, machine_id, program_number
@@ -375,8 +389,14 @@ def find_exact_duplicate_groups(
         )
         if len(members) < 2:
             continue
-        colour_ids = _group_colour_ids(members)
-        colour_conflict = len(colour_ids) >= 2
+        # Prefer role disagreement; also flag status disagreement
+        role_ids = _group_role_ids(members)
+        status_ids = _group_status_ids(members)
+        role_conflict = len(role_ids) >= 2
+        status_conflict = len(status_ids) >= 2
+        colour_conflict = role_conflict or status_conflict
+        # colour_ids exposed to UI = roles when present, else statuses
+        colour_ids = role_ids if role_ids else status_ids
         if colour_conflicts_only and not colour_conflict:
             continue
         machines = sorted(
@@ -390,11 +410,11 @@ def find_exact_duplicate_groups(
         if len(machines) > 4:
             mach_note += f", +{len(machines) - 4}"
         type_note = "/".join(t for t in types if t)[:40]
-        colours_note = "+".join(sorted(colour_ids))
+        roles_note = "+".join(sorted(role_ids)) if role_ids else "+".join(sorted(status_ids))
         label = (
             f"Exact body · {len(members)} · {sha[:12]}… · {mach_note}"
             + (f" · {type_note}" if type_note else "")
-            + (f" · {colours_note}" if colours_note else "")
+            + (f" · {roles_note}" if roles_note else "")
         )
         groups.append(
             DuplicateGroup(
@@ -403,6 +423,8 @@ def find_exact_duplicate_groups(
                 members=members,
                 colour_ids=colour_ids,
                 colour_conflict=colour_conflict,
+                status_ids=status_ids,
+                status_conflict=status_conflict,
             )
         )
     # Conflicts first (indexer hygiene), then by size
@@ -415,7 +437,7 @@ def find_colour_conflict_groups(
     *,
     limit_groups: int = 200,
 ) -> list[DuplicateGroup]:
-    """Exact body duplicates that disagree on provenance / colour."""
+    """Exact body duplicates that disagree on role and/or status."""
     return find_exact_duplicate_groups(
         conn, limit_groups=limit_groups, colour_conflicts_only=True
     )
@@ -442,7 +464,7 @@ def find_near_duplicate_groups(
                machine_folder_raw, date_folder_raw, backup_date, source_path,
                line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_size, content_sha256,
-               provenance, scan_root, programmer
+               provenance, role, scan_root, programmer
     """
     if has_prog:
         sel = sel.replace(

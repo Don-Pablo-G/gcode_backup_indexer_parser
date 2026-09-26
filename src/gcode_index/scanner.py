@@ -447,7 +447,7 @@ def scan_with_extra_roots(
     if progress:
         n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
         n_ext = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_EXTRA)
-        n_wip = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_WIP)
+        n_wip = sum(1 for inst in merged.instances if (inst.role or "") == PROVENANCE_WIP)
         n_cached = sum(1 for fs in merged.files_seen if fs.status == "cached")
         progress(
             {
@@ -475,7 +475,10 @@ def _apply_folder_colour_overrides(
     result: ScanResult,
     colour_map: Optional[FolderColourAliasMap],
 ) -> None:
-    """Override or drop instances using deepest folder-colour alias on source_path."""
+    """Apply folder-role aliases: set ``role`` or drop on ``exclude``.
+
+    Never changes ``provenance`` (status) — that comes from scan roots only.
+    """
     if colour_map is None or len(colour_map) == 0:
         return
     kept = []
@@ -484,8 +487,7 @@ def _apply_folder_colour_overrides(
         if colour == COLOUR_EXCLUDE:
             continue
         if colour:
-            # Any catalogue colour id (builtin or custom) overrides root colour
-            inst.provenance = colour
+            inst.role = colour
         kept.append(inst)
     result.instances[:] = kept
 

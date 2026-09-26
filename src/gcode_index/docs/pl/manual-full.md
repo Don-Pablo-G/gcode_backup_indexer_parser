@@ -62,14 +62,21 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 **Zagnieżdżone katalogi:** **najgłębszy** skonfigurowany root (główna kopia lub zielony/żółty), który zawiera plik, go „posiada” — jego kolor i `scan_root`. Przykład: żółty rodzic + zielone dziecko → pliki w dziecku tylko **zielone** (bez duplikatu żółtego). Przy dodaniu rootu wewnątrz innego pojawia się krótka informacja, że dziecko nadpisuje kolor rodzica.
 
-### Kolory i aliasy folderów
+### Status + role folderów
 
-**Kolory folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
+**Status** (czy był na maszynie?) pochodzi tylko z korzeni skanu — nigdy z aliasów folderów:
 
-1. **Kolory** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, **wybór koloru** / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: zielony (`backup`), żółty (`extra`), czerwony (`wip`). Wbudowanych nie usuniesz; znaczenie i nazwy są edytowalne. Możesz dodać własne (np. pomarańczowy = kwarantanna).
-2. **Aliasy folderów** — nazwa folderu → wybrany kolor **albo wyklucz**. Najgłębszy pasujący segment wygrywa (także w głównej kopii).
+| Odznaka | Znaczenie | Źródło |
+|---------|-----------|--------|
+| 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch |
+| 🟡 | Nie uruchomiony (`extra`) | Żółte foldery dodatkowe |
 
-Kolumna Flaga i filtr flag korzystają z katalogu kolorów (odznaki + barwy), nie tylko z trzech domyślnych.
+**Role folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
+
+1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: produkcja, przyrząd, WIP, test, osobisty. Wbudowanych nie usuniesz. Stare zielony/żółty w katalogu → status; czerwony/własne → role.
+2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy nigdy nie zmieniają statusu.
+
+Kolumna Flaga pokazuje **status + rolę** (np. 🟢🔴). Osobne filtry **Status** i **Rola**. Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
 
 ---
 

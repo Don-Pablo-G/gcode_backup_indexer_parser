@@ -71,6 +71,8 @@ from gcode_index.models import (
     PROVENANCE_BACKUP,
     PROVENANCE_EXTRA,
     PROVENANCE_WIP,
+    ROLE_FIXTURE,
+    ROLE_WIP,
 )
 from gcode_index.folder_colour_aliases import (
     FOLDER_COLOUR_ALIASES_FILENAME,
@@ -248,6 +250,7 @@ class IndexerApp(tk.Tk):
         self.source_type_var = tk.StringVar(value=ALL)
         self.control_var = tk.StringVar(value=ALL)
         self.provenance_var = tk.StringVar(value=ALL)
+        self.role_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
         self.include_unknown_var = tk.BooleanVar(value=True)
@@ -774,6 +777,7 @@ class IndexerApp(tk.Tk):
             "source_type": self.source_type_var.get(),
             "control": self.control_var.get(),
             "provenance": self.provenance_var.get(),
+            "role": self.role_var.get(),
             "programmer": self.programmer_var.get(),
             "newest": bool(self.newest_only_var.get()),
             "include_unknown": bool(self.include_unknown_var.get()),
@@ -858,12 +862,24 @@ class IndexerApp(tk.Tk):
                 prog = self._all_token()
             self.programmer_var.set(prog)
             prov = str(preserved.get("provenance") or "")
-            cid = self._colour_id_from_filter_label(prov) if prov else None
-            if cid:
-                c = self._colour_catalog.get(cid)
-                self.provenance_var.set(c.label(self._lang) if c else cid)
+            if prov in (PROVENANCE_BACKUP, "green", "on_machine") or prov == self._(
+                "status_on_machine"
+            ):
+                self.provenance_var.set(self._("status_on_machine"))
+            elif prov in (PROVENANCE_EXTRA, "yellow", "not_run") or prov == self._(
+                "status_not_run"
+            ):
+                self.provenance_var.set(self._("status_not_run"))
             else:
                 self.provenance_var.set(self._all_token())
+            role_raw = str(preserved.get("role") or "")
+            if role_raw and not self._is_all_token(role_raw):
+                c = self._colour_catalog.get(role_raw) or self._colour_catalog.get(
+                    self._colour_id_from_filter_label(role_raw) or ""
+                )
+                self.role_var.set(c.label(self._lang) if c else self._all_token())
+            else:
+                self.role_var.set(self._all_token())
             self.newest_only_var.set(bool(preserved.get("newest")))
             if "include_unknown" in preserved:
                 self.include_unknown_var.set(bool(preserved.get("include_unknown")))
@@ -1761,17 +1777,29 @@ class IndexerApp(tk.Tk):
             )
             self.control_combo.grid(row=0, column=3, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("flag")).grid(
+            ttk.Label(adv, text=self._("filter_status")).grid(
                 row=0, column=4, sticky=tk.W, padx=(12, 0), pady=2
             )
             self.provenance_combo = ttk.Combobox(
                 adv,
                 textvariable=self.provenance_var,
-                values=self._provenance_filter_labels(),
+                values=self._status_filter_labels(),
                 state="readonly",
-                width=28,
+                width=18,
             )
             self.provenance_combo.grid(row=0, column=5, sticky=tk.W, padx=4, pady=2)
+
+            ttk.Label(adv, text=self._("filter_role")).grid(
+                row=0, column=6, sticky=tk.W, padx=(12, 0), pady=2
+            )
+            self.role_combo = ttk.Combobox(
+                adv,
+                textvariable=self.role_var,
+                values=self._role_filter_labels(),
+                state="readonly",
+                width=18,
+            )
+            self.role_combo.grid(row=0, column=7, sticky=tk.W, padx=4, pady=2)
 
             ttk.Label(adv, text=self._("programmer")).grid(
                 row=1, column=0, sticky=tk.W, pady=2
@@ -1789,7 +1817,7 @@ class IndexerApp(tk.Tk):
                 row=1, column=2, sticky=tk.W, padx=(12, 0), pady=2
             )
             preset_row = ttk.Frame(adv)
-            preset_row.grid(row=1, column=3, columnspan=3, sticky=tk.W, padx=4, pady=2)
+            preset_row.grid(row=1, column=3, columnspan=5, sticky=tk.W, padx=4, pady=2)
             self.preset_combo = ttk.Combobox(
                 preset_row,
                 textvariable=self.preset_var,
@@ -1847,6 +1875,7 @@ class IndexerApp(tk.Tk):
                 "type_combo",
                 "control_combo",
                 "provenance_combo",
+                "role_combo",
                 "programmer_combo",
                 "preset_combo",
                 "_more_filters_frame",
@@ -1882,7 +1911,7 @@ class IndexerApp(tk.Tk):
             tree_frame, columns=cols, show="headings", selectmode="extended"
         )
         headings = {
-            "flag": (self._("col_flag"), 56),
+            "flag": (self._("col_flag"), 72),
             "src": (self._("col_src"), 64),
             "program": (self._("col_program"), 90),
             "part": (self._("col_part"), 130),
@@ -3088,11 +3117,12 @@ class IndexerApp(tk.Tk):
             unknown_prog = sum(1 for i in result.instances if i.machine_id == "unknown")
             n_green = sum(1 for i in result.instances if i.provenance == PROVENANCE_BACKUP)
             n_yellow = sum(1 for i in result.instances if i.provenance == PROVENANCE_EXTRA)
-            n_red = sum(1 for i in result.instances if i.provenance == PROVENANCE_WIP)
+            n_red = sum(1 for i in result.instances if (i.role or "") == PROVENANCE_WIP)
             other_flags = Counter(
-                i.provenance
+                i.role
                 for i in result.instances
-                if i.provenance
+                if i.role
+                and i.role
                 not in (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP)
             )
             conn.close()
@@ -3550,6 +3580,8 @@ class IndexerApp(tk.Tk):
             self.source_type_var.set(self._all_token())
             self.control_var.set(self._all_token())
             self.provenance_var.set(self._all_token())
+            if hasattr(self, "role_var"):
+                self.role_var.set(self._all_token())
             self.programmer_var.set(self._all_token())
             self.newest_only_var.set(False)
             self._sort_col = None
@@ -3690,7 +3722,8 @@ class IndexerApp(tk.Tk):
         mtime_to = self.mtime_to_var.get().strip() or None
         source_type = self.source_type_var.get().strip()
         control = self.control_var.get().strip()
-        provenance = self._provenance_filter_value()
+        provenance = self._status_filter_value()
+        role = self._role_filter_value()
         programmer = self.programmer_var.get().strip()
         if self._is_all_token(programmer):
             programmer_filter = None
@@ -3713,6 +3746,7 @@ class IndexerApp(tk.Tk):
                     source_type=None if self._is_all_token(source_type) else source_type,
                     control_family=None if self._is_all_token(control) else control,
                     provenance=provenance,
+                    role=role,
                     programmer=programmer_filter,
                     newest_only=bool(self.newest_only_var.get()),
                     include_unknown=self._effective_include_unknown(),
@@ -3777,16 +3811,24 @@ class IndexerApp(tk.Tk):
         self._configure_colour_tags()
         if hasattr(self, "provenance_combo"):
             cur = self.provenance_var.get()
-            labels = self._provenance_filter_labels()
+            labels = self._status_filter_labels()
             self.provenance_combo["values"] = labels
             if cur not in labels:
                 self.provenance_var.set(self._all_token())
+        if hasattr(self, "role_combo"):
+            cur = self.role_var.get()
+            labels = self._role_filter_labels()
+            self.role_combo["values"] = labels
+            if cur not in labels:
+                self.role_var.set(self._all_token())
         if hasattr(self, "tree") and getattr(self, "_result_rows", None) is not None:
             self._redraw_tree()
 
     def _configure_colour_tags(self) -> None:
         if not hasattr(self, "tree"):
             return
+        self.tree.tag_configure("flag_backup", foreground="#1a7f37")
+        self.tree.tag_configure("flag_extra", foreground="#b58900")
         for c in self._colour_catalog.colours:
             tag = f"flag_{c.id}"
             try:
@@ -3794,11 +3836,22 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 self.tree.tag_configure(tag, foreground="#888888")
 
-    def _provenance_filter_labels(self) -> list[str]:
+    def _status_filter_labels(self) -> list[str]:
+        return [
+            self._all_token(),
+            self._("status_on_machine"),
+            self._("status_not_run"),
+        ]
+
+    def _role_filter_labels(self) -> list[str]:
         labels = [self._all_token()]
         for c in getattr(self, "_colour_catalog", ColourCatalog()).colours:
             labels.append(c.label(self._lang))
         return labels
+
+    def _provenance_filter_labels(self) -> list[str]:
+        # Back-compat alias used by presets / older code paths
+        return self._status_filter_labels()
 
     def _colour_id_from_filter_label(self, raw: str) -> Optional[str]:
         if not raw or self._is_all_token(raw):
@@ -3810,26 +3863,58 @@ class IndexerApp(tk.Tk):
             if raw.casefold() == c.id:
                 return c.id
         low = raw.casefold()
-        if any(x in low for x in ("yellow", "żółt", "extra", "dodatk")):
+        if raw in (self._("status_not_run"),) or any(
+            x in low for x in ("yellow", "żółt", "extra", "not_run", "nie uruch")
+        ):
             return PROVENANCE_EXTRA
-        if any(x in low for x in ("red", "czerw", "wip", "robocz")):
-            return PROVENANCE_WIP
-        if any(x in low for x in ("green", "zielon", "backup", "kopi")):
+        if raw in (self._("status_on_machine"),) or any(
+            x in low for x in ("green", "zielon", "backup", "on_machine", "maszyn")
+        ):
             return PROVENANCE_BACKUP
         cid = normalize_colour_id(raw, known_ids=catalog.colour_ids)
         return cid if cid in catalog.colour_ids else None
 
-    def _flag_badge_and_tag(self, prov: str) -> tuple[str, str]:
-        cid = prov or PROVENANCE_BACKUP
+    def _status_badge(self, prov: str) -> str:
+        if (prov or PROVENANCE_BACKUP) == PROVENANCE_EXTRA:
+            return "🟡"
+        return "🟢"
+
+    def _flag_badge_and_tag(self, prov: str, role: Optional[str] = None) -> tuple[str, str]:
+        """Return combined status+role badges and a tree tag (role swatch preferred)."""
+        status = prov or PROVENANCE_BACKUP
+        status_badge = self._status_badge(status)
         catalog = getattr(self, "_colour_catalog", ColourCatalog())
-        c = catalog.get(cid)
-        if c is not None:
-            return c.badge, f"flag_{c.id}"
-        return "●", f"flag_{cid}"
+        role_id = (role or "").strip()
+        if role_id:
+            c = catalog.get(role_id)
+            role_badge = c.badge if c is not None else "●"
+            return f"{status_badge}{role_badge}", f"flag_{role_id}"
+        return status_badge, f"flag_{status}"
 
     def _provenance_filter_value(self) -> Optional[str]:
+        return self._status_filter_value()
+
+    def _status_filter_value(self) -> Optional[str]:
         raw = self.provenance_var.get().strip()
+        if not raw or self._is_all_token(raw):
+            return None
+        if raw == self._("status_on_machine"):
+            return PROVENANCE_BACKUP
+        if raw == self._("status_not_run"):
+            return PROVENANCE_EXTRA
         return self._colour_id_from_filter_label(raw)
+
+    def _role_filter_value(self) -> Optional[str]:
+        raw = self.role_var.get().strip()
+        if not raw or self._is_all_token(raw):
+            return None
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        for c in catalog.colours:
+            if raw == c.label(self._lang) or raw == c.label_pl or raw == c.label_en:
+                return c.id
+            if raw.casefold() == c.id:
+                return c.id
+        return None
 
     def _fill_tree(self, rows: list) -> None:
         if self._sort_col:
@@ -3859,7 +3944,10 @@ class IndexerApp(tk.Tk):
             prov = ""
             if "provenance" in keys:
                 prov = str(r["provenance"] or PROVENANCE_BACKUP)
-            flag, tag = self._flag_badge_and_tag(prov)
+            role = None
+            if "role" in keys and r["role"]:
+                role = str(r["role"]).strip() or None
+            flag, tag = self._flag_badge_and_tag(prov, role)
             missing = self._row_source_missing(
                 r, backup_root=backup or None, path_remaps=remaps
             )
@@ -4717,12 +4805,15 @@ class DuplicatesDialog(tk.Toplevel):
             bits.append(c.badge if c is not None else "●")
         return "".join(bits)
 
-    def _flag_for(self, prov: str) -> tuple[str, str]:
-        cid = prov or PROVENANCE_BACKUP
-        c = self._catalog.get(cid)
-        if c is not None:
-            return c.badge, f"flag_{c.id}"
-        return "●", f"flag_{cid}"
+    def _flag_for(self, prov: str, role: str | None = None) -> tuple[str, str]:
+        status = prov or PROVENANCE_BACKUP
+        status_badge = "🟡" if status == PROVENANCE_EXTRA else "🟢"
+        role_id = (role or "").strip()
+        if role_id:
+            c = self._catalog.get(role_id)
+            role_badge = c.badge if c is not None else "●"
+            return f"{status_badge}{role_badge}", f"flag_{role_id}"
+        return status_badge, f"flag_{status}"
 
     def _rebuild_group_list(self) -> None:
         only = bool(self._conflicts_only.get())
@@ -4820,7 +4911,10 @@ class DuplicatesDialog(tk.Toplevel):
             prov = "backup"
             if "provenance" in keys and m["provenance"]:
                 prov = str(m["provenance"]).strip() or "backup"
-            badge, tag = self._flag_for(prov)
+            role = None
+            if "role" in keys and m["role"]:
+                role = str(m["role"]).strip() or None
+            badge, tag = self._flag_for(prov, role)
             self.member_tree.insert(
                 "",
                 tk.END,
@@ -5024,7 +5118,13 @@ class FolderColourAliasDialog(tk.Toplevel):
             self,
             text=_tr(master, "folder_colours_intro"),
             wraplength=740,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, padx=12, pady=(12, 4))
+        ttk.Label(
+            self,
+            text=_tr(master, "folder_colour_status_explain"),
+            wraplength=740,
+            foreground="#555555",
+        ).pack(fill=tk.X, padx=12, pady=(0, 6))
 
         nb = ttk.Notebook(self)
         nb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)

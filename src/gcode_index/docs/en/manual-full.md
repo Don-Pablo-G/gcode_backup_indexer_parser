@@ -62,14 +62,21 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 **Nested roots:** the **deepest** configured root (main backup or green/yellow) that contains a file owns it — that root’s colour and `scan_root` apply. Example: yellow parent + green child → files under the child are **green only** (no duplicate yellow row). Adding a root inside another shows a short note that the child overrides the parent colour.
 
-### Folder colours & aliases
+### Status + folder roles
 
-**Kolory folderów…** / **Folder colours…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
+**Status** (ran on machine?) comes from scan roots only — never from folder aliases:
 
-1. **Colours** — add / edit / remove colour entries (`id`, labels PL+EN, **colour picker** / palette chips, optional hex, badge, meaning). Seeded: green (`backup`), yellow (`extra`), red (`wip`). Built-ins cannot be deleted; meanings and names are editable. Add more (e.g. orange = quarantine).
-2. **Folder aliases** — folder-name → chosen colour **or exclude**. Deepest matching path segment wins (also inside the main backup).
+| Badge | Meaning | Source |
+|-------|---------|--------|
+| 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch roots |
+| 🟡 | Not run (`extra`) | Yellow extra roots |
 
-Results Flag column and the flag filter use the catalogue (badges + swatch colours), not only the three hard-coded seeds.
+**Role folderów…** / **Folder roles…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
+
+1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning). Seeded: production, fixture, WIP, test, personal. Built-ins cannot be deleted. Legacy green/yellow colour ids migrate to status; red/customs become roles.
+2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases never change status.
+
+Results Flag column shows **status + role** badges (e.g. 🟢🔴). Use separate **Status** and **Role** filters. Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
 
 ---
 

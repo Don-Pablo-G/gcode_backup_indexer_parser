@@ -176,4 +176,5 @@ def test_schema_migrates_program_sha256(tmp_path: Path):
     cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
     assert "program_sha256" in cols
     assert "content_sha256" in cols
+    assert "role" in cols
     conn.close()
