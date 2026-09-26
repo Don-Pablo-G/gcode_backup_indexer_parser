@@ -70,7 +70,6 @@ from gcode_index.models import (
     COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
     PROVENANCE_EXTRA,
-    PROVENANCE_WIP,
     ROLE_FIXTURE,
     ROLE_WIP,
 )
@@ -3117,13 +3116,11 @@ class IndexerApp(tk.Tk):
             unknown_prog = sum(1 for i in result.instances if i.machine_id == "unknown")
             n_green = sum(1 for i in result.instances if i.provenance == PROVENANCE_BACKUP)
             n_yellow = sum(1 for i in result.instances if i.provenance == PROVENANCE_EXTRA)
-            n_red = sum(1 for i in result.instances if (i.role or "") == PROVENANCE_WIP)
+            n_red = sum(1 for i in result.instances if (i.role or "") == ROLE_WIP)
             other_flags = Counter(
                 i.role
                 for i in result.instances
-                if i.role
-                and i.role
-                not in (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP)
+                if i.role and i.role != ROLE_WIP
             )
             conn.close()
             scan_finished = datetime.now(timezone.utc)
@@ -3409,7 +3406,9 @@ class IndexerApp(tk.Tk):
                 *vals.get("programmers", []),
             ]
         if hasattr(self, "provenance_combo"):
-            self.provenance_combo["values"] = self._provenance_filter_labels()
+            self.provenance_combo["values"] = self._status_filter_labels()
+        if hasattr(self, "role_combo"):
+            self.role_combo["values"] = self._role_filter_labels()
         self._refresh_preset_combo()
 
     def _presets_path(self) -> Optional[Path]:
@@ -3786,7 +3785,9 @@ class IndexerApp(tk.Tk):
         if control and not self._is_all_token(control):
             bits.append(f"control={control}")
         if provenance:
-            bits.append(f"flag={provenance}")
+            bits.append(f"status={provenance}")
+        if role:
+            bits.append(f"role={role}")
         if programmer_filter:
             bits.append(f"programmer={programmer_filter}")
         if self.newest_only_var.get():
@@ -4767,7 +4768,7 @@ class DuplicatesDialog(tk.Toplevel):
             bottom, columns=cols, show="headings", selectmode="browse", height=10
         )
         headings = {
-            "flag": (_tr(master, "col_flag"), 56),
+            "flag": (_tr(master, "col_flag"), 72),
             "program": (_tr(master, "col_program"), 90),
             "machine": (_tr(master, "col_machine"), 120),
             "date": (_tr(master, "col_date"), 100),
@@ -4780,6 +4781,8 @@ class DuplicatesDialog(tk.Toplevel):
             self.member_tree.column(
                 key, width=width, stretch=(key == "path"), minwidth=40
             )
+        self.member_tree.tag_configure("flag_backup", foreground="#1a7f37")
+        self.member_tree.tag_configure("flag_extra", foreground="#b58900")
         for c in self._catalog.colours:
             self.member_tree.tag_configure(f"flag_{c.id}", foreground=c.swatch)
         msb = ttk.Scrollbar(bottom, orient=tk.VERTICAL, command=self.member_tree.yview)
@@ -4884,16 +4887,28 @@ class DuplicatesDialog(tk.Toplevel):
                 self._catalog.label_for(cid, getattr(self._master, "_lang", "pl"))
                 for cid in sorted(group.colour_ids)
             )
-            self._show_banner(
-                _tr(
-                    self._master,
-                    "dup_colour_conflict_banner",
-                    badges=badges,
-                    colours=colours,
-                    n=len(group.colour_ids),
-                ),
-                conflict=True,
+            banner = _tr(
+                self._master,
+                "dup_colour_conflict_banner",
+                badges=badges,
+                colours=colours,
+                n=len(group.colour_ids),
             )
+            if getattr(group, "status_conflict", False):
+                status_badges = "".join(
+                    "🟡" if s == PROVENANCE_EXTRA else "🟢"
+                    for s in sorted(getattr(group, "status_ids", ()) or ())
+                )
+                banner = (
+                    banner
+                    + " "
+                    + _tr(
+                        self._master,
+                        "dup_status_conflict_note",
+                        badges=status_badges,
+                    )
+                )
+            self._show_banner(banner, conflict=True)
         else:
             self._hide_banner()
         for i, m in enumerate(group.members):
@@ -5100,7 +5115,7 @@ class FolderMapDialog(tk.Toplevel):
 
 
 class FolderColourAliasDialog(tk.Toplevel):
-    """Manage provenance colours + folder-name → colour/exclude aliases."""
+    """Manage folder roles + folder-name → role/exclude aliases."""
 
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
@@ -5118,13 +5133,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             self,
             text=_tr(master, "folder_colours_intro"),
             wraplength=740,
-        ).pack(fill=tk.X, padx=12, pady=(12, 4))
-        ttk.Label(
-            self,
-            text=_tr(master, "folder_colour_status_explain"),
-            wraplength=740,
-            foreground="#555555",
-        ).pack(fill=tk.X, padx=12, pady=(0, 6))
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
 
         nb = ttk.Notebook(self)
         nb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
@@ -5149,11 +5158,21 @@ class FolderColourAliasDialog(tk.Toplevel):
 
     def _build_colours_tab(self) -> None:
         body = self._tab_colours
-        body.rowconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
         body.columnconfigure(1, weight=1)
 
+        explain = ttk.LabelFrame(
+            body, text=_tr(self.master, "filter_status"), padding=6
+        )
+        explain.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ttk.Label(
+            explain,
+            text=_tr(self.master, "folder_colour_status_explain"),
+            wraplength=720,
+        ).pack(fill=tk.X)
+
         left = ttk.Frame(body)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
         left.rowconfigure(0, weight=1)
         self._colour_list = tk.Listbox(left, exportselection=False, width=28)
         sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._colour_list.yview)
@@ -5171,7 +5190,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         ).pack(side=tk.LEFT, padx=6)
 
         right = ttk.LabelFrame(body, text=_tr(self.master, "folder_colour_edit"), padding=6)
-        right.grid(row=0, column=1, sticky="nsew")
+        right.grid(row=1, column=1, sticky="nsew")
         right.columnconfigure(1, weight=1)
         self._cid_var = tk.StringVar()
         self._label_pl_var = tk.StringVar()
@@ -5348,7 +5367,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         new = ColourDef(
             id=cid,
             label_pl=_tr(self.master, "folder_colour_new_label"),
-            label_en="New colour",
+            label_en="New role",
             swatch="#e67e22",
             meaning_pl="",
             meaning_en="",
@@ -5375,11 +5394,11 @@ class FolderColourAliasDialog(tk.Toplevel):
             )
             return
         colours = [x for x in self._catalog.colours if x.id != c.id]
-        # Remap aliases pointing at removed colour → extra
+        # Remap aliases pointing at removed role → fixture seed
         rules = []
         for r in self._catalog.rules:
             if r.colour == c.id:
-                rules.append(FolderColourRule(alias=r.alias, colour=PROVENANCE_EXTRA))
+                rules.append(FolderColourRule(alias=r.alias, colour=ROLE_FIXTURE))
             else:
                 rules.append(r)
         self._catalog = ColourCatalog(colours=colours, rules=rules)
@@ -5448,7 +5467,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         if not self._alias_colour_var.get() and self._alias_colour_labels:
             # default to red/wip if present
             for lab, cid in pairs:
-                if cid == PROVENANCE_WIP:
+                if cid == ROLE_WIP:
                     self._alias_colour_var.set(lab)
                     break
             else:
