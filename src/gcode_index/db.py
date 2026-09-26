@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS program_instances (
   header_kind TEXT,
   provenance TEXT NOT NULL DEFAULT 'backup',
   role TEXT,
+  odbiorca_id TEXT,
   scan_root TEXT,
   programmer TEXT,
   run_id TEXT,
@@ -131,6 +132,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE program_instances ADD COLUMN scan_root TEXT")
     if "programmer" not in cols:
         conn.execute("ALTER TABLE program_instances ADD COLUMN programmer TEXT")
+    if "odbiorca_id" not in cols:
+        conn.execute("ALTER TABLE program_instances ADD COLUMN odbiorca_id TEXT")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pi_provenance ON program_instances(provenance)"
     )
@@ -142,6 +145,9 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pi_program_sha ON program_instances(program_sha256)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pi_odbiorca ON program_instances(odbiorca_id)"
     )
     conn.commit()
 
@@ -199,6 +205,7 @@ def write_scan_result(
                 inst.header_kind,
                 inst.provenance or "backup",
                 inst.role,
+                inst.odbiorca_id,
                 inst.scan_root,
                 inst.programmer,
                 run_id,
@@ -214,9 +221,9 @@ def write_scan_result(
           folder_path, control_family, source_mtime, source_size, content_sha256,
           program_sha256,
           indexed_at, parser_id, parser_version, parse_status, error_message,
-          header_kind, provenance, role, scan_root, programmer, run_id
+          header_kind, provenance, role, odbiorca_id, scan_root, programmer, run_id
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
         """,
         rows,
@@ -409,7 +416,7 @@ _INSTANCE_SELECT = """
                source_path, line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_mtime, source_size, content_sha256,
                program_sha256,
-               provenance, role, scan_root, programmer
+               provenance, role, odbiorca_id, scan_root, programmer
         FROM program_instances
 """
 
@@ -470,6 +477,9 @@ _SORT_KEY_FNS = {
     "program": lambda r: str(r["program_number"] or "").casefold(),
     "part": lambda r: str(r["part_number"] or "").casefold(),
     "programmer": lambda r: str(r["programmer"] or "").casefold(),
+    "odbiorca": lambda r: str(
+        r["odbiorca_id"] if "odbiorca_id" in r.keys() else ""
+    ).casefold(),
     "machine": lambda r: str(
         r["machine_label"] or r["machine_id"] or ""
     ).casefold(),
@@ -586,6 +596,7 @@ def query_instances(
     control_family: Optional[str] = None,
     provenance: Optional[str] = None,
     role: Optional[str] = None,
+    odbiorca: Optional[str] = None,
     programmer: Optional[str] = None,
     newest_only: bool = False,
     include_unknown: bool = False,
@@ -759,6 +770,13 @@ def query_instances(
         )
         params.extend([tag, f"{tag},%", f"%,{tag},%", f"%,{tag}"])
 
+    if odbiorca is not None and str(odbiorca).strip() and str(odbiorca).strip() not in {
+        "(all)",
+        "(wszystkie)",
+    }:
+        clauses.append("IFNULL(odbiorca_id,'') = ?")
+        params.append(str(odbiorca).strip())
+
     if programmer is not None and str(programmer).strip() and str(programmer).strip() not in {
         "(all)",
         "(wszystkie)",
@@ -884,11 +902,22 @@ def list_filter_values(
             """
         )
     ]
+    odbiorcy = [
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT DISTINCT odbiorca_id FROM program_instances
+            WHERE odbiorca_id IS NOT NULL AND odbiorca_id != ''
+            ORDER BY odbiorca_id
+            """
+        )
+    ]
     return {
         "machines": machines,
         "source_types": types,
         "control_families": families,
         "programmers": programmers,
+        "odbiorcy": odbiorcy,
     }
 
 

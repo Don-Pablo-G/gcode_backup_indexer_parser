@@ -113,6 +113,18 @@ from gcode_index.folder_colour_aliases import (
     normalize_hex_colour,
     save_colour_catalog,
 )
+from gcode_index.odbiorca_aliases import (
+    ODBIORCY_FILENAME,
+    OdbiorcaAliasMap,
+    OdbiorcaCatalog,
+    OdbiorcaDef,
+    display_for_odbiorca,
+    load_odbiorca_catalog,
+    normalize_odbiorca_id,
+    odbiorcy_path_for_target,
+    parse_odbiorca_display,
+    save_odbiorca_catalog,
+)
 from gcode_index.path_util import (
     format_eta,
     open_path_in_file_manager,
@@ -251,6 +263,66 @@ def _tr(master, key: str, **kwargs) -> str:
     return t(DEFAULT_LANG, key, **kwargs)
 
 
+
+class _WrappingButtonBar(ttk.Frame):
+    """Left-to-right button bar that wraps onto new rows using available width.
+
+    Avoids ttk truncating long Polish/EN labels while empty space sits unused.
+    """
+
+    def __init__(self, master: tk.Misc, **kw) -> None:
+        super().__init__(master, **kw)
+        self._specs: list[tuple[tk.Widget, int]] = []
+        self._rows: list[ttk.Frame] = []
+        self._last_w = 0
+        self.bind("<Configure>", self._on_configure)
+
+    def add(self, widget: tk.Widget, *, padx: int = 4) -> None:
+        self._specs.append((widget, padx))
+
+    def finish(self) -> None:
+        """Initial layout after all buttons are added."""
+        self.update_idletasks()
+        self._reflow(max(self.winfo_width(), 200))
+
+    def _on_configure(self, event=None) -> None:
+        w = int(getattr(event, "width", 0) or self.winfo_width())
+        if w < 80:
+            return
+        if abs(w - self._last_w) < 12:
+            return
+        self._reflow(w)
+
+    def _reflow(self, width: int) -> None:
+        self._last_w = width
+        for row in self._rows:
+            try:
+                row.destroy()
+            except tk.TclError:
+                pass
+        self._rows.clear()
+        for widget, _padx in self._specs:
+            try:
+                widget.pack_forget()
+            except tk.TclError:
+                pass
+        row = ttk.Frame(self)
+        row.pack(fill=tk.X)
+        self._rows.append(row)
+        used = 0
+        for widget, padx in self._specs:
+            widget.update_idletasks()
+            need = max(int(widget.winfo_reqwidth()), 40) + padx * 2
+            if used > 0 and used + need > width - 4:
+                row = ttk.Frame(self)
+                row.pack(fill=tk.X, pady=(4, 0))
+                self._rows.append(row)
+                used = 0
+            widget.pack(in_=row, side=tk.LEFT, padx=padx)
+            used += need
+
+
+
 class IndexerApp(tk.Tk):
     """Main window: backup + database + extract folders, scan, live search, extract."""
 
@@ -276,6 +348,7 @@ class IndexerApp(tk.Tk):
         self.control_var = tk.StringVar(value=ALL)
         self.provenance_var = tk.StringVar(value=ALL)
         self.role_var = tk.StringVar(value=ALL)
+        self.odbiorca_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
         self.include_unknown_var = tk.BooleanVar(value=True)
@@ -385,6 +458,7 @@ class IndexerApp(tk.Tk):
             self.control_var,
             self.provenance_var,
             self.role_var,
+            self.odbiorca_var,
             self.programmer_var,
             self.newest_only_var,
         ):
@@ -1714,26 +1788,38 @@ class IndexerApp(tk.Tk):
 
         row1 = ttk.Frame(actions)
         row1.pack(fill=tk.X)
-        # Row 1 — primary: index + folder tools (always visible)
+        # Row 1 — primary tools; wrap so long PL/EN labels stay fully visible
+        bar = _WrappingButtonBar(row1)
+        bar.pack(fill=tk.X)
         self.scan_btn = self._make_primary_button(
-            row1, self._("run_scan"), self._start_scan
+            bar, self._("run_scan"), self._start_scan
         )
-        self.scan_btn.pack(side=tk.LEFT)
-        ttk.Button(
-            row1, text=self._("map_folders"), command=self._open_folder_map
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Button(
-            row1, text=self._("map_tree"), command=self._open_folder_tree_map
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row1, text=self._("aliases"), command=self._open_alias_editor
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row1, text=self._("folder_colours"), command=self._open_folder_colour_editor
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row1, text=self._("open_db"), command=self._pick_existing_db
-        ).pack(side=tk.LEFT, padx=8)
+        bar.add(self.scan_btn, padx=0)
+        btn_names = ttk.Button(
+            bar, text=self._("map_folders"), command=self._open_folder_map
+        )
+        bar.add(btn_names, padx=8)
+        btn_tree = ttk.Button(
+            bar, text=self._("map_tree"), command=self._open_folder_tree_map
+        )
+        bar.add(btn_tree, padx=4)
+        btn_alias = ttk.Button(
+            bar, text=self._("aliases"), command=self._open_alias_editor
+        )
+        bar.add(btn_alias, padx=4)
+        btn_roles = ttk.Button(
+            bar, text=self._("folder_colours"), command=self._open_folder_colour_editor
+        )
+        bar.add(btn_roles, padx=4)
+        btn_odb = ttk.Button(
+            bar, text=self._("odbiorcy"), command=self._open_odbiorca_editor
+        )
+        bar.add(btn_odb, padx=4)
+        btn_db = ttk.Button(
+            bar, text=self._("open_db"), command=self._pick_existing_db
+        )
+        bar.add(btn_db, padx=8)
+        bar.finish()
 
         # Row 2 — secondary tools + scan options (incl. watch) + schedule
         row2 = ttk.Frame(actions)
@@ -2004,6 +2090,18 @@ class IndexerApp(tk.Tk):
             )
             self.role_combo.grid(row=0, column=7, sticky=tk.W, padx=4, pady=2)
 
+            ttk.Label(adv, text=self._("filter_odbiorca")).grid(
+                row=0, column=8, sticky=tk.W, padx=(12, 0), pady=2
+            )
+            self.odbiorca_combo = ttk.Combobox(
+                adv,
+                textvariable=self.odbiorca_var,
+                values=self._odbiorca_filter_labels(),
+                state="readonly",
+                width=16,
+            )
+            self.odbiorca_combo.grid(row=0, column=9, sticky=tk.W, padx=4, pady=2)
+
             ttk.Label(adv, text=self._("programmer")).grid(
                 row=1, column=0, sticky=tk.W, pady=2
             )
@@ -2097,6 +2195,7 @@ class IndexerApp(tk.Tk):
             "part",
             "programmer",
             "machine",
+            "odbiorca",
             "date",
             "size",
             "type",
@@ -2120,6 +2219,7 @@ class IndexerApp(tk.Tk):
             "part": (self._("col_part"), 130),
             "programmer": (self._("col_programmer"), 56),
             "machine": (self._("col_machine"), 110),
+            "odbiorca": (self._("col_odbiorca"), 110),
             "date": (self._("col_date"), 100),
             "size": (self._("col_size"), 70),
             "type": (self._("col_type"), 100),
@@ -3060,6 +3160,8 @@ class IndexerApp(tk.Tk):
             return
         colour_path = folder_colour_aliases_path_for_target(target)
         catalog = load_colour_catalog(colour_path)
+        odb_path = odbiorcy_path_for_target(target)
+        odb_catalog = load_odbiorca_catalog(odb_path)
         dlg = FolderNameBrowserDialog(
             self,
             roots=roots,
@@ -3072,10 +3174,16 @@ class IndexerApp(tk.Tk):
             local_aliases_path=local_aliases_path_for_target(target),
             colour_save_path=colour_path,
             catalog=catalog,
+            odbiorca_save_path=odb_path,
+            odbiorca_catalog=odb_catalog,
         )
         self.wait_window(dlg)
         if dlg.changed:
             self._load_colour_catalog()
+            self._odbiorca_catalog_cache = getattr(
+                dlg, "_odbiorca_catalog", odb_catalog
+            )
+            self._refresh_filter_choices()
             self.status_var.set(self._("name_browser_status_saved"))
 
     def _open_folder_tree_map(self) -> None:
@@ -3117,6 +3225,8 @@ class IndexerApp(tk.Tk):
         catalog = load_colour_catalog(
             folder_colour_aliases_path_for_target(target)
         )
+        odb_path = odbiorcy_path_for_target(target)
+        odb_catalog = load_odbiorca_catalog(odb_path)
         machine_choices = [
             display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
             *aliases.known_machine_displays(),
@@ -3132,6 +3242,8 @@ class IndexerApp(tk.Tk):
             aliases=aliases,
             local_aliases_path=local_aliases_path_for_target(target),
             colour_save_path=folder_colour_aliases_path_for_target(target),
+            odbiorca_save_path=odb_path,
+            odbiorca_catalog=odb_catalog,
         )
         self.wait_window(dlg)
         if dlg.saved:
@@ -3139,6 +3251,8 @@ class IndexerApp(tk.Tk):
                 self._("status_tree_map_saved", filename=TREE_MAP_FILENAME)
             )
         if getattr(dlg, "aliases_changed", False):
+            self._odbiorca_catalog_cache = load_odbiorca_catalog(odb_path)
+            self._refresh_filter_choices()
             note = self._("tree_alias_reindex_note")
             self.status_var.set(
                 (self.status_var.get() + " — " if self.status_var.get() else "") + note
@@ -3192,6 +3306,25 @@ class IndexerApp(tk.Tk):
                     "status_folder_colours_saved",
                     filename=FOLDER_COLOUR_ALIASES_FILENAME,
                 )
+            )
+
+    def _open_odbiorca_editor(self) -> None:
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showerror(
+                self._("odbiorcy"),
+                self._("err_target_for_odbiorcy", filename=ODBIORCY_FILENAME),
+            )
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        path = odbiorcy_path_for_target(target)
+        dlg = OdbiorcaCatalogDialog(self, save_path=path)
+        self.wait_window(dlg)
+        if dlg.saved:
+            self._odbiorca_catalog_cache = dlg.catalog
+            self._refresh_filter_choices()
+            self.status_var.set(
+                self._("status_odbiorcy_saved", filename=ODBIORCY_FILENAME)
             )
 
     # --- scan -------------------------------------------------------------------
@@ -3329,8 +3462,12 @@ class IndexerApp(tk.Tk):
                 folder_colour_aliases_path_for_target(target)
             )
             tree_map = load_folder_tree_map(tree_map_path_for_target(target))
+            odbiorca_map = OdbiorcaAliasMap.load(odbiorcy_path_for_target(target))
             self._colour_catalog = load_colour_catalog(
                 folder_colour_aliases_path_for_target(target)
+            )
+            self._odbiorca_catalog_cache = load_odbiorca_catalog(
+                odbiorcy_path_for_target(target)
             )
             self._configure_colour_tags()
             db_path = target / DEFAULT_DB_NAME
@@ -3359,6 +3496,7 @@ class IndexerApp(tk.Tk):
                     cache=cache,
                     colour_map=colour_map,
                     tree_map=tree_map,
+                    odbiorca_map=odbiorca_map,
                 )
             else:
                 result = scan_backup_tree(
@@ -3370,6 +3508,7 @@ class IndexerApp(tk.Tk):
                     cache=cache,
                     colour_map=colour_map,
                     tree_map=tree_map,
+                    odbiorca_map=odbiorca_map,
                 )
             n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
             if db_path.is_file():
@@ -3678,6 +3817,12 @@ class IndexerApp(tk.Tk):
                 self._all_token(),
                 *vals.get("programmers", []),
             ]
+        if hasattr(self, "odbiorca_combo"):
+            labels = self._odbiorca_filter_labels(db_ids=vals.get("odbiorcy") or [])
+            cur = self.odbiorca_var.get()
+            self.odbiorca_combo["values"] = labels
+            if cur not in labels:
+                self.odbiorca_var.set(self._all_token())
         if hasattr(self, "provenance_combo"):
             self.provenance_combo["values"] = self._status_filter_labels()
         if hasattr(self, "role_combo"):
@@ -3857,6 +4002,8 @@ class IndexerApp(tk.Tk):
             self.provenance_var.set(self._all_token())
             if hasattr(self, "role_var"):
                 self.role_var.set(self._all_token())
+            if hasattr(self, "odbiorca_var"):
+                self.odbiorca_var.set(self._all_token())
             self.programmer_var.set(self._all_token())
             self.newest_only_var.set(False)
             self._sort_col = None
@@ -4000,6 +4147,7 @@ class IndexerApp(tk.Tk):
         control = self.control_var.get().strip()
         provenance = self._status_filter_value()
         role = self._role_filter_value()
+        odbiorca = self._odbiorca_filter_value()
         programmer = self.programmer_var.get().strip()
         if self._is_all_token(programmer):
             programmer_filter = None
@@ -4023,6 +4171,7 @@ class IndexerApp(tk.Tk):
                     control_family=None if self._is_all_token(control) else control,
                     provenance=provenance,
                     role=role,
+                    odbiorca=odbiorca,
                     programmer=programmer_filter,
                     newest_only=bool(self.newest_only_var.get()),
                     include_unknown=self._effective_include_unknown(),
@@ -4206,6 +4355,47 @@ class IndexerApp(tk.Tk):
                 return c.id
         return None
 
+
+    def _odbiorca_catalog(self) -> OdbiorcaCatalog:
+        target = self.target_var.get().strip()
+        if not target:
+            return getattr(self, "_odbiorca_catalog_cache", None) or OdbiorcaCatalog()
+        path = odbiorcy_path_for_target(target)
+        cat = load_odbiorca_catalog(path)
+        self._odbiorca_catalog_cache = cat
+        return cat
+
+    def _odbiorca_label(self, oid: str) -> str:
+        if not oid:
+            return ""
+        cat = self._odbiorca_catalog()
+        return cat.label_for(oid, self._lang) or oid
+
+    def _odbiorca_filter_labels(self, db_ids: list[str] | None = None) -> list[str]:
+        cat = self._odbiorca_catalog()
+        labels = [self._all_token()]
+        seen: set[str] = set()
+        for o in cat.odbiorcy:
+            lab = o.label(self._lang)
+            labels.append(lab)
+            seen.add(o.id)
+        for oid in db_ids or []:
+            key = normalize_odbiorca_id(oid)
+            if key and key not in seen:
+                labels.append(cat.label_for(key, self._lang) or key)
+                seen.add(key)
+        return labels
+
+    def _odbiorca_filter_value(self) -> Optional[str]:
+        raw = (self.odbiorca_var.get() or "").strip()
+        if not raw or self._is_all_token(raw):
+            return None
+        cat = self._odbiorca_catalog()
+        for o in cat.odbiorcy:
+            if o.label(self._lang) == raw or o.id == normalize_odbiorca_id(raw):
+                return o.id
+        return normalize_odbiorca_id(raw) or raw
+
     def _fill_tree(self, rows: list) -> None:
         if self._sort_col:
             rows = sort_instances(
@@ -4237,6 +4427,9 @@ class IndexerApp(tk.Tk):
             role = None
             if "role" in keys and r["role"]:
                 role = str(r["role"]).strip() or None
+            odbiorca_lab = ""
+            if "odbiorca_id" in keys and r["odbiorca_id"]:
+                odbiorca_lab = self._odbiorca_label(str(r["odbiorca_id"]))
             flag, tag = self._flag_badge_and_tag(prov, role)
             missing = self._row_source_missing(
                 r, backup_root=backup or None, path_remaps=remaps
@@ -4256,6 +4449,7 @@ class IndexerApp(tk.Tk):
                     r["part_number"] or "",
                     prog_flag,
                     machine,
+                    odbiorca_lab,
                     date,
                     size_val,
                     r["source_type"] or "",
@@ -5274,6 +5468,8 @@ class FolderTreeMapDialog(tk.Toplevel):
         aliases: Optional[AliasMap] = None,
         local_aliases_path: Optional[Path] = None,
         colour_save_path: Optional[Path] = None,
+        odbiorca_save_path: Optional[Path] = None,
+        odbiorca_catalog: Optional[OdbiorcaCatalog] = None,
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "map_tree_dialog_title"))
@@ -5292,6 +5488,11 @@ class FolderTreeMapDialog(tk.Toplevel):
         self._colour_save_path = (
             Path(colour_save_path) if colour_save_path else None
         )
+        self._odbiorca_save_path = (
+            Path(odbiorca_save_path) if odbiorca_save_path else None
+        )
+        self._odbiorca_catalog = odbiorca_catalog or OdbiorcaCatalog()
+        self._odbiorca_map = self._odbiorca_catalog.alias_map()
         self._aliases = aliases
         self._local_aliases_path = (
             Path(local_aliases_path) if local_aliases_path else None
@@ -5304,6 +5505,11 @@ class FolderTreeMapDialog(tk.Toplevel):
         # Normalize empty choice to leave marker
         self._choices = [
             self._leave_machine if not (c or "").strip() else c for c in self._choices
+        ]
+        self._leave_odbiorca = _tr(master, "map_tree_odbiorca_leave")
+        self._odbiorca_choices = [self._leave_odbiorca] + [
+            display_for_odbiorca(o.id, o.label(_lang_of(master)))
+            for o in self._odbiorca_catalog.odbiorcy
         ]
         # de-dupe preserving order
         seen: set[str] = set()
@@ -5364,6 +5570,16 @@ class FolderTreeMapDialog(tk.Toplevel):
             right,
             textvariable=self._machine_var,
             values=self._choices,
+            state="readonly",
+            width=36,
+        ).pack(fill=tk.X, pady=(2, 8))
+
+        ttk.Label(right, text=_tr(master, "map_tree_odbiorca")).pack(anchor=tk.W)
+        self._odbiorca_var = tk.StringVar(value=self._leave_odbiorca)
+        ttk.Combobox(
+            right,
+            textvariable=self._odbiorca_var,
+            values=self._odbiorca_choices,
             state="readonly",
             width=36,
         ).pack(fill=tk.X, pady=(2, 8))
@@ -5513,6 +5729,19 @@ class FolderTreeMapDialog(tk.Toplevel):
             self._machine_var.set(display)
         else:
             self._machine_var.set(self._leave_machine)
+        if rule.odbiorca_id:
+            display = display_for_odbiorca(
+                rule.odbiorca_id,
+                self._odbiorca_catalog.label_for(rule.odbiorca_id, _lang_of(self.master)),
+            )
+            for choice in self._odbiorca_choices:
+                oid, _lab = parse_odbiorca_display(choice)
+                if oid == rule.odbiorca_id:
+                    display = choice
+                    break
+            self._odbiorca_var.set(display)
+        else:
+            self._odbiorca_var.set(self._leave_odbiorca)
         selected = set(rule.tags)
         for cid, var in self._tag_vars.items():
             var.set(cid in selected)
@@ -5520,6 +5749,7 @@ class FolderTreeMapDialog(tk.Toplevel):
 
     def _reset_editor(self) -> None:
         self._machine_var.set(self._leave_machine)
+        self._odbiorca_var.set(self._leave_odbiorca)
         for var in self._tag_vars.values():
             var.set(False)
         self._exclude_var.set(False)
@@ -5542,9 +5772,16 @@ class FolderTreeMapDialog(tk.Toplevel):
                 machine_id = mid
             elif mid == UNKNOWN_ID:
                 machine_id = UNKNOWN_ID
+        odbiorca_raw = self._odbiorca_var.get().strip()
+        odbiorca_id = None
+        if odbiorca_raw and odbiorca_raw != self._leave_odbiorca:
+            oid, _lab = parse_odbiorca_display(odbiorca_raw)
+            if oid:
+                odbiorca_id = oid
         self._map.set_rule(
             path,
             machine_id=machine_id,
+            odbiorca_id=odbiorca_id,
             tags=tags,
             exclude=exclude,
         )
@@ -5607,6 +5844,22 @@ class FolderTreeMapDialog(tk.Toplevel):
             label=_tr(self.master, "tree_alias_role_menu", name=name),
             menu=role_menu,
         )
+        odb_menu = tk.Menu(menu, tearoff=0)
+        for o in self._odbiorca_catalog.odbiorcy:
+            odb_menu.add_command(
+                label=o.label(_lang_of(self.master)),
+                command=lambda oid=o.id, p=path: self._alias_name_as_odbiorca(p, oid),
+            )
+        if self._odbiorca_catalog.odbiorcy:
+            menu.add_cascade(
+                label=_tr(self.master, "tree_alias_odbiorca_menu", name=name),
+                menu=odb_menu,
+            )
+        else:
+            menu.add_command(
+                label=_tr(self.master, "tree_alias_odbiorca_menu", name=name),
+                state=tk.DISABLED,
+            )
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -5870,6 +6123,91 @@ class FolderTreeMapDialog(tk.Toplevel):
             parent=self,
         )
 
+    def _alias_name_as_odbiorca(self, path: Path, odbiorca_id: str) -> None:
+        if self._odbiorca_save_path is None:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_need_odbiorca"),
+                parent=self,
+            )
+            return
+        name = path.name
+        if not self._alias_safety_ok(path, name):
+            return
+        odef = self._odbiorca_catalog.get(odbiorca_id)
+        olabel = (
+            odef.label(_lang_of(self.master)) if odef else odbiorca_id
+        )
+        hits = self._count_name_hits(name)
+        existing = self._odbiorca_map.rule_for_name(name)
+        if existing is not None:
+            cur = self._odbiorca_catalog.label_for(
+                existing.odbiorca_id, _lang_of(self.master)
+            ) or existing.odbiorca_id
+            if existing.odbiorca_id == odbiorca_id:
+                messagebox.showinfo(
+                    _tr(self.master, "tree_alias_title"),
+                    _tr(
+                        self.master,
+                        "tree_alias_odbiorca_already",
+                        name=name,
+                        target=cur,
+                    ),
+                    parent=self,
+                )
+                return
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_odbiorca_replace",
+                    name=name,
+                    current=cur,
+                    new=olabel,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_odbiorca_confirm",
+                    name=name,
+                    target=olabel,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        self._odbiorca_map.upsert_exact(name, odbiorca_id)
+        self._odbiorca_catalog = OdbiorcaCatalog(
+            odbiorcy=list(self._odbiorca_catalog.odbiorcy),
+            rules=list(self._odbiorca_map.rules),
+        )
+        self._odbiorca_map = self._odbiorca_catalog.alias_map()
+        try:
+            save_odbiorca_catalog(self._odbiorca_save_path, self._odbiorca_catalog)
+        except OSError as exc:
+            messagebox.showerror(
+                _tr(self.master, "tree_alias_title"), str(exc), parent=self
+            )
+            return
+        self.aliases_changed = True
+        self._refresh_all_name_badges()
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(
+                self.master,
+                "tree_alias_saved_reindex",
+                name=name,
+                target=olabel,
+            ),
+            parent=self,
+        )
+
     def _save(self) -> None:
         try:
             save_folder_tree_map(self._save_path, self._map)
@@ -5943,11 +6281,13 @@ class FolderNameBrowserDialog(tk.Toplevel):
         local_aliases_path: Path,
         colour_save_path: Path,
         catalog: ColourCatalog,
+        odbiorca_save_path: Path | None = None,
+        odbiorca_catalog: OdbiorcaCatalog | None = None,
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "name_browser_dialog_title"))
-        self.minsize(720, 480)
-        self.geometry("860x560")
+        self.minsize(780, 480)
+        self.geometry("920x560")
         self.transient(master)
         self.grab_set()
         self.changed = False
@@ -5961,6 +6301,11 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._colour_map = FolderColourAliasMap(
             catalog.rules, known_ids=catalog.colour_ids
         )
+        self._odbiorca_save_path = (
+            Path(odbiorca_save_path) if odbiorca_save_path is not None else None
+        )
+        self._odbiorca_catalog = odbiorca_catalog or OdbiorcaCatalog()
+        self._odbiorca_map = self._odbiorca_catalog.alias_map()
         self._iid_by_key: dict[str, str] = {}
 
         ttk.Label(
@@ -5982,7 +6327,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
 
         body = ttk.Frame(self)
         body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
-        cols = ("name", "count", "machine", "role")
+        cols = ("name", "count", "machine", "role", "odbiorca")
         self._tree = ttk.Treeview(
             body, columns=cols, show="headings", selectmode="browse"
         )
@@ -5990,10 +6335,12 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._tree.heading("count", text=_tr(master, "name_browser_col_count"))
         self._tree.heading("machine", text=_tr(master, "name_browser_col_machine"))
         self._tree.heading("role", text=_tr(master, "name_browser_col_role"))
-        self._tree.column("name", width=220, stretch=True)
+        self._tree.heading("odbiorca", text=_tr(master, "name_browser_col_odbiorca"))
+        self._tree.column("name", width=180, stretch=True)
         self._tree.column("count", width=80, anchor=tk.E, stretch=False)
-        self._tree.column("machine", width=220, stretch=True)
-        self._tree.column("role", width=180, stretch=True)
+        self._tree.column("machine", width=180, stretch=True)
+        self._tree.column("role", width=140, stretch=True)
+        self._tree.column("odbiorca", width=140, stretch=True)
         sb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self._tree.yview)
         self._tree.configure(yscrollcommand=sb.set)
         self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -6011,6 +6358,11 @@ class FolderNameBrowserDialog(tk.Toplevel):
             actions,
             text=_tr(master, "name_browser_assign_role"),
             command=self._assign_role,
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Button(
+            actions,
+            text=_tr(master, "name_browser_assign_odbiorca"),
+            command=self._assign_odbiorca,
         ).pack(side=tk.LEFT, padx=8)
 
         btns = ttk.Frame(self)
@@ -6046,6 +6398,14 @@ class FolderNameBrowserDialog(tk.Toplevel):
         c = self._catalog.get(rule.colour)
         return c.label(_lang_of(self.master)) if c else rule.colour
 
+    def _odbiorca_label_for(self, name: str) -> str:
+        rule = self._odbiorca_map.rule_for_name(name)
+        if rule is None:
+            return "—"
+        return self._odbiorca_catalog.label_for(
+            rule.odbiorca_id, _lang_of(self.master)
+        ) or rule.odbiorca_id
+
     def _refresh_rows(self) -> None:
         needle = (self._filter_var.get() or "").strip().casefold()
         for iid in self._tree.get_children():
@@ -6064,6 +6424,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
                     e.count,
                     self._machine_label_for(e.name),
                     self._role_label_for(e.name),
+                    self._odbiorca_label_for(e.name),
                 ),
             )
             self._iid_by_key[e.key] = e.key
@@ -6083,6 +6444,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
                 entry.count,
                 self._machine_label_for(entry.name),
                 self._role_label_for(entry.name),
+                self._odbiorca_label_for(entry.name),
             ),
         )
 
@@ -6316,6 +6678,121 @@ class FolderNameBrowserDialog(tk.Toplevel):
                 "tree_alias_saved_reindex",
                 name=name,
                 target=role_label,
+            ),
+            parent=self,
+        )
+
+
+
+    def _assign_odbiorca(self) -> None:
+        entry = self._selected_entry()
+        if entry is None:
+            messagebox.showinfo(
+                _tr(self.master, "name_browser_dialog_title"),
+                _tr(self.master, "name_browser_select_row"),
+                parent=self,
+            )
+            return
+        if self._odbiorca_save_path is None:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_need_odbiorca"),
+                parent=self,
+            )
+            return
+        name = entry.name
+        if not self._alias_safety_ok(name):
+            return
+        if not self._odbiorca_catalog.odbiorcy:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_no_odbiorcy"),
+                parent=self,
+            )
+            return
+        choices = [
+            display_for_odbiorca(o.id, o.label(_lang_of(self.master)))
+            for o in self._odbiorca_catalog.odbiorcy
+        ]
+        pick = _pick_from_list(
+            self,
+            title=_tr(self.master, "tree_alias_odbiorca_pick_title", name=name),
+            prompt=_tr(self.master, "tree_alias_odbiorca_pick_prompt", name=name),
+            values=choices,
+        )
+        if not pick:
+            return
+        oid, _lab = parse_odbiorca_display(pick)
+        if not oid:
+            return
+        odef = self._odbiorca_catalog.get(oid)
+        olabel = odef.label(_lang_of(self.master)) if odef else pick
+        hits = entry.count
+        existing = self._odbiorca_map.rule_for_name(name)
+        if existing is not None:
+            cur = self._odbiorca_catalog.label_for(
+                existing.odbiorca_id, _lang_of(self.master)
+            ) or existing.odbiorca_id
+            if existing.odbiorca_id == oid:
+                messagebox.showinfo(
+                    _tr(self.master, "tree_alias_title"),
+                    _tr(
+                        self.master,
+                        "tree_alias_odbiorca_already",
+                        name=name,
+                        target=cur,
+                    ),
+                    parent=self,
+                )
+                return
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_odbiorca_replace",
+                    name=name,
+                    current=cur,
+                    new=olabel,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_odbiorca_confirm",
+                    name=name,
+                    target=olabel,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        self._odbiorca_map.upsert_exact(name, oid)
+        self._odbiorca_catalog = OdbiorcaCatalog(
+            odbiorcy=list(self._odbiorca_catalog.odbiorcy),
+            rules=list(self._odbiorca_map.rules),
+        )
+        self._odbiorca_map = self._odbiorca_catalog.alias_map()
+        try:
+            save_odbiorca_catalog(self._odbiorca_save_path, self._odbiorca_catalog)
+        except OSError as exc:
+            messagebox.showerror(
+                _tr(self.master, "tree_alias_title"), str(exc), parent=self
+            )
+            return
+        self.changed = True
+        self._refresh_row(entry)
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(
+                self.master,
+                "tree_alias_saved_reindex",
+                name=name,
+                target=olabel,
             ),
             parent=self,
         )
@@ -6799,6 +7276,183 @@ class FolderColourAliasDialog(tk.Toplevel):
         self.saved = True
         self.catalog = self._catalog
         self.destroy()
+
+
+class OdbiorcaCatalogDialog(tk.Toplevel):
+    """Edit odbiorca (recipient) catalogue saved as odbiorcy.yaml."""
+
+    def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
+        super().__init__(master)
+        self.title(_tr(master, "odbiorcy_dialog_title"))
+        self.minsize(520, 360)
+        self.geometry("640x420")
+        self.transient(master)
+        self.grab_set()
+        self.saved = False
+        self._save_path = Path(save_path)
+        self.catalog = load_odbiorca_catalog(self._save_path)
+        self._lang = getattr(master, "_lang", None) or "pl"
+
+        ttk.Label(
+            self,
+            text=_tr(master, "odbiorcy_intro"),
+            wraplength=600,
+        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+
+        body = ttk.Frame(self)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        left = ttk.Frame(body)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.rowconfigure(0, weight=1)
+        self._list = tk.Listbox(left, exportselection=False, width=28)
+        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._list.yview)
+        self._list.configure(yscrollcommand=sb.set)
+        self._list.grid(row=0, column=0, sticky="nsew")
+        sb.grid(row=0, column=1, sticky="ns")
+        self._list.bind("<<ListboxSelect>>", self._on_select)
+        lbtns = ttk.Frame(left)
+        lbtns.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+        ttk.Button(lbtns, text=_tr(master, "odbiorca_add"), command=self._add).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(
+            lbtns, text=_tr(master, "odbiorca_remove"), command=self._remove
+        ).pack(side=tk.LEFT, padx=6)
+
+        right = ttk.LabelFrame(body, text=_tr(master, "odbiorca_edit"), padding=6)
+        right.grid(row=0, column=1, sticky="nsew")
+        right.columnconfigure(1, weight=1)
+        self._id_var = tk.StringVar()
+        self._label_pl_var = tk.StringVar()
+        self._label_en_var = tk.StringVar()
+        ttk.Label(right, text=_tr(master, "odbiorca_id")).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(right, textvariable=self._id_var).grid(
+            row=0, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        ttk.Label(right, text=_tr(master, "odbiorca_label_pl")).grid(
+            row=1, column=0, sticky=tk.W
+        )
+        ttk.Entry(right, textvariable=self._label_pl_var).grid(
+            row=1, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        ttk.Label(right, text=_tr(master, "odbiorca_label_en")).grid(
+            row=2, column=0, sticky=tk.W
+        )
+        ttk.Entry(right, textvariable=self._label_en_var).grid(
+            row=2, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+        ttk.Button(
+            right, text=_tr(master, "folder_colour_update"), command=self._apply
+        ).grid(row=3, column=1, sticky=tk.E, pady=(8, 0))
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=8)
+        ttk.Button(btns, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT, padx=6
+        )
+        self._refresh()
+
+    def _row_label(self, o: OdbiorcaDef) -> str:
+        return f"{o.label(self._lang)}  ({o.id})"
+
+    def _refresh(self) -> None:
+        self._list.delete(0, tk.END)
+        for o in self.catalog.odbiorcy:
+            self._list.insert(tk.END, self._row_label(o))
+
+    def _on_select(self, _evt=None) -> None:
+        sel = self._list.curselection()
+        if not sel:
+            return
+        o = self.catalog.odbiorcy[int(sel[0])]
+        self._id_var.set(o.id)
+        self._label_pl_var.set(o.label_pl)
+        self._label_en_var.set(o.label_en)
+
+    def _apply(self) -> None:
+        sel = self._list.curselection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        old = self.catalog.odbiorcy[idx]
+        new_id = normalize_odbiorca_id(self._id_var.get())
+        if not new_id:
+            messagebox.showwarning(
+                _tr(self.master, "odbiorcy"),
+                _tr(self.master, "odbiorca_id_required"),
+                parent=self,
+            )
+            return
+        updated = OdbiorcaDef(
+            id=new_id,
+            label_pl=self._label_pl_var.get(),
+            label_en=self._label_en_var.get(),
+        )
+        items = list(self.catalog.odbiorcy)
+        items[idx] = updated
+        # If id changed, rewrite rules pointing at old id
+        rules = list(self.catalog.rules)
+        if old.id != updated.id:
+            from gcode_index.odbiorca_aliases import OdbiorcaRule
+
+            rules = [
+                OdbiorcaRule(alias=r.alias, odbiorca_id=updated.id, exact=r.exact)
+                if r.odbiorca_id == old.id
+                else r
+                for r in rules
+            ]
+        self.catalog = OdbiorcaCatalog(odbiorcy=items, rules=rules)
+        self._refresh()
+        self._list.selection_set(idx)
+
+    def _add(self) -> None:
+        base = "odbiorca"
+        n = 1
+        ids = {o.id for o in self.catalog.odbiorcy}
+        while f"{base}{n}" in ids:
+            n += 1
+        oid = f"{base}{n}"
+        new = OdbiorcaDef(
+            id=oid,
+            label_pl=_tr(self.master, "odbiorca_new_label"),
+            label_en="New recipient",
+        )
+        self.catalog = OdbiorcaCatalog(
+            odbiorcy=list(self.catalog.odbiorcy) + [new],
+            rules=list(self.catalog.rules),
+        )
+        self._refresh()
+        self._list.selection_set(tk.END)
+        self._on_select()
+
+    def _remove(self) -> None:
+        sel = self._list.curselection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        oid = self.catalog.odbiorcy[idx].id
+        items = [o for i, o in enumerate(self.catalog.odbiorcy) if i != idx]
+        rules = [r for r in self.catalog.rules if r.odbiorca_id != oid]
+        self.catalog = OdbiorcaCatalog(odbiorcy=items, rules=rules)
+        self._refresh()
+        self._id_var.set("")
+        self._label_pl_var.set("")
+        self._label_en_var.set("")
+
+    def _save(self) -> None:
+        self._apply()
+        try:
+            save_odbiorca_catalog(self._save_path, self.catalog)
+        except OSError as exc:
+            messagebox.showerror(_tr(self.master, "odbiorcy"), str(exc), parent=self)
+            return
+        self.saved = True
+        self.destroy()
+
 
 
 class AliasEditorDialog(tk.Toplevel):

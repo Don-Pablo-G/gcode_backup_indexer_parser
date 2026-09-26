@@ -98,6 +98,7 @@ class FolderTreeRule:
 
     path: str  # absolute (normalized /)
     machine_id: Optional[str] = None
+    odbiorca_id: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     exclude: bool = False
 
@@ -105,6 +106,8 @@ class FolderTreeRule:
         self.path = _norm_abs(self.path)
         mid = (self.machine_id or "").strip()
         self.machine_id = mid or None
+        oid = (self.odbiorca_id or "").strip()
+        self.odbiorca_id = oid or None
         self.tags = normalize_roles_list(self.tags)
         self.exclude = bool(self.exclude)
 
@@ -116,6 +119,8 @@ class FolderTreeRule:
         d: dict[str, Any] = {"path": self.path}
         if self.machine_id:
             d["machine_id"] = self.machine_id
+        if self.odbiorca_id:
+            d["odbiorca_id"] = self.odbiorca_id
         if self.tags:
             d["tags"] = list(self.tags)
         if self.exclude:
@@ -146,6 +151,7 @@ class FolderTreeMap:
         path: Path | str,
         *,
         machine_id: Optional[str] = None,
+        odbiorca_id: Optional[str] = None,
         tags: Optional[Sequence[str]] = None,
         exclude: bool = False,
         clear: bool = False,
@@ -159,11 +165,17 @@ class FolderTreeMap:
         rule = FolderTreeRule(
             path=_norm_abs(path),
             machine_id=machine_id,
+            odbiorca_id=odbiorca_id,
             tags=list(tags or []),
             exclude=exclude,
         )
         # Drop empty no-op rules
-        if not rule.machine_id and not rule.tags and not rule.exclude:
+        if (
+            not rule.machine_id
+            and not rule.odbiorca_id
+            and not rule.tags
+            and not rule.exclude
+        ):
             self.rules = sorted(others, key=lambda r: len(r.key), reverse=True)
             return
         others.append(rule)
@@ -284,6 +296,17 @@ def _parse_rule(item: Any) -> Optional[FolderTreeRule]:
             str(item["machine_id"]).strip()
             if item.get("machine_id")
             else (str(item["machine"]).strip() if item.get("machine") else None)
+        ),
+        odbiorca_id=(
+            str(item["odbiorca_id"]).strip()
+            if item.get("odbiorca_id")
+            else (
+                str(item["odbiorca"]).strip()
+                if item.get("odbiorca")
+                else (
+                    str(item["recipient"]).strip() if item.get("recipient") else None
+                )
+            )
         ),
         tags=normalize_roles_list(tags),
         exclude=bool(item.get("exclude") or item.get("skip")),

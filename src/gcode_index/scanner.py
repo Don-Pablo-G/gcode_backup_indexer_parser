@@ -35,6 +35,7 @@ from gcode_index.folder_tree_map import (
     roles_from_db,
     roles_to_db,
 )
+from gcode_index.odbiorca_aliases import OdbiorcaAliasMap
 from gcode_index.folder_watch import path_under
 from gcode_index.scan_cache import ScanCache
 
@@ -270,6 +271,7 @@ def scan_backup_tree(
     skip_under: Optional[list[Path]] = None,
     colour_map: Optional[FolderColourAliasMap] = None,
     tree_map: Optional[FolderTreeMap] = None,
+    odbiorca_map: Optional[OdbiorcaAliasMap] = None,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -279,6 +281,7 @@ def scan_backup_tree(
     skip = list(skip_under or [])
     colours = colour_map if colour_map is not None else FolderColourAliasMap.empty()
     trees = tree_map if tree_map is not None else FolderTreeMap()
+    odbiorcy = odbiorca_map if odbiorca_map is not None else OdbiorcaAliasMap.empty()
 
     if progress:
         progress(
@@ -345,6 +348,7 @@ def scan_backup_tree(
 
     _stamp_provenance(result, provenance=provenance, scan_root=root)
     _apply_folder_colour_overrides(result, colours)
+    _apply_odbiorca_aliases(result, odbiorcy)
     _apply_folder_tree_map_overrides(result, trees, aliases)
 
     prog.emit(
@@ -367,6 +371,7 @@ def scan_with_extra_roots(
     cache: Optional[ScanCache] = None,
     colour_map: Optional[FolderColourAliasMap] = None,
     tree_map: Optional[FolderTreeMap] = None,
+    odbiorca_map: Optional[OdbiorcaAliasMap] = None,
 ) -> ScanResult:
     """Scan the main backup (green) plus optional additional folders.
 
@@ -381,7 +386,8 @@ def scan_with_extra_roots(
 
     Optional ``colour_map`` (folder-name aliases) sets role tags per deepest matching
     path segment, or excludes that branch. Optional ``tree_map`` (path-specific rules)
-    wins over name aliases for the longest matching path prefix (multi-tag + machine).
+    wins over name aliases for the longest matching path prefix (multi-tag + machine
+    + odbiorca). Optional ``odbiorca_map`` sets one recipient id (deepest name match).
     """
     roots: list[tuple[Path, str]] = [(Path(backup_root), PROVENANCE_BACKUP)]
     seen: set[str] = {str(Path(backup_root).resolve())}
@@ -418,6 +424,7 @@ def scan_with_extra_roots(
 
     colours = colour_map if colour_map is not None else FolderColourAliasMap.empty()
     trees = tree_map if tree_map is not None else FolderTreeMap()
+    odbiorcy = odbiorca_map if odbiorca_map is not None else OdbiorcaAliasMap.empty()
     all_root_paths = [p for p, _ in roots]
     resolved_roots: list[tuple[Path, str]] = []
     for p, prov in roots:
@@ -458,14 +465,16 @@ def scan_with_extra_roots(
             skip_under=skip,
             colour_map=colours,
             tree_map=trees,
+            odbiorca_map=odbiorcy,
         )
         merged.instances.extend(part.instances)
         merged.files_seen.extend(part.files_seen)
         merged.unknowns.extend(part.unknowns)
 
     merged = _filter_longest_prefix_instances(merged, resolved_roots)
-    # Colour / tree overrides already applied per-root; re-apply after ownership.
+    # Colour / tree / odbiorca overrides already applied per-root; re-apply after ownership.
     _apply_folder_colour_overrides(merged, colours)
+    _apply_odbiorca_aliases(merged, odbiorcy)
     _apply_folder_tree_map_overrides(merged, trees, aliases)
 
     if progress:
@@ -518,6 +527,22 @@ def _apply_folder_colour_overrides(
     result.instances[:] = kept
 
 
+def _apply_odbiorca_aliases(
+    result: ScanResult,
+    odbiorca_map: Optional[OdbiorcaAliasMap],
+) -> None:
+    """Apply name-wide odbiorca aliases (deepest matching segment wins).
+
+    Never changes status, machine, or roles. Path tree may override later.
+    """
+    if odbiorca_map is None or len(odbiorca_map) == 0:
+        return
+    for inst in result.instances:
+        oid = odbiorca_map.resolve_source_path(inst.source_path or "")
+        if oid:
+            inst.odbiorca_id = oid
+
+
 def _apply_folder_tree_map_overrides(
     result: ScanResult,
     tree_map: Optional[FolderTreeMap],
@@ -526,8 +551,8 @@ def _apply_folder_tree_map_overrides(
     """Apply path-specific tree rules (longest prefix wins over name aliases).
 
     Winning rule: ``exclude`` drops the row; non-empty ``tags`` **replace** the
-    accumulated name-role set; ``machine_id`` overrides machine. Status is never
-    changed.
+    accumulated name-role set; ``machine_id`` / ``odbiorca_id`` override those
+    axes. Status is never changed.
     """
     if tree_map is None or len(tree_map) == 0:
         return
@@ -559,6 +584,8 @@ def _apply_folder_tree_map_overrides(
                 inst.machine_label = label
             elif not inst.machine_label or inst.machine_label == UNKNOWN_MACHINE_LABEL:
                 inst.machine_label = mid
+        if rule.odbiorca_id:
+            inst.odbiorca_id = rule.odbiorca_id
         kept.append(inst)
     result.instances[:] = kept
 
