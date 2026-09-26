@@ -35,7 +35,7 @@ from gcode_index.folder_tree_map import (
     roles_from_db,
     roles_to_db,
 )
-from gcode_index.odbiorca_aliases import OdbiorcaAliasMap
+from gcode_index.odbiorca_aliases import OdbiorcaAliasMap, match_odbiorca_from_header
 from gcode_index.folder_watch import path_under
 from gcode_index.scan_cache import ScanCache
 
@@ -272,6 +272,7 @@ def scan_backup_tree(
     colour_map: Optional[FolderColourAliasMap] = None,
     tree_map: Optional[FolderTreeMap] = None,
     odbiorca_map: Optional[OdbiorcaAliasMap] = None,
+    odbiorca_from_header: bool = True,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -348,8 +349,11 @@ def scan_backup_tree(
 
     _stamp_provenance(result, provenance=provenance, scan_root=root)
     _apply_folder_colour_overrides(result, colours)
+    # Precedence: folder name → path override → header fill-if-empty
     _apply_odbiorca_aliases(result, odbiorcy)
     _apply_folder_tree_map_overrides(result, trees, aliases)
+    if odbiorca_from_header:
+        _apply_odbiorca_from_header(result, odbiorcy)
 
     prog.emit(
         phase="done",
@@ -372,6 +376,7 @@ def scan_with_extra_roots(
     colour_map: Optional[FolderColourAliasMap] = None,
     tree_map: Optional[FolderTreeMap] = None,
     odbiorca_map: Optional[OdbiorcaAliasMap] = None,
+    odbiorca_from_header: bool = True,
 ) -> ScanResult:
     """Scan the main backup (green) plus optional additional folders.
 
@@ -466,6 +471,7 @@ def scan_with_extra_roots(
             colour_map=colours,
             tree_map=trees,
             odbiorca_map=odbiorcy,
+            odbiorca_from_header=False,  # apply once on merged set below
         )
         merged.instances.extend(part.instances)
         merged.files_seen.extend(part.files_seen)
@@ -476,6 +482,8 @@ def scan_with_extra_roots(
     _apply_folder_colour_overrides(merged, colours)
     _apply_odbiorca_aliases(merged, odbiorcy)
     _apply_folder_tree_map_overrides(merged, trees, aliases)
+    if odbiorca_from_header:
+        _apply_odbiorca_from_header(merged, odbiorcy)
 
     if progress:
         n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
@@ -533,14 +541,50 @@ def _apply_odbiorca_aliases(
 ) -> None:
     """Apply name-wide odbiorca aliases (deepest matching segment wins).
 
-    Never changes status, machine, or roles. Path tree may override later.
+    Never changes status, machine, or roles. Path tree / header may refine later.
     """
     if odbiorca_map is None or len(odbiorca_map) == 0:
         return
+    n = 0
     for inst in result.instances:
         oid = odbiorca_map.resolve_source_path(inst.source_path or "")
         if oid:
             inst.odbiorca_id = oid
+            n += 1
+    result.odbiorca_from_folder = n
+
+
+def _apply_odbiorca_from_header(
+    result: ScanResult,
+    odbiorca_map: Optional[OdbiorcaAliasMap],
+) -> None:
+    """Fill odbiorca from header-window paren comments when still unset.
+
+    Precedence: path override and folder alias already ran; this never overwrites.
+    """
+    if odbiorca_map is None or len(odbiorca_map) == 0:
+        return
+    n = 0
+    for inst in result.instances:
+        if (inst.odbiorca_id or "").strip():
+            continue
+        root = (inst.scan_root or "").strip()
+        rel = (inst.source_path or "").strip()
+        if not root or not rel:
+            continue
+        try:
+            path = Path(root) / rel
+        except Exception:
+            continue
+        oid = match_odbiorca_from_header(
+            path,
+            odbiorca_map,
+            byte_start=inst.byte_start,
+        )
+        if oid:
+            inst.odbiorca_id = oid
+            n += 1
+    result.odbiorca_from_header = n
 
 
 def _apply_folder_tree_map_overrides(
@@ -557,6 +601,7 @@ def _apply_folder_tree_map_overrides(
     if tree_map is None or len(tree_map) == 0:
         return
     kept = []
+    n_odb = 0
     for inst in result.instances:
         rule = tree_map.resolve_for_source(
             scan_root=inst.scan_root,
@@ -586,8 +631,10 @@ def _apply_folder_tree_map_overrides(
                 inst.machine_label = mid
         if rule.odbiorca_id:
             inst.odbiorca_id = rule.odbiorca_id
+            n_odb += 1
         kept.append(inst)
     result.instances[:] = kept
+    result.odbiorca_from_path = n_odb
 
 
 def _filter_longest_prefix_instances(

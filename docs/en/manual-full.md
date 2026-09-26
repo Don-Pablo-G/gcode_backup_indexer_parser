@@ -88,7 +88,7 @@ Results Flag column shows **status + role badge(s)**. Use separate **Status** an
 2. **Map tree…** — lazy path tree for machine + recipient + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins). Right-click a folder → name alias everywhere (machine / role / recipient).
 3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
 4. **Folder roles…** — role catalogue (swatch, meaning) and name → role aliases.
-5. **Recipients…** — recipient/customer catalogue; one odbiorca per program (like machine).
+5. **Recipients…** — recipient/customer catalogue; one odbiorca per program (like machine). Folder-name aliases also match header paren comments `(…)` when path/folder left odbiorca empty (**Odbiorca from header** toggle; reindex to backfill).
 
 ### Loose `.nc` machine assignment
 
@@ -103,6 +103,7 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 3. Options (second toolbar row under **Indeksuj**):
    - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
    - **Also write Excel** — export workbook next to the DB after scan
+   - **Odbiorca from header** — when folder/path left odbiorca empty, match aliases in header paren comments (O##### window only)
    - **Watch folders** — see below
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
 

@@ -130,6 +130,12 @@ def scan_cmd(
     colour_map = FolderColourAliasMap.load(folder_colour_aliases_path_for_target(db.parent))
     tree_map = load_folder_tree_map(tree_map_path_for_target(db.parent))
     odbiorca_map = OdbiorcaAliasMap.load(odbiorcy_path_for_target(db.parent))
+    from gcode_index.instance_ini import load_instance_ini
+
+    try:
+        odbiorca_from_header = bool(load_instance_ini().odbiorca_from_header)
+    except Exception:  # noqa: BLE001
+        odbiorca_from_header = True
     if incremental and db.is_file():
         from gcode_index.scan_cache import load_scan_cache
 
@@ -158,6 +164,7 @@ def scan_cmd(
             colour_map=colour_map,
             tree_map=tree_map,
             odbiorca_map=odbiorca_map,
+            odbiorca_from_header=odbiorca_from_header,
         )
     else:
         typer.echo(f"Scanning {backup_root} …")
@@ -169,6 +176,7 @@ def scan_cmd(
             colour_map=colour_map,
             tree_map=tree_map,
             odbiorca_map=odbiorca_map,
+            odbiorca_from_header=odbiorca_from_header,
         )
     db.parent.mkdir(parents=True, exist_ok=True)
     if db.is_file():

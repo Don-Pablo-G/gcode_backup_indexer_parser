@@ -88,7 +88,7 @@ Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **R
 2. **Mapuj drzewo…** — leniwe drzewo ścieżek: maszyna + odbiorca + wiele ról + wyklucz (`folder_tree_map.yaml`; najgłębsza ścieżka wygrywa). Prawy klik na folder → alias nazwy wszędzie (maszyna / rola / odbiorca).
 3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
 4. **Role folderów…** — katalog ról (barwa, znaczenie) oraz aliasy nazw → rola.
-5. **Odbiorcy…** — katalog odbiorców / klientów; jeden odbiorca na program (jak maszyna).
+5. **Odbiorcy…** — katalog odbiorców / klientów; jeden odbiorca na program (jak maszyna). Aliasy nazw folderów działają też na komentarze w nagłówku programu (`(…)`) gdy ścieżka/folder nie ustawiły odbiorcy (przełącznik **Odbiorca z nagłówka**; reindeks uzupełnia).
 
 ---
 
@@ -96,7 +96,7 @@ Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **R
 
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
 2. Zielony **Indeksuj / skanuj**.
-3. Opcje: **Przyrostowo**, **Zapisz też Excel**, **Obserwuj foldery**.
+3. Opcje: **Przyrostowo**, **Zapisz też Excel**, **Odbiorca z nagłówka**, **Obserwuj foldery**.
 4. Pasek postępu + **Raport skanu** po zakończeniu.
 
 ### Auto-indeks

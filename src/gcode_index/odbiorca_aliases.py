@@ -296,3 +296,117 @@ def parse_odbiorca_display(raw: str) -> tuple[str, str]:
         oid = rest[:-1].strip()
         return normalize_odbiorca_id(oid), label.strip()
     return normalize_odbiorca_id(s), s
+
+
+# --- Header-window odbiorca match (fill-if-empty at scan) -------------------
+
+# Same spirit as other alias mins; short tokens (LP1, OK, …) are skipped.
+MIN_HEADER_ODBIORCA_NEEDLE = 3
+# Align with whole-file .nc O-header scan window.
+HEADER_ODBIORCA_SCAN_LINES = 40
+
+_ALL_PARENS = re.compile(r"\(([^)]*)\)")
+
+
+def extract_header_paren_comments(
+    path: Path | str,
+    *,
+    byte_start: Optional[int] = None,
+    max_lines: int = HEADER_ODBIORCA_SCAN_LINES,
+) -> list[str]:
+    """Paren comment texts from the header window (not the full body).
+
+    For whole-file programs ``byte_start`` is None → first ``max_lines`` lines.
+    For glued dumps, seek to ``byte_start`` and read ``max_lines`` from there.
+    """
+    p = Path(path)
+    if not p.is_file():
+        return []
+    comments: list[str] = []
+    try:
+        with open(p, "rb") as f:
+            if byte_start is not None and byte_start > 0:
+                try:
+                    f.seek(int(byte_start))
+                except OSError:
+                    f.seek(0)
+            for _ in range(max(1, int(max_lines))):
+                raw = f.readline()
+                if not raw:
+                    break
+                try:
+                    line = raw.decode("ascii", errors="replace").rstrip("\r\n")
+                except Exception:
+                    continue
+                for m in _ALL_PARENS.finditer(line):
+                    text = (m.group(1) or "").strip()
+                    if text:
+                        comments.append(text)
+    except OSError:
+        return []
+    return comments
+
+
+def match_odbiorca_in_comments(
+    comments: Sequence[str],
+    odbiorca_map: "OdbiorcaAliasMap",
+    *,
+    min_needle: int = MIN_HEADER_ODBIORCA_NEEDLE,
+) -> Optional[str]:
+    """Best single odbiorca_id from alias needles in comment texts.
+
+    Uses ``normalize_folder_name`` on both sides. Exact normalized equality beats
+    substring; longest needle wins. Aliases only (not catalogue labels).
+    """
+    if not comments or odbiorca_map is None or len(odbiorca_map) == 0:
+        return None
+    needles: list[tuple[str, int, str]] = []
+    seen_keys: set[str] = set()
+    for rule in odbiorca_map.rules:
+        key = rule.key
+        if not key or len(key) < min_needle:
+            continue
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        oid = (rule.odbiorca_id or "").strip()
+        if not oid:
+            continue
+        needles.append((key, len(key), oid))
+    if not needles:
+        return None
+    # Longer first so first exact/substring hit among equal scores is stable
+    needles.sort(key=lambda t: (-t[1], t[0]))
+
+    best: Optional[tuple[int, int, str]] = None  # (exact, length, oid)
+    for raw in comments:
+        norm = normalize_folder_name(raw)
+        if not norm or len(norm) < min_needle:
+            continue
+        for key, length, oid in needles:
+            if key == norm:
+                cand = (1, length, oid)
+            elif key in norm:
+                cand = (0, length, oid)
+            else:
+                continue
+            if best is None or cand > best:
+                best = cand
+    return best[2] if best else None
+
+
+def match_odbiorca_from_header(
+    path: Path | str,
+    odbiorca_map: "OdbiorcaAliasMap",
+    *,
+    byte_start: Optional[int] = None,
+    min_needle: int = MIN_HEADER_ODBIORCA_NEEDLE,
+    max_lines: int = HEADER_ODBIORCA_SCAN_LINES,
+) -> Optional[str]:
+    """Resolve one odbiorca_id from header-window paren comments, or None."""
+    comments = extract_header_paren_comments(
+        path, byte_start=byte_start, max_lines=max_lines
+    )
+    return match_odbiorca_in_comments(
+        comments, odbiorca_map, min_needle=min_needle
+    )

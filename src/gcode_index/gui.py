@@ -323,6 +323,7 @@ class IndexerApp(tk.Tk):
         self.include_unknown_var = tk.BooleanVar(value=True)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
+        self.odbiorca_from_header_var = tk.BooleanVar(value=True)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
@@ -449,6 +450,7 @@ class IndexerApp(tk.Tk):
             self.excel_var,
             self.incremental_var,
             self.newest_only_var,
+            self.odbiorca_from_header_var,
         ):
             var.trace_add("write", self._on_scan_option_changed)
         # Persist folder edits typed by hand (debounced)
@@ -482,6 +484,7 @@ class IndexerApp(tk.Tk):
         self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
+        self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
         self.search_auto_refresh_var.set(bool(cfg.search_auto_refresh))
@@ -665,6 +668,7 @@ class IndexerApp(tk.Tk):
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
             also_excel=bool(self.excel_var.get()),
+            odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
             close_to_tray=bool(self.close_to_tray_var.get()),
@@ -1219,6 +1223,7 @@ class IndexerApp(tk.Tk):
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
+            "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
@@ -1452,6 +1457,10 @@ class IndexerApp(tk.Tk):
                     self.include_unknown_var.set(bool(preserved.get("include_unknown")))
                 self.incremental_var.set(bool(preserved.get("incremental", True)))
                 self.watch_var.set(bool(preserved.get("watch", False)))
+                if "odbiorca_from_header" in preserved:
+                    self.odbiorca_from_header_var.set(
+                        bool(preserved.get("odbiorca_from_header"))
+                    )
                 if preserved.get("watch_mode") is not None:
                     self._watch_mode = normalize_watch_mode(
                         str(preserved.get("watch_mode"))
@@ -2216,6 +2225,12 @@ class IndexerApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=(12, 0))
         ttk.Checkbutton(
             row2, text=self._("incremental"), variable=self.incremental_var
+        ).pack(side=tk.LEFT, padx=8)
+        ttk.Checkbutton(
+            row2,
+            text=self._("odbiorca_from_header"),
+            variable=self.odbiorca_from_header_var,
+            command=self._schedule_filter_ini_save,
         ).pack(side=tk.LEFT, padx=8)
         ttk.Checkbutton(
             row2,
@@ -4022,6 +4037,7 @@ class IndexerApp(tk.Tk):
                     colour_map=colour_map,
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
+                    odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
                 )
             else:
                 result = scan_backup_tree(
@@ -4034,6 +4050,7 @@ class IndexerApp(tk.Tk):
                     colour_map=colour_map,
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
+                    odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
                 )
             n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
             if db_path.is_file():
@@ -4106,9 +4123,20 @@ class IndexerApp(tk.Tk):
                 else self._("scan_note_full")
             )
             auto_note = self._("scan_note_auto") if auto else ""
+            n_odb_h = int(getattr(result, "odbiorca_from_header", 0) or 0)
+            n_odb_f = int(getattr(result, "odbiorca_from_folder", 0) or 0)
+            n_odb_p = int(getattr(result, "odbiorca_from_path", 0) or 0)
+            odb_note = ""
+            if n_odb_h or n_odb_f or n_odb_p:
+                odb_note = self._(
+                    "scan_note_odbiorca",
+                    folder=n_odb_f,
+                    path=n_odb_p,
+                    header=n_odb_h,
+                )
             extra = (
                 f"{unk_note}{local_note}{flag_note}"
-                f"{cache_note}{mode_note}{auto_note}"
+                f"{cache_note}{mode_note}{auto_note}{odb_note}"
             )
             msg = self._(
                 "scan_done_status",

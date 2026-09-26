@@ -128,3 +128,7 @@ class ScanResult:
     instances: list[ProgramInstance] = field(default_factory=list)
     files_seen: list[FileSeen] = field(default_factory=list)
     unknowns: list[UnknownFolder] = field(default_factory=list)
+    # Optional scan-note counters (odbiorca assignment sources)
+    odbiorca_from_folder: int = 0
+    odbiorca_from_path: int = 0
+    odbiorca_from_header: int = 0
