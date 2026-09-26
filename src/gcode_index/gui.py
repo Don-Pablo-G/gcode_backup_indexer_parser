@@ -14,7 +14,7 @@ import threading
 import tkinter as tk
 from collections import Counter
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 from typing import Any, Optional
 
 from gcode_index.aliases import (
@@ -74,6 +74,7 @@ from gcode_index.models import (
 )
 from gcode_index.folder_colour_aliases import (
     FOLDER_COLOUR_ALIASES_FILENAME,
+    COLOUR_PRESET_SWATCHES,
     ColourCatalog,
     ColourDef,
     FolderColourAliasMap,
@@ -82,6 +83,7 @@ from gcode_index.folder_colour_aliases import (
     folder_colour_aliases_path_for_target,
     load_colour_catalog,
     normalize_colour_id,
+    normalize_hex_colour,
     save_colour_catalog,
 )
 from gcode_index.path_util import (
@@ -5009,8 +5011,8 @@ class FolderColourAliasDialog(tk.Toplevel):
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
         self.title(_tr(master, "folder_colours_dialog_title"))
-        self.minsize(720, 480)
-        self.geometry("780x520")
+        self.minsize(740, 520)
+        self.geometry("820x560")
         self.transient(master)
         self.grab_set()
         self.saved = False
@@ -5083,8 +5085,6 @@ class FolderColourAliasDialog(tk.Toplevel):
             ("folder_colour_id", self._cid_var),
             ("folder_colour_label_pl", self._label_pl_var),
             ("folder_colour_label_en", self._label_en_var),
-            ("folder_colour_swatch", self._swatch_var),
-            ("folder_colour_badge", self._badge_var),
         ]
         for i, (key, var) in enumerate(rows):
             ttk.Label(right, text=_tr(self.master, key)).grid(row=i, column=0, sticky=tk.W)
@@ -5092,6 +5092,68 @@ class FolderColourAliasDialog(tk.Toplevel):
             ttk.Entry(right, textvariable=var, state=state).grid(
                 row=i, column=1, sticky=tk.EW, padx=4, pady=2
             )
+
+        # Colour: primary = clickable swatch + presets; hex is optional readout
+        colour_row = 3
+        ttk.Label(right, text=_tr(self.master, "folder_colour_swatch")).grid(
+            row=colour_row, column=0, sticky=tk.NW, pady=(6, 0)
+        )
+        colour_box = ttk.Frame(right)
+        colour_box.grid(row=colour_row, column=1, sticky=tk.EW, padx=4, pady=(4, 2))
+        colour_box.columnconfigure(1, weight=1)
+
+        self._swatch_preview = tk.Label(
+            colour_box,
+            text="    ",
+            background="#888888",
+            width=6,
+            relief=tk.RAISED,
+            bd=2,
+            cursor="hand2",
+        )
+        self._swatch_preview.grid(row=0, column=0, padx=(0, 8), pady=2)
+        self._swatch_preview.bind("<Button-1>", lambda _e: self._pick_swatch_colour())
+        ttk.Button(
+            colour_box,
+            text=_tr(self.master, "folder_colour_pick"),
+            command=self._pick_swatch_colour,
+        ).grid(row=0, column=1, sticky=tk.W)
+
+        ttk.Label(colour_box, text=_tr(self.master, "folder_colour_presets")).grid(
+            row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 2)
+        )
+        palette = ttk.Frame(colour_box)
+        palette.grid(row=2, column=0, columnspan=2, sticky=tk.W)
+        for hex_col in COLOUR_PRESET_SWATCHES:
+            chip = tk.Label(
+                palette,
+                text="  ",
+                background=hex_col,
+                width=3,
+                relief=tk.RAISED,
+                bd=1,
+                cursor="hand2",
+            )
+            chip.pack(side=tk.LEFT, padx=2, pady=2)
+            chip.bind(
+                "<Button-1>",
+                lambda _e, h=hex_col: self._set_swatch_colour(h),
+            )
+
+        hex_row = ttk.Frame(colour_box)
+        hex_row.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+        ttk.Label(hex_row, text=_tr(self.master, "folder_colour_hex")).pack(side=tk.LEFT)
+        ttk.Entry(hex_row, textvariable=self._swatch_var, width=12).pack(
+            side=tk.LEFT, padx=6
+        )
+
+        ttk.Label(right, text=_tr(self.master, "folder_colour_badge")).grid(
+            row=4, column=0, sticky=tk.W
+        )
+        ttk.Entry(right, textvariable=self._badge_var).grid(
+            row=4, column=1, sticky=tk.EW, padx=4, pady=2
+        )
+
         ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_pl")).grid(
             row=5, column=0, sticky=tk.NW
         )
@@ -5105,12 +5167,26 @@ class FolderColourAliasDialog(tk.Toplevel):
         ttk.Button(
             right, text=_tr(self.master, "folder_colour_update"), command=self._apply_colour_fields
         ).grid(row=7, column=1, sticky=tk.E, pady=(8, 0))
-        self._swatch_preview = tk.Label(right, text="  ", background="#888888", width=4)
-        self._swatch_preview.grid(row=3, column=2, padx=4)
         self._swatch_var.trace_add("write", self._update_swatch_preview)
 
+    def _set_swatch_colour(self, hex_colour: str) -> None:
+        self._swatch_var.set(normalize_hex_colour(hex_colour))
+
+    def _pick_swatch_colour(self) -> None:
+        initial = normalize_hex_colour(self._swatch_var.get())
+        try:
+            _rgb, chosen = colorchooser.askcolor(
+                color=initial,
+                title=_tr(self.master, "folder_colour_pick_title"),
+                parent=self,
+            )
+        except tk.TclError:
+            return
+        if chosen:
+            self._set_swatch_colour(str(chosen))
+
     def _update_swatch_preview(self, *_a) -> None:
-        sw = self._swatch_var.get().strip() or "#888888"
+        sw = normalize_hex_colour(self._swatch_var.get())
         try:
             self._swatch_preview.configure(background=sw)
         except tk.TclError:
@@ -5149,7 +5225,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             id=old.id,
             label_pl=self._label_pl_var.get(),
             label_en=self._label_en_var.get(),
-            swatch=self._swatch_var.get(),
+            swatch=normalize_hex_colour(self._swatch_var.get()),
             meaning_pl=self._meaning_pl.get("1.0", tk.END).strip(),
             meaning_en=self._meaning_en.get("1.0", tk.END).strip(),
             badge=self._badge_var.get(),

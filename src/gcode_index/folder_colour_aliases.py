@@ -96,6 +96,33 @@ def normalize_colour(raw: str | None) -> str:
     return normalize_colour_id(raw)
 
 
+# Preset chips for the folder-colour editor (swatch is primary; hex is optional).
+COLOUR_PRESET_SWATCHES: tuple[str, ...] = (
+    "#1A7F37",  # green
+    "#B58900",  # yellow
+    "#C0392B",  # red
+    "#E67E22",  # orange
+    "#2980B9",  # blue
+    "#16A085",  # teal
+    "#7F8C8D",  # grey
+    "#2C3E50",  # dark
+)
+
+
+def normalize_hex_colour(raw: str | None, *, fallback: str = "#888888") -> str:
+    """Return ``#RRGGBB`` uppercased, or ``fallback`` when invalid."""
+    s = (raw or "").strip()
+    if not s:
+        return fallback
+    if not s.startswith("#"):
+        s = "#" + s
+    if len(s) == 4 and all(c in "0123456789abcdefABCDEF" for c in s[1:]):
+        s = "#" + "".join(ch * 2 for ch in s[1:])
+    if len(s) == 7 and all(c in "0123456789abcdefABCDEF" for c in s[1:]):
+        return s.upper()
+    return fallback
+
+
 @dataclass
 class ColourDef:
     """One user-visible provenance colour."""
@@ -121,10 +148,7 @@ class ColourDef:
         self.id = cid
         self.label_pl = (self.label_pl or self.label_en or cid).strip()
         self.label_en = (self.label_en or self.label_pl or cid).strip()
-        sw = (self.swatch or "#888888").strip()
-        if not re.match(r"^#[0-9A-Fa-f]{6}$", sw):
-            sw = "#888888"
-        self.swatch = sw
+        self.swatch = normalize_hex_colour(self.swatch)
         self.meaning_pl = (self.meaning_pl or "").strip()
         self.meaning_en = (self.meaning_en or "").strip()
         self.badge = (self.badge or "●").strip() or "●"

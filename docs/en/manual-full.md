@@ -66,7 +66,7 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 **Kolory folderów…** / **Folder colours…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
 
-1. **Colours** — add / edit / remove colour entries (`id`, labels PL+EN, swatch `#RRGGBB`, badge, meaning text). Seeded: green (`backup`), yellow (`extra`), red (`wip`). Built-ins cannot be deleted; meanings and names are editable. Add more (e.g. orange = quarantine).
+1. **Colours** — add / edit / remove colour entries (`id`, labels PL+EN, **colour picker** / palette chips, optional hex, badge, meaning). Seeded: green (`backup`), yellow (`extra`), red (`wip`). Built-ins cannot be deleted; meanings and names are editable. Add more (e.g. orange = quarantine).
 2. **Folder aliases** — folder-name → chosen colour **or exclude**. Deepest matching path segment wins (also inside the main backup).
 
 Results Flag column and the flag filter use the catalogue (badges + swatch colours), not only the three hard-coded seeds.

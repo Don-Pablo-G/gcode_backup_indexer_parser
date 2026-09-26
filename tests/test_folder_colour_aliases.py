@@ -82,7 +82,7 @@ def test_custom_colour_roundtrip(tmp_path: Path):
     q = loaded.get("quarantine")
     assert q is not None
     assert q.label_pl == "Kwarantanna"
-    assert q.swatch == "#e67e22"
+    assert q.swatch == "#E67E22"
     assert loaded.rules[0].colour == "quarantine"
 
 

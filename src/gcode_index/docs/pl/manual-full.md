@@ -66,7 +66,7 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 **Kolory folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
 
-1. **Kolory** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, barwa `#RRGGBB`, odznaka, znaczenie). Startowo: zielony (`backup`), żółty (`extra`), czerwony (`wip`). Wbudowanych nie usuniesz; znaczenie i nazwy są edytowalne. Możesz dodać własne (np. pomarańczowy = kwarantanna).
+1. **Kolory** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, **wybór koloru** / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: zielony (`backup`), żółty (`extra`), czerwony (`wip`). Wbudowanych nie usuniesz; znaczenie i nazwy są edytowalne. Możesz dodać własne (np. pomarańczowy = kwarantanna).
 2. **Aliasy folderów** — nazwa folderu → wybrany kolor **albo wyklucz**. Najgłębszy pasujący segment wygrywa (także w głównej kopii).
 
 Kolumna Flaga i filtr flag korzystają z katalogu kolorów (odznaki + barwy), nie tylko z trzech domyślnych.
