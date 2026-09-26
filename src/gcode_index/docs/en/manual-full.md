@@ -62,18 +62,14 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 **Nested roots:** the **deepest** configured root (main backup or green/yellow) that contains a file owns it — that root’s colour and `scan_root` apply. Example: yellow parent + green child → files under the child are **green only** (no duplicate yellow row). Adding a root inside another shows a short note that the child overrides the parent colour.
 
-### Folder colour aliases (green / yellow / red / exclude)
+### Folder colours & aliases
 
-**Folder colours…** (indexer) edits `folder_colour_aliases.yaml` next to the database. Each rule maps a **folder name** (fuzzy like machine aliases) to:
+**Kolory folderów…** / **Folder colours…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
 
-| Colour | Meaning |
-|--------|---------|
-| **Green** | On-machine / backup |
-| **Yellow** | Extra / not from backup |
-| **Red** | WIP / not production-ready |
-| **Exclude** | Do **not** index that folder branch |
+1. **Colours** — add / edit / remove colour entries (`id`, labels PL+EN, swatch `#RRGGBB`, badge, meaning text). Seeded: green (`backup`), yellow (`extra`), red (`wip`). Built-ins cannot be deleted; meanings and names are editable. Add more (e.g. orange = quarantine).
+2. **Folder aliases** — folder-name → chosen colour **or exclude**. Deepest matching path segment wins (also inside the main backup).
 
-The **deepest** matching path segment wins — including inside the main backup (e.g. `…/machine/Pawel/*.nc` → red). Overrides the default root colour. Results show 🟢 / 🟡 / 🔴 in the Flag column.
+Results Flag column and the flag filter use the catalogue (badges + swatch colours), not only the three hard-coded seeds.
 
 ---
 

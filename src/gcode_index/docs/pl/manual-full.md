@@ -62,18 +62,14 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 **Zagnieżdżone katalogi:** **najgłębszy** skonfigurowany root (główna kopia lub zielony/żółty), który zawiera plik, go „posiada” — jego kolor i `scan_root`. Przykład: żółty rodzic + zielone dziecko → pliki w dziecku tylko **zielone** (bez duplikatu żółtego). Przy dodaniu rootu wewnątrz innego pojawia się krótka informacja, że dziecko nadpisuje kolor rodzica.
 
-### Aliasy kolorów folderów (zielony / żółty / czerwony / wyklucz)
+### Kolory i aliasy folderów
 
-**Kolory folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy. Reguła: **nazwa folderu** (fuzzy jak aliasy maszyn) →
+**Kolory folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
 
-| Kolor | Znaczenie |
-|-------|-----------|
-| **Zielony** | Z maszyny / kopia |
-| **Żółty** | Dodatkowy / nie z kopii |
-| **Czerwony** | WIP / nie produkcja |
-| **Wyklucz** | **Nie** indeksuj tej gałęzi |
+1. **Kolory** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, barwa `#RRGGBB`, odznaka, znaczenie). Startowo: zielony (`backup`), żółty (`extra`), czerwony (`wip`). Wbudowanych nie usuniesz; znaczenie i nazwy są edytowalne. Możesz dodać własne (np. pomarańczowy = kwarantanna).
+2. **Aliasy folderów** — nazwa folderu → wybrany kolor **albo wyklucz**. Najgłębszy pasujący segment wygrywa (także w głównej kopii).
 
-**Najgłębszy** pasujący segment wygrywa — także w głównej kopii (np. `…/maszyna/Pawel/*.nc` → czerwony). Nadpisuje domyślny kolor rootu. W wynikach: 🟢 / 🟡 / 🔴.
+Kolumna Flaga i filtr flag korzystają z katalogu kolorów (odznaki + barwy), nie tylko z trzech domyślnych.
 
 ---
 

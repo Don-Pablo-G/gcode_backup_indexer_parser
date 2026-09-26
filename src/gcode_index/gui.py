@@ -74,12 +74,15 @@ from gcode_index.models import (
 )
 from gcode_index.folder_colour_aliases import (
     FOLDER_COLOUR_ALIASES_FILENAME,
+    ColourCatalog,
+    ColourDef,
     FolderColourAliasMap,
     FolderColourRule,
+    default_colours,
     folder_colour_aliases_path_for_target,
-    load_folder_colour_rules,
-    normalize_colour,
-    save_folder_colour_rules,
+    load_colour_catalog,
+    normalize_colour_id,
+    save_colour_catalog,
 )
 from gcode_index.path_util import (
     format_eta,
@@ -252,6 +255,7 @@ class IndexerApp(tk.Tk):
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
+        self._colour_catalog = ColourCatalog()
         self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
         self.schedule_amount_var = tk.StringVar(value="1")
         self.schedule_unit_var = tk.StringVar(value="")
@@ -531,6 +535,13 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 pass
         self._folder_save_after_id = self.after(800, self._save_instance_ini)
+        # Debounced colour-catalog reload when the database folder changes
+        if getattr(self, "_colour_load_after_id", None):
+            try:
+                self.after_cancel(self._colour_load_after_id)
+            except tk.TclError:
+                pass
+        self._colour_load_after_id = self.after(400, self._load_colour_catalog)
 
     def _on_close(self) -> None:
         if (
@@ -845,13 +856,10 @@ class IndexerApp(tk.Tk):
                 prog = self._all_token()
             self.programmer_var.set(prog)
             prov = str(preserved.get("provenance") or "")
-            low = prov.casefold()
-            if any(x in low for x in ("yellow", "żółt", "zoltt", "extra", "dodatk")):
-                self.provenance_var.set(self._("flag_yellow"))
-            elif any(x in low for x in ("red", "czerw", "wip", "robocz")):
-                self.provenance_var.set(self._("flag_red"))
-            elif any(x in low for x in ("green", "zielon", "backup", "kopi")):
-                self.provenance_var.set(self._("flag_green"))
+            cid = self._colour_id_from_filter_label(prov) if prov else None
+            if cid:
+                c = self._colour_catalog.get(cid)
+                self.provenance_var.set(c.label(self._lang) if c else cid)
             else:
                 self.provenance_var.set(self._all_token())
             self.newest_only_var.set(bool(preserved.get("newest")))
@@ -1757,12 +1765,7 @@ class IndexerApp(tk.Tk):
             self.provenance_combo = ttk.Combobox(
                 adv,
                 textvariable=self.provenance_var,
-                values=[
-                    self._all_token(),
-                    self._("flag_green"),
-                    self._("flag_yellow"),
-                    self._("flag_red"),
-                ],
+                values=self._provenance_filter_labels(),
                 state="readonly",
                 width=28,
             )
@@ -1901,7 +1904,8 @@ class IndexerApp(tk.Tk):
         self.tree.tag_configure("flag_backup", foreground="#1a7f37")
         self.tree.tag_configure("flag_extra", foreground="#b58900")
         self.tree.tag_configure("flag_wip", foreground="#c0392b")
-        # Missing source: dim grey + distinct from green/yellow/red provenance
+        self._configure_colour_tags()
+        # Missing source: dim grey + distinct from provenance colours
         self.tree.tag_configure("source_missing", foreground="#8a1f1f")
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
@@ -2127,6 +2131,7 @@ class IndexerApp(tk.Tk):
         db = Path(path)
         self.target_var.set(str(db.parent))
         self._load_extra_roots_into_list()
+        self._load_colour_catalog()
         self.status_var.set(self._("status_using_db", path=db))
         self._refresh_filter_choices()
         self._clear_filters()
@@ -2884,6 +2889,7 @@ class IndexerApp(tk.Tk):
         dlg = FolderColourAliasDialog(self, save_path=path)
         self.wait_window(dlg)
         if dlg.saved:
+            self._load_colour_catalog()
             self.status_var.set(
                 self._(
                     "status_folder_colours_saved",
@@ -3025,6 +3031,10 @@ class IndexerApp(tk.Tk):
             colour_map = FolderColourAliasMap.load(
                 folder_colour_aliases_path_for_target(target)
             )
+            self._colour_catalog = load_colour_catalog(
+                folder_colour_aliases_path_for_target(target)
+            )
+            self._configure_colour_tags()
             db_path = target / DEFAULT_DB_NAME
             cache = None
             n_cached = 0
@@ -3077,6 +3087,12 @@ class IndexerApp(tk.Tk):
             n_green = sum(1 for i in result.instances if i.provenance == PROVENANCE_BACKUP)
             n_yellow = sum(1 for i in result.instances if i.provenance == PROVENANCE_EXTRA)
             n_red = sum(1 for i in result.instances if i.provenance == PROVENANCE_WIP)
+            other_flags = Counter(
+                i.provenance
+                for i in result.instances
+                if i.provenance
+                not in (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP)
+            )
             conn.close()
             scan_finished = datetime.now(timezone.utc)
             try:
@@ -3111,6 +3127,10 @@ class IndexerApp(tk.Tk):
             flag_note = self._(
                 "scan_note_flags", green=n_green, yellow=n_yellow, red=n_red
             )
+            if other_flags:
+                flag_note += "; " + ", ".join(
+                    f"{k}={v}" for k, v in sorted(other_flags.items())
+                )
             cache_note = (
                 self._("scan_note_cached", n=n_cached) if n_cached else ""
             )
@@ -3357,12 +3377,7 @@ class IndexerApp(tk.Tk):
                 *vals.get("programmers", []),
             ]
         if hasattr(self, "provenance_combo"):
-            self.provenance_combo["values"] = [
-                self._all_token(),
-                self._("flag_green"),
-                self._("flag_yellow"),
-                self._("flag_red"),
-            ]
+            self.provenance_combo["values"] = self._provenance_filter_labels()
         self._refresh_preset_combo()
 
     def _presets_path(self) -> Optional[Path]:
@@ -3749,10 +3764,49 @@ class IndexerApp(tk.Tk):
         else:
             self.status_var.set(summary)
 
-    def _provenance_filter_value(self) -> Optional[str]:
-        raw = self.provenance_var.get().strip()
-        if self._is_all_token(raw):
+    def _load_colour_catalog(self) -> None:
+        target = self.target_var.get().strip()
+        if target:
+            self._colour_catalog = load_colour_catalog(
+                folder_colour_aliases_path_for_target(target)
+            )
+        else:
+            self._colour_catalog = ColourCatalog()
+        self._configure_colour_tags()
+        if hasattr(self, "provenance_combo"):
+            cur = self.provenance_var.get()
+            labels = self._provenance_filter_labels()
+            self.provenance_combo["values"] = labels
+            if cur not in labels:
+                self.provenance_var.set(self._all_token())
+        if hasattr(self, "tree") and getattr(self, "_result_rows", None) is not None:
+            self._redraw_tree()
+
+    def _configure_colour_tags(self) -> None:
+        if not hasattr(self, "tree"):
+            return
+        for c in self._colour_catalog.colours:
+            tag = f"flag_{c.id}"
+            try:
+                self.tree.tag_configure(tag, foreground=c.swatch)
+            except tk.TclError:
+                self.tree.tag_configure(tag, foreground="#888888")
+
+    def _provenance_filter_labels(self) -> list[str]:
+        labels = [self._all_token()]
+        for c in getattr(self, "_colour_catalog", ColourCatalog()).colours:
+            labels.append(c.label(self._lang))
+        return labels
+
+    def _colour_id_from_filter_label(self, raw: str) -> Optional[str]:
+        if not raw or self._is_all_token(raw):
             return None
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        for c in catalog.colours:
+            if raw == c.label(self._lang) or raw == c.label_pl or raw == c.label_en:
+                return c.id
+            if raw.casefold() == c.id:
+                return c.id
         low = raw.casefold()
         if any(x in low for x in ("yellow", "żółt", "extra", "dodatk")):
             return PROVENANCE_EXTRA
@@ -3760,9 +3814,20 @@ class IndexerApp(tk.Tk):
             return PROVENANCE_WIP
         if any(x in low for x in ("green", "zielon", "backup", "kopi")):
             return PROVENANCE_BACKUP
-        if raw in {PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP}:
-            return raw
-        return None
+        cid = normalize_colour_id(raw, known_ids=catalog.colour_ids)
+        return cid if cid in catalog.colour_ids else None
+
+    def _flag_badge_and_tag(self, prov: str) -> tuple[str, str]:
+        cid = prov or PROVENANCE_BACKUP
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        c = catalog.get(cid)
+        if c is not None:
+            return c.badge, f"flag_{c.id}"
+        return "●", f"flag_{cid}"
+
+    def _provenance_filter_value(self) -> Optional[str]:
+        raw = self.provenance_var.get().strip()
+        return self._colour_id_from_filter_label(raw)
 
     def _fill_tree(self, rows: list) -> None:
         if self._sort_col:
@@ -3792,15 +3857,7 @@ class IndexerApp(tk.Tk):
             prov = ""
             if "provenance" in keys:
                 prov = str(r["provenance"] or PROVENANCE_BACKUP)
-            if prov == PROVENANCE_EXTRA:
-                flag = "🟡"
-                tag = "flag_extra"
-            elif prov == PROVENANCE_WIP:
-                flag = "🔴"
-                tag = "flag_wip"
-            else:
-                flag = "🟢"
-                tag = "flag_backup"
+            flag, tag = self._flag_badge_and_tag(prov)
             missing = self._row_source_missing(
                 r, backup_root=backup or None, path_remaps=remaps
             )
@@ -4812,173 +4869,364 @@ class FolderMapDialog(tk.Toplevel):
 
 
 
+
 class FolderColourAliasDialog(tk.Toplevel):
-    """Edit folder-name → green/yellow/red/exclude rules (folder_colour_aliases.yaml)."""
+    """Manage provenance colours + folder-name → colour/exclude aliases."""
 
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
         self.title(_tr(master, "folder_colours_dialog_title"))
-        self.minsize(560, 360)
-        self.geometry("640x420")
+        self.minsize(720, 480)
+        self.geometry("780x520")
         self.transient(master)
         self.grab_set()
         self.saved = False
         self._save_path = Path(save_path)
-        self._rules: list[FolderColourRule] = list(load_folder_colour_rules(self._save_path))
+        self._catalog = load_colour_catalog(self._save_path)
+        self._lang = getattr(master, "_lang", None) or "pl"
 
         ttk.Label(
             self,
             text=_tr(master, "folder_colours_intro"),
-            wraplength=600,
+            wraplength=740,
         ).pack(fill=tk.X, padx=12, pady=(12, 6))
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        nb = ttk.Notebook(self)
+        nb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        self._tab_colours = ttk.Frame(nb, padding=6)
+        self._tab_aliases = ttk.Frame(nb, padding=6)
+        nb.add(self._tab_colours, text=_tr(master, "folder_colours_tab_colours"))
+        nb.add(self._tab_aliases, text=_tr(master, "folder_colours_tab_aliases"))
+        self._build_colours_tab()
+        self._build_aliases_tab()
+
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=8)
+        ttk.Button(btns, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT, padx=6
+        )
+        self._refresh_colour_list()
+        self._refresh_alias_list()
+        self._sync_alias_colour_choices()
+
+    # --- colours tab ---------------------------------------------------------
+
+    def _build_colours_tab(self) -> None:
+        body = self._tab_colours
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+
+        left = ttk.Frame(body)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.rowconfigure(0, weight=1)
+        self._colour_list = tk.Listbox(left, exportselection=False, width=28)
+        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._colour_list.yview)
+        self._colour_list.configure(yscrollcommand=sb.set)
+        self._colour_list.grid(row=0, column=0, sticky="nsew")
+        sb.grid(row=0, column=1, sticky="ns")
+        self._colour_list.bind("<<ListboxSelect>>", self._on_colour_select)
+        cbtns = ttk.Frame(left)
+        cbtns.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Button(cbtns, text=_tr(self.master, "folder_colour_add"), command=self._add_colour).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(
+            cbtns, text=_tr(self.master, "folder_colour_remove"), command=self._remove_colour
+        ).pack(side=tk.LEFT, padx=6)
+
+        right = ttk.LabelFrame(body, text=_tr(self.master, "folder_colour_edit"), padding=6)
+        right.grid(row=0, column=1, sticky="nsew")
+        right.columnconfigure(1, weight=1)
+        self._cid_var = tk.StringVar()
+        self._label_pl_var = tk.StringVar()
+        self._label_en_var = tk.StringVar()
+        self._swatch_var = tk.StringVar(value="#888888")
+        self._badge_var = tk.StringVar(value="●")
+        self._meaning_pl_var = tk.StringVar()
+        self._meaning_en_var = tk.StringVar()
+
+        rows = [
+            ("folder_colour_id", self._cid_var),
+            ("folder_colour_label_pl", self._label_pl_var),
+            ("folder_colour_label_en", self._label_en_var),
+            ("folder_colour_swatch", self._swatch_var),
+            ("folder_colour_badge", self._badge_var),
+        ]
+        for i, (key, var) in enumerate(rows):
+            ttk.Label(right, text=_tr(self.master, key)).grid(row=i, column=0, sticky=tk.W)
+            state = "readonly" if key == "folder_colour_id" else "normal"
+            ttk.Entry(right, textvariable=var, state=state).grid(
+                row=i, column=1, sticky=tk.EW, padx=4, pady=2
+            )
+        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_pl")).grid(
+            row=5, column=0, sticky=tk.NW
+        )
+        self._meaning_pl = tk.Text(right, height=3, width=40, wrap=tk.WORD)
+        self._meaning_pl.grid(row=5, column=1, sticky=tk.EW, padx=4, pady=2)
+        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_en")).grid(
+            row=6, column=0, sticky=tk.NW
+        )
+        self._meaning_en = tk.Text(right, height=3, width=40, wrap=tk.WORD)
+        self._meaning_en.grid(row=6, column=1, sticky=tk.EW, padx=4, pady=2)
+        ttk.Button(
+            right, text=_tr(self.master, "folder_colour_update"), command=self._apply_colour_fields
+        ).grid(row=7, column=1, sticky=tk.E, pady=(8, 0))
+        self._swatch_preview = tk.Label(right, text="  ", background="#888888", width=4)
+        self._swatch_preview.grid(row=3, column=2, padx=4)
+        self._swatch_var.trace_add("write", self._update_swatch_preview)
+
+    def _update_swatch_preview(self, *_a) -> None:
+        sw = self._swatch_var.get().strip() or "#888888"
+        try:
+            self._swatch_preview.configure(background=sw)
+        except tk.TclError:
+            self._swatch_preview.configure(background="#888888")
+
+    def _colour_row_label(self, c: ColourDef) -> str:
+        return f"{c.badge}  {c.label(self._lang)}  ({c.id})"
+
+    def _refresh_colour_list(self) -> None:
+        self._colour_list.delete(0, tk.END)
+        for c in self._catalog.colours:
+            self._colour_list.insert(tk.END, self._colour_row_label(c))
+
+    def _on_colour_select(self, _evt=None) -> None:
+        sel = self._colour_list.curselection()
+        if not sel:
+            return
+        c = self._catalog.colours[int(sel[0])]
+        self._cid_var.set(c.id)
+        self._label_pl_var.set(c.label_pl)
+        self._label_en_var.set(c.label_en)
+        self._swatch_var.set(c.swatch)
+        self._badge_var.set(c.badge)
+        self._meaning_pl.delete("1.0", tk.END)
+        self._meaning_pl.insert("1.0", c.meaning_pl)
+        self._meaning_en.delete("1.0", tk.END)
+        self._meaning_en.insert("1.0", c.meaning_en)
+
+    def _apply_colour_fields(self) -> None:
+        sel = self._colour_list.curselection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        old = self._catalog.colours[idx]
+        updated = ColourDef(
+            id=old.id,
+            label_pl=self._label_pl_var.get(),
+            label_en=self._label_en_var.get(),
+            swatch=self._swatch_var.get(),
+            meaning_pl=self._meaning_pl.get("1.0", tk.END).strip(),
+            meaning_en=self._meaning_en.get("1.0", tk.END).strip(),
+            badge=self._badge_var.get(),
+            builtin=old.builtin,
+        )
+        colours = list(self._catalog.colours)
+        colours[idx] = updated
+        self._catalog = ColourCatalog(colours=colours, rules=list(self._catalog.rules))
+        self._refresh_colour_list()
+        self._colour_list.selection_set(idx)
+        self._sync_alias_colour_choices()
+
+    def _add_colour(self) -> None:
+        base = "custom"
+        n = 1
+        ids = self._catalog.colour_ids
+        while f"{base}{n}" in ids:
+            n += 1
+        cid = f"{base}{n}"
+        new = ColourDef(
+            id=cid,
+            label_pl=_tr(self.master, "folder_colour_new_label"),
+            label_en="New colour",
+            swatch="#e67e22",
+            meaning_pl="",
+            meaning_en="",
+            badge="🟠",
+            builtin=False,
+        )
+        colours = list(self._catalog.colours) + [new]
+        self._catalog = ColourCatalog(colours=colours, rules=list(self._catalog.rules))
+        self._refresh_colour_list()
+        self._colour_list.selection_clear(0, tk.END)
+        self._colour_list.selection_set(tk.END)
+        self._on_colour_select()
+        self._sync_alias_colour_choices()
+
+    def _remove_colour(self) -> None:
+        sel = self._colour_list.curselection()
+        if not sel:
+            return
+        c = self._catalog.colours[int(sel[0])]
+        if c.builtin:
+            messagebox.showinfo(
+                _tr(self.master, "folder_colours"),
+                _tr(self.master, "folder_colour_builtin_locked"),
+            )
+            return
+        colours = [x for x in self._catalog.colours if x.id != c.id]
+        # Remap aliases pointing at removed colour → extra
+        rules = []
+        for r in self._catalog.rules:
+            if r.colour == c.id:
+                rules.append(FolderColourRule(alias=r.alias, colour=PROVENANCE_EXTRA))
+            else:
+                rules.append(r)
+        self._catalog = ColourCatalog(colours=colours, rules=rules)
+        self._refresh_colour_list()
+        self._refresh_alias_list()
+        self._sync_alias_colour_choices()
+
+    # --- aliases tab ---------------------------------------------------------
+
+    def _build_aliases_tab(self) -> None:
+        body = self._tab_aliases
         body.rowconfigure(0, weight=1)
         body.columnconfigure(0, weight=1)
-
         list_frame = ttk.Frame(body)
         list_frame.grid(row=0, column=0, sticky="nsew")
         list_frame.rowconfigure(0, weight=1)
         list_frame.columnconfigure(0, weight=1)
-        self._list = tk.Listbox(list_frame, exportselection=False)
-        sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._list.yview)
-        self._list.configure(yscrollcommand=sb.set)
-        self._list.grid(row=0, column=0, sticky="nsew")
+        self._alias_list = tk.Listbox(list_frame, exportselection=False)
+        sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._alias_list.yview)
+        self._alias_list.configure(yscrollcommand=sb.set)
+        self._alias_list.grid(row=0, column=0, sticky="nsew")
         sb.grid(row=0, column=1, sticky="ns")
-        self._list.bind("<<ListboxSelect>>", self._on_select)
+        self._alias_list.bind("<<ListboxSelect>>", self._on_alias_select)
 
         edit = ttk.Frame(body)
         edit.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         edit.columnconfigure(1, weight=1)
-        ttk.Label(edit, text=_tr(master, "folder_colour_alias")).grid(
+        ttk.Label(edit, text=_tr(self.master, "folder_colour_alias")).grid(
             row=0, column=0, sticky=tk.W
         )
         self._alias_var = tk.StringVar()
         ttk.Entry(edit, textvariable=self._alias_var).grid(
             row=0, column=1, sticky=tk.EW, padx=4, pady=2
         )
-        ttk.Label(edit, text=_tr(master, "folder_colour_value")).grid(
+        ttk.Label(edit, text=_tr(self.master, "folder_colour_value")).grid(
             row=1, column=0, sticky=tk.W
         )
-        self._colour_var = tk.StringVar(value=_tr(master, "flag_red"))
-        self._colour_combo = ttk.Combobox(
-            edit,
-            textvariable=self._colour_var,
-            values=self._colour_labels(),
-            state="readonly",
-            width=36,
+        self._alias_colour_var = tk.StringVar()
+        self._alias_colour_combo = ttk.Combobox(
+            edit, textvariable=self._alias_colour_var, state="readonly", width=40
         )
-        self._colour_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
-
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=8)
-        ttk.Button(btns, text=_tr(master, "folder_colour_add"), command=self._add).pack(
-            side=tk.LEFT
-        )
+        self._alias_colour_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
+        abtns = ttk.Frame(body)
+        abtns.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         ttk.Button(
-            btns, text=_tr(master, "folder_colour_update"), command=self._update
+            abtns, text=_tr(self.master, "folder_colour_add"), command=self._add_alias
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            abtns, text=_tr(self.master, "folder_colour_update"), command=self._update_alias
         ).pack(side=tk.LEFT, padx=6)
         ttk.Button(
-            btns, text=_tr(master, "folder_colour_remove"), command=self._remove
+            abtns, text=_tr(self.master, "folder_colour_remove"), command=self._remove_alias
         ).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btns, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
-            side=tk.RIGHT, padx=6
-        )
-        self._refresh_list()
 
-    def _colour_labels(self) -> list[str]:
-        return [
-            _tr(self.master, "flag_green"),
-            _tr(self.master, "flag_yellow"),
-            _tr(self.master, "flag_red"),
-            _tr(self.master, "flag_exclude"),
-        ]
+    def _alias_colour_choices(self) -> list[tuple[str, str]]:
+        """Return (label, colour_id_or_exclude) pairs."""
+        out = [(c.label(self._lang) + f" ({c.id})", c.id) for c in self._catalog.colours]
+        out.append((_tr(self.master, "flag_exclude"), COLOUR_EXCLUDE))
+        return out
 
-    def _label_for_colour(self, colour: str) -> str:
-        if colour == PROVENANCE_BACKUP:
-            return _tr(self.master, "flag_green")
-        if colour == PROVENANCE_EXTRA:
-            return _tr(self.master, "flag_yellow")
-        if colour == PROVENANCE_WIP:
-            return _tr(self.master, "flag_red")
+    def _sync_alias_colour_choices(self) -> None:
+        pairs = self._alias_colour_choices()
+        self._alias_colour_labels = [p[0] for p in pairs]
+        self._alias_colour_ids = [p[1] for p in pairs]
+        self._alias_colour_combo["values"] = self._alias_colour_labels
+        if not self._alias_colour_var.get() and self._alias_colour_labels:
+            # default to red/wip if present
+            for lab, cid in pairs:
+                if cid == PROVENANCE_WIP:
+                    self._alias_colour_var.set(lab)
+                    break
+            else:
+                self._alias_colour_var.set(self._alias_colour_labels[0])
+
+    def _label_for_colour_id(self, colour: str) -> str:
         if colour == COLOUR_EXCLUDE:
             return _tr(self.master, "flag_exclude")
+        for lab, cid in self._alias_colour_choices():
+            if cid == colour:
+                return lab
         return colour
 
-    def _colour_from_label(self, label: str) -> str:
+    def _colour_id_from_alias_label(self, label: str) -> str:
+        for lab, cid in self._alias_colour_choices():
+            if lab == label:
+                return cid
         low = (label or "").casefold()
         if any(x in low for x in ("exclude", "pomiń", "pomin", "skip", "nie indeks")):
             return COLOUR_EXCLUDE
-        if any(x in low for x in ("red", "czerw", "wip", "robocz")):
-            return PROVENANCE_WIP
-        if any(x in low for x in ("yellow", "żółt", "extra", "dodatk")):
-            return PROVENANCE_EXTRA
-        if any(x in low for x in ("green", "zielon", "backup", "kopi")):
-            return PROVENANCE_BACKUP
-        return normalize_colour(label)
+        return normalize_colour_id(label, known_ids=self._catalog.colour_ids)
 
-    def _format_row(self, rule: FolderColourRule) -> str:
-        return f"{rule.alias}  →  {self._label_for_colour(rule.colour)}"
+    def _format_alias_row(self, rule: FolderColourRule) -> str:
+        return f"{rule.alias}  →  {self._label_for_colour_id(rule.colour)}"
 
-    def _refresh_list(self) -> None:
-        self._list.delete(0, tk.END)
-        for rule in self._rules:
-            self._list.insert(tk.END, self._format_row(rule))
+    def _refresh_alias_list(self) -> None:
+        self._alias_list.delete(0, tk.END)
+        for rule in self._catalog.rules:
+            self._alias_list.insert(tk.END, self._format_alias_row(rule))
 
-    def _on_select(self, _evt=None) -> None:
-        sel = self._list.curselection()
+    def _on_alias_select(self, _evt=None) -> None:
+        sel = self._alias_list.curselection()
         if not sel:
             return
-        rule = self._rules[int(sel[0])]
+        rule = self._catalog.rules[int(sel[0])]
         self._alias_var.set(rule.alias)
-        self._colour_var.set(self._label_for_colour(rule.colour))
+        self._alias_colour_var.set(self._label_for_colour_id(rule.colour))
 
-    def _add(self) -> None:
+    def _add_alias(self) -> None:
         alias = self._alias_var.get().strip()
         if not alias:
             return
-        colour = self._colour_from_label(self._colour_var.get())
+        colour = self._colour_id_from_alias_label(self._alias_colour_var.get())
         rule = FolderColourRule(alias=alias, colour=colour)
-        # Replace same normalized key
-        self._rules = [r for r in self._rules if r.key != rule.key]
-        self._rules.append(rule)
-        self._refresh_list()
+        rules = [r for r in self._catalog.rules if r.key != rule.key]
+        rules.append(rule)
+        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
+        self._refresh_alias_list()
 
-    def _update(self) -> None:
-        sel = self._list.curselection()
+    def _update_alias(self) -> None:
+        sel = self._alias_list.curselection()
         alias = self._alias_var.get().strip()
         if not alias:
             return
-        colour = self._colour_from_label(self._colour_var.get())
+        colour = self._colour_id_from_alias_label(self._alias_colour_var.get())
         rule = FolderColourRule(alias=alias, colour=colour)
+        rules = list(self._catalog.rules)
         if sel:
             idx = int(sel[0])
-            old = self._rules[idx]
-            self._rules = [r for i, r in enumerate(self._rules) if i != idx and r.key != rule.key]
-            self._rules.insert(min(idx, len(self._rules)), rule)
+            rules = [r for i, r in enumerate(rules) if i != idx and r.key != rule.key]
+            rules.insert(min(idx, len(rules)), rule)
         else:
-            self._rules = [r for r in self._rules if r.key != rule.key]
-            self._rules.append(rule)
-        self._refresh_list()
+            rules = [r for r in rules if r.key != rule.key]
+            rules.append(rule)
+        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
+        self._refresh_alias_list()
 
-    def _remove(self) -> None:
-        sel = self._list.curselection()
+    def _remove_alias(self) -> None:
+        sel = self._alias_list.curselection()
         if not sel:
             return
         idx = int(sel[0])
-        del self._rules[idx]
-        self._refresh_list()
+        rules = list(self._catalog.rules)
+        del rules[idx]
+        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
+        self._refresh_alias_list()
         self._alias_var.set("")
 
     def _save(self) -> None:
+        self._apply_colour_fields()
         try:
-            save_folder_colour_rules(self._save_path, self._rules)
+            save_colour_catalog(self._save_path, self._catalog)
         except OSError as exc:
             messagebox.showerror(_tr(self.master, "folder_colours"), str(exc))
             return
         self.saved = True
+        self.catalog = self._catalog
         self.destroy()
 
 

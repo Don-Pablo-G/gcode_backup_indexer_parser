@@ -483,7 +483,8 @@ def _apply_folder_colour_overrides(
         colour = colour_map.resolve_source_path(inst.source_path or "")
         if colour == COLOUR_EXCLUDE:
             continue
-        if colour in (PROVENANCE_BACKUP, PROVENANCE_EXTRA, PROVENANCE_WIP):
+        if colour:
+            # Any catalogue colour id (builtin or custom) overrides root colour
             inst.provenance = colour
         kept.append(inst)
     result.instances[:] = kept

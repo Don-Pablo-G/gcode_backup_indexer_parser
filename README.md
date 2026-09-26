@@ -89,7 +89,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - Main backup programs get a **green** flag (ran on the machine / from backup).
    - Extra-folder programs get a **yellow** flag (not from backup / not confirmed run).  
    - Nested roots: the **deepest** configured root that contains a file owns it (child colour wins; no duplicate rows).  
-   - **Folder colour aliases** (`folder_colour_aliases.yaml`): folder-name → green / yellow / **red (WIP)** / exclude; deepest path segment wins (also inside the backup).  
+   - **Folder colours** (`folder_colour_aliases.yaml`): define colours (labels, swatch, meaning) + folder-name → colour/exclude aliases; deepest path segment wins.  
    - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.
 5. **Path remap (client)** under **Change…** if Extract/preview need a different drive letter than `scan_root` in the DB.
 6. Click **Map folders…** (optional but recommended). The app scans `<date>/<machine>` folders, **auto-matches** names it knows from aliases, and lists **only unmatched** folders for manual assign. Subfolders inherit.
@@ -140,12 +140,12 @@ You do **not** need Python installed if you use a prebuilt bundle from GitHub Ac
 1. Open **Actions** → workflow **Windows GUI build**:  
    https://github.com/Don-Pablo-G/gcode_backup_indexer_parser/actions/workflows/windows-build.yml  
 2. Open the latest successful run (or click **Run workflow**).  
-3. Download the artifact named like **`gcode-index-gui-windows-0.2.59-b80`** (version + build in the name).  
+3. Download the artifact named like **`gcode-index-gui-windows-0.2.60-b80`** (version + build in the name).  
 4. Unzip anywhere and run **`gcode-index-gui.exe`** inside the `gcode-index-gui-<version>` folder.  
    Keep the whole folder together (this is an **onedir** build — DLLs sit next to the exe).  
    A `VERSION.txt` beside the exe records `version=` and `build=`.
 
-On a version tag (`v0.2.59`, …), the same zip (e.g. `gcode-index-gui-windows-0.2.59-b80.zip`) is also attached as a **Release** asset.
+On a version tag (`v0.2.60`, …), the same zip (e.g. `gcode-index-gui-windows-0.2.60-b80.zip`) is also attached as a **Release** asset.
 
 ### Build the exe yourself on Windows
 
