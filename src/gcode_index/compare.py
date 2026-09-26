@@ -8,6 +8,7 @@ from typing import Optional, Sequence
 from gcode_index.db import format_display_date
 from gcode_index.extract import ExtractError, RowLike, extract_text
 from gcode_index.path_remap import RemapInput
+from gcode_index.i18n import DEFAULT_LANG, t as i18n_t
 
 # Soft caps so huge glued dumps / .nc files do not freeze the GUI
 DEFAULT_PREVIEW_MAX_CHARS = 120_000
@@ -87,6 +88,7 @@ def preview_text(
     max_lines: int = DEFAULT_PREVIEW_MAX_LINES,
     skip_integrity: bool = False,
     path_remaps: Optional[Sequence[RemapInput]] = None,
+    lang: str | None = None,
 ) -> tuple[str, Optional[str]]:
     """Extract body for preview.
 
@@ -106,11 +108,10 @@ def preview_text(
         return "", str(exc)
     body, truncated = truncate_preview(raw, max_chars=max_chars, max_lines=max_lines)
     if truncated:
-        body = (
-            body
-            + f"\n\n… [preview truncated — full extract writes the complete program "
-            f"({len(raw)} characters)]\n"
-        )
+        code = lang or DEFAULT_LANG
+        body = body + i18n_t(code, "preview_truncated", n=len(raw))
+        if not body.endswith("\n"):
+            body += "\n"
     return body, None
 
 
@@ -122,6 +123,7 @@ def unified_diff_programs(
     context: int = 3,
     skip_integrity: bool = False,
     path_remaps: Optional[Sequence[RemapInput]] = None,
+    lang: str | None = None,
 ) -> tuple[str, Optional[str]]:
     """Unified diff of two extracted program bodies.
 
@@ -169,10 +171,12 @@ def unified_diff_programs(
     )
     out = "".join(diff)
     if not out:
+        code = lang or DEFAULT_LANG
         return (
-            f"No differences — bodies are identical.\n"
-            f"A: {label_a}\n"
-            f"B: {label_b}\n",
+            i18n_t(code, "compare_identical")
+            + "\n"
+            + i18n_t(code, "compare_labels", a=label_a, b=label_b)
+            + "\n",
             None,
         )
     return out, None

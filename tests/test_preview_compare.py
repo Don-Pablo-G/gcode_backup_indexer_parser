@@ -68,7 +68,7 @@ def test_preview_and_diff_on_nc_files(tmp_path: Path):
     assert "HAAS VF-2" in diff or "1234" in diff
 
     # Identical bodies
-    same, serr = unified_diff_programs(row_a, row_a)
+    same, serr = unified_diff_programs(row_a, row_a, lang="en")
     assert serr is None
     assert "identical" in same.casefold()
 

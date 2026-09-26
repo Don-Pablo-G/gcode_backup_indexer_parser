@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gcode_index.i18n import t as i18n_t
+
 import sys
 from pathlib import Path
 from typing import Literal, Optional
@@ -67,11 +69,8 @@ def resolve_manual(lang: str, kind: DocKind) -> Optional[Path]:
 def read_manual(lang: str, kind: DocKind) -> str:
     path = resolve_manual(lang, kind)
     if path is None:
-        return (
-            f"Manual not found ({lang}/{kind}).\n"
-            "Expected docs under docs/<lang>/manual-*.md next to the app or in the package."
-        )
+        return i18n_t(lang, "help_manual_missing", lang=lang, kind=kind)
     try:
         return path.read_text(encoding="utf-8")
     except OSError as exc:
-        return f"Could not read manual:\n{path}\n\n{exc}"
+        return i18n_t(lang, "help_manual_read_error", error=f"{path}\n\n{exc}")

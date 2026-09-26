@@ -9,6 +9,7 @@ from tkinter import ttk
 from typing import Callable, Optional
 
 from gcode_index.date_format import format_display_date_dmy, parse_display_date
+from gcode_index.i18n import t as i18n_t
 
 _MONTHS_PL = (
     "",
@@ -39,15 +40,15 @@ class DatePickerDialog(tk.Toplevel):
         initial: Optional[str] = None,
         lang: str = "pl",
         on_pick: Optional[Callable[[str], None]] = None,
-        title: str = "Calendar",
+        title: str | None = None,
     ) -> None:
         super().__init__(master)
-        self.title(title)
+        self._on_pick = on_pick
+        self._lang = "pl" if str(lang).casefold().startswith("pl") else "en"
+        self.title(title or i18n_t(self._lang, "date_picker_title"))
         self.resizable(False, False)
         self.transient(master.winfo_toplevel())
         self.grab_set()
-        self._on_pick = on_pick
-        self._lang = "pl" if str(lang).casefold().startswith("pl") else "en"
         seed = parse_display_date(initial or "") or date.today()
         self._year = seed.year
         self._month = seed.month
@@ -70,17 +71,17 @@ class DatePickerDialog(tk.Toplevel):
         btns.pack(fill=tk.X)
         ttk.Button(
             btns,
-            text="Today" if self._lang == "en" else "Dziś",
+            text=i18n_t(self._lang, "date_today"),
             command=self._pick_today,
         ).pack(side=tk.LEFT)
         ttk.Button(
             btns,
-            text="Clear" if self._lang == "en" else "Wyczyść",
+            text=i18n_t(self._lang, "date_clear"),
             command=self._clear,
         ).pack(side=tk.LEFT, padx=6)
         ttk.Button(
             btns,
-            text="Cancel" if self._lang == "en" else "Anuluj",
+            text=i18n_t(self._lang, "cancel"),
             command=self.destroy,
         ).pack(side=tk.RIGHT)
 
@@ -180,7 +181,7 @@ def open_date_picker(
     var: tk.Variable,
     *,
     lang: str = "pl",
-    title: str = "Calendar",
+    title: str | None = None,
 ) -> None:
     """Open a calendar popup bound to ``var`` (StringVar of DD.MM.YYYY)."""
 

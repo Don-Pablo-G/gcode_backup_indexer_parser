@@ -91,7 +91,7 @@ def test_scan_report_from_result_counts():
     assert report.unknown_folder_count == 1
     assert len(report.skipped) == 1
     assert any("haas-vf-2" in name for name, _n in report.per_machine)
-    text = format_scan_report(report)
+    text = format_scan_report(report, lang="en")
     assert "MACHINE UNKNOWN" in text
     assert "Skipped dumps" in text
     assert "*.nc.copy" in text
@@ -117,7 +117,7 @@ def test_load_scan_report_from_db(tmp_path: Path):
     assert report.instance_count == len(result.instances)
     assert report.unknown_folder_count >= 1
     assert report.unknown_program_count >= 1
-    text = format_scan_report(report)
+    text = format_scan_report(report, lang="en")
     assert "Per machine" in text
     conn.close()
 

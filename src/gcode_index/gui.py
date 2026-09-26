@@ -191,6 +191,20 @@ __all__ = [
 ]
 
 
+
+def _tr(master, key: str, **kwargs) -> str:
+    """Translate via IndexerApp._ when available, else default language."""
+    fn = getattr(master, "_", None)
+    if callable(fn):
+        try:
+            return fn(key, **kwargs)
+        except Exception:  # noqa: BLE001
+            pass
+    from gcode_index.i18n import DEFAULT_LANG, t
+
+    return t(DEFAULT_LANG, key, **kwargs)
+
+
 class IndexerApp(tk.Tk):
     """Main window: backup + database + extract folders, scan, live search, extract."""
 
@@ -2019,7 +2033,7 @@ class IndexerApp(tk.Tk):
     # --- paths ------------------------------------------------------------------
 
     def _pick_backup(self) -> None:
-        path = filedialog.askdirectory(title="Select CNC backup folder")
+        path = filedialog.askdirectory(title=self._("pick_backup_title"))
         if path:
             self.backup_var.set(path)
             self._update_folders_summary()
@@ -2063,14 +2077,17 @@ class IndexerApp(tk.Tk):
     def _pick_existing_db(self) -> None:
         path = filedialog.askopenfilename(
             title=self._("open_db"),
-            filetypes=[("SQLite", "*.sqlite *.db"), ("All", "*.*")],
+            filetypes=[
+                (self._("filetype_sqlite"), "*.sqlite *.db"),
+                (self._("filetype_all"), "*.*"),
+            ],
         )
         if not path:
             return
         db = Path(path)
         self.target_var.set(str(db.parent))
         self._load_extra_roots_into_list()
-        self.status_var.set(f"Using existing DB: {db}")
+        self.status_var.set(self._("status_using_db", path=db))
         self._refresh_filter_choices()
         self._clear_filters()
         self._update_folders_summary()
@@ -2146,14 +2163,14 @@ class IndexerApp(tk.Tk):
                 if str(Path(backup).resolve()) == resolved:
                     messagebox.showinfo(
                         self._("extra_folders"),
-                        "That folder is already the main backup root.",
+                        self._("extra_already_backup"),
                     )
                     return
             except OSError:
                 pass
         if resolved.casefold() in existing or path.casefold() in existing:
             messagebox.showinfo(
-                self._("extra_folders"), "That folder is already in the list."
+                self._("extra_folders"), self._("extra_already_listed")
             )
             return
         specs = self._scan_root_specs()
@@ -2720,12 +2737,12 @@ class IndexerApp(tk.Tk):
         backup = self.backup_var.get().strip()
         target = self.target_var.get().strip()
         if not backup or not Path(backup).is_dir():
-            messagebox.showerror("Backup folder", "Choose a valid backup folder first.")
+            messagebox.showerror(self._("backup_folder"), self._("err_backup_required"))
             return
         if not target:
             messagebox.showerror(
-                "Target folder",
-                "Choose a target folder (map + local aliases are saved next to the database).",
+                self._("target_folder"),
+                self._("err_target_for_map"),
             )
             return
         Path(target).mkdir(parents=True, exist_ok=True)
@@ -2737,9 +2754,8 @@ class IndexerApp(tk.Tk):
         folders = discover_machine_folders(backup)
         if not folders:
             messagebox.showinfo(
-                "Map folders",
-                "No date/machine folders found under the backup root.\n"
-                "Expected layout: <date>/<machine>/…",
+                self._("map_folders"),
+                self._("map_no_folders", path=backup),
             )
             return
         existing = self._load_folder_map()
@@ -2748,11 +2764,9 @@ class IndexerApp(tk.Tk):
             auto_n = part.auto_count
             prev_n = len(part.previously_mapped)
             messagebox.showinfo(
-                "Map folders",
-                f"All machine folders are already connected.\n\n"
-                f"Auto-matched via aliases: {auto_n}\n"
-                f"Previously mapped: {prev_n}\n\n"
-                f"Nothing left for manual mapping.",
+                self._("map_folders"),
+                self._("map_all_matched")
+                + f"\n\n{self._('map_summary', auto=auto_n, prev=prev_n, manual=0)}",
             )
             return
         suggested = suggest_assignments(folders, aliases, existing)
@@ -2772,18 +2786,19 @@ class IndexerApp(tk.Tk):
         )
         self.wait_window(dlg)
         if dlg.saved:
-            bits = [f"Saved folder map → {map_path_for_target(target).name}"]
+            bits = [self._("status_aliases_saved", filename=map_path_for_target(target).name)]
             if dlg.aliases_saved:
-                bits.append(f"local aliases → {LOCAL_ALIASES_FILENAME}")
+                bits.append(
+                    self._("status_aliases_saved", filename=LOCAL_ALIASES_FILENAME)
+                )
             self.status_var.set("; ".join(bits))
 
     def _open_alias_editor(self) -> None:
         target = self.target_var.get().strip()
         if not target:
             messagebox.showerror(
-                "Target folder",
-                "Choose a target folder first.\n"
-                f"Local aliases are saved as {LOCAL_ALIASES_FILENAME} next to the database.",
+                self._("target_folder"),
+                self._("err_target_for_aliases", filename=LOCAL_ALIASES_FILENAME),
             )
             return
         Path(target).mkdir(parents=True, exist_ok=True)
@@ -2799,7 +2814,9 @@ class IndexerApp(tk.Tk):
         )
         self.wait_window(dlg)
         if dlg.saved:
-            self.status_var.set(f"Saved local aliases → {LOCAL_ALIASES_FILENAME}")
+            self.status_var.set(
+                self._("status_aliases_saved", filename=LOCAL_ALIASES_FILENAME)
+            )
             self._refresh_filter_choices()
 
     # --- scan -------------------------------------------------------------------
@@ -2819,11 +2836,11 @@ class IndexerApp(tk.Tk):
         target = self.target_var.get().strip()
         if not backup or not Path(backup).is_dir():
             if not auto:
-                messagebox.showerror("Backup folder", "Choose a valid backup folder.")
+                messagebox.showerror(self._("backup_folder"), self._("err_backup_invalid"))
             return
         if not target:
             if not auto:
-                messagebox.showerror("Target folder", "Choose a target folder for the database.")
+                messagebox.showerror(self._("target_folder"), self._("err_target_for_db"))
             return
         Path(target).mkdir(parents=True, exist_ok=True)
         self._persist_ui_settings(target)
@@ -2837,19 +2854,17 @@ class IndexerApp(tk.Tk):
                 log.exception("folder partition before scan failed")
                 part = None
             if part is not None and part.needs_manual:
-                prompt = (
-                    f"{part.manual_count} folder(s) could not be matched automatically "
-                    f"({part.auto_count} auto-matched via aliases).\n\n"
-                    "Open the mapper to assign only the unmatched folders?"
+                prompt = self._(
+                    "map_needs_manual_prompt", n=part.manual_count
                 )
-                if messagebox.askyesno("Map folders", prompt):
+                if messagebox.askyesno(self._("map_folders"), prompt):
                     self._open_folder_map()
         self._scan_busy = True
         self._set_primary_button_enabled(self.scan_btn, False)
         self.progress_var.set(0.0)
-        self.progress_label_var.set("Starting…")
+        self.progress_label_var.set(self._("scan_starting"))
         self.status_var.set(
-            self._("schedule_running") if auto else "Scanning…"
+            self._("schedule_running") if auto else self._("scan_scanning")
         )
         self._update_schedule_status()
         self._show_progress(True)
@@ -2884,7 +2899,12 @@ class IndexerApp(tk.Tk):
 
     def _apply_scan_progress(self, info: dict) -> None:
         phase = info.get("phase") or ""
-        message = info.get("message") or ""
+        key = info.get("message_key")
+        if key:
+            kwargs = dict(info.get("message_kwargs") or {})
+            message = self._(str(key), **kwargs)
+        else:
+            message = info.get("message") or ""
         current = int(info.get("current") or 0)
         total = int(info.get("total") or 0)
         eta = format_eta(info.get("eta_s"))
@@ -2895,8 +2915,8 @@ class IndexerApp(tk.Tk):
                 self.progress.start(12)
             except tk.TclError:
                 pass
-            self.progress_label_var.set(message or "Counting…")
-            self.status_var.set(message or "Counting source files…")
+            self.progress_label_var.set(message or self._("scan_counting_short"))
+            self.status_var.set(message or self._("scan_counting"))
             return
 
         try:
@@ -2999,28 +3019,42 @@ class IndexerApp(tk.Tk):
             if write_excel:
                 xlsx = target / "gcode_index.xlsx"
                 export_excel(xlsx, result.instances)
-                excel_note = f"; Excel → {xlsx.name}"
+                excel_note = self._("scan_note_excel", name=xlsx.name)
             unk_note = (
-                f"; {unknown_prog} MACHINE UNKNOWN programs"
+                self._("scan_note_unknown_prog", n=unknown_prog)
                 if unknown_prog
-                else "; 0 MACHINE UNKNOWN programs"
+                else self._("scan_note_unknown_prog_zero")
             )
             local_note = (
-                f"; +{alias_map.local_alias_count} local aliases"
+                self._("scan_note_local_aliases", n=alias_map.local_alias_count)
                 if alias_map.local_alias_count
                 else ""
             )
-            flag_note = f"; flags green={n_green} yellow={n_yellow}"
-            cache_note = f"; reused {n_cached} unchanged files" if n_cached else ""
-            mode_note = "; incremental" if cache is not None else "; full scan"
-            auto_note = "; auto" if auto else ""
-            msg = (
-                f"Indexed {len(result.instances)} programs "
-                f"[{type_note}] "
-                f"({len(result.unknowns)} unknown folders{unk_note}{local_note}"
-                f"{flag_note}{cache_note}{mode_note}{auto_note}) "
-                f"→ {db_path.name} "
-                f"(run {run_id[:8]}…){excel_note}"
+            flag_note = self._(
+                "scan_note_flags", green=n_green, yellow=n_yellow
+            )
+            cache_note = (
+                self._("scan_note_cached", n=n_cached) if n_cached else ""
+            )
+            mode_note = (
+                self._("scan_note_incremental")
+                if cache is not None
+                else self._("scan_note_full")
+            )
+            auto_note = self._("scan_note_auto") if auto else ""
+            extra = (
+                f"{unk_note}{local_note}{flag_note}"
+                f"{cache_note}{mode_note}{auto_note}"
+            )
+            msg = self._(
+                "scan_done_status",
+                n=len(result.instances),
+                types=type_note,
+                unknowns=len(result.unknowns),
+                extra=extra,
+                db=db_path.name,
+                run=run_id[:8],
+                excel=excel_note,
             )
             report = scan_report_from_result(result, run_id=run_id)
             self.after(
@@ -3047,7 +3081,7 @@ class IndexerApp(tk.Tk):
         self.progress.configure(mode="determinate")
         if ok:
             self.progress_var.set(100.0)
-            self.progress_label_var.set("Done")
+            self.progress_label_var.set(self._("scan_done"))
             self._mark_schedule_ran()
             if auto:
                 from datetime import datetime, timezone
@@ -3071,7 +3105,7 @@ class IndexerApp(tk.Tk):
         self.after(1200, lambda: self._show_progress(False) if not self._scan_busy else None)
         if not ok:
             if not auto:
-                messagebox.showerror("Scan failed", message)
+                messagebox.showerror(self._("scan_failed_title"), message)
             if self._watch_rescan_pending and self._watch_enabled:
                 self._watch_rescan_pending = False
                 self.after(1500, self._on_watch_change)
@@ -3129,8 +3163,8 @@ class IndexerApp(tk.Tk):
             db_path = self._db_path()
             if db_path is None or not db_path.is_file():
                 messagebox.showinfo(
-                    "Scan report",
-                    "No database yet — run a scan or open an existing DB first.",
+                    self._("scan_report_title"),
+                    self._("scan_report_need_db"),
                 )
                 return
             try:
@@ -3140,10 +3174,10 @@ class IndexerApp(tk.Tk):
                 finally:
                     conn.close()
             except Exception as exc:  # noqa: BLE001
-                messagebox.showerror("Scan report", str(exc))
+                messagebox.showerror(self._("scan_report_title"), str(exc))
                 return
         if report is None:
-            messagebox.showinfo("Scan report", "No completed scan found in this database.")
+            messagebox.showinfo(self._("scan_report_title"), self._("scan_report_none"))
             return
         self._last_scan_report = report
         self._show_scan_report(report)
@@ -3155,8 +3189,8 @@ class IndexerApp(tk.Tk):
         db_path = self._db_path()
         if db_path is None or not db_path.is_file():
             messagebox.showinfo(
-                "Duplicates",
-                "No database yet — run a scan or open an existing DB first.",
+                self._("duplicates_title"),
+                self._("duplicates_need_db"),
             )
             return
         try:
@@ -3166,12 +3200,12 @@ class IndexerApp(tk.Tk):
             finally:
                 conn.close()
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("Duplicates", str(exc))
+            messagebox.showerror(self._("duplicates_title"), str(exc))
             return
         if not groups:
             messagebox.showinfo(
-                "Duplicates",
-                "No exact or near-duplicates found in this index.",
+                self._("duplicates_title"),
+                self._("duplicates_none"),
             )
             return
         dlg = DuplicatesDialog(self, groups=groups)
@@ -3179,9 +3213,7 @@ class IndexerApp(tk.Tk):
         if dlg.selected_members:
             self.tree.delete(*self.tree.get_children())
             self._fill_tree(dlg.selected_members)
-            self.status_var.set(
-                f"Showing {len(dlg.selected_members)} instances from duplicate group"
-            )
+            self.status_var.set(self._("duplicates_showing", n=len(dlg.selected_members)))
 
     # --- filters / search -------------------------------------------------------
 
@@ -3323,21 +3355,21 @@ class IndexerApp(tk.Tk):
             self.preset_var.set(preset.name)
         finally:
             self._filter_trace_lock = False
-        self._run_query_now(status_prefix=f"Loaded preset {preset.name!r}")
+        self._run_query_now(status_prefix=self._("preset_loaded", name=preset.name))
 
     def _save_current_preset(self) -> None:
         path = self._presets_path()
         if path is None:
             messagebox.showerror(
-                "Presets",
-                "Choose a target folder first (presets are saved next to the database).",
+                self._("presets_title"),
+                self._("preset_need_target"),
             )
             return
         Path(path.parent).mkdir(parents=True, exist_ok=True)
         initial = self.preset_var.get().strip()
         name = simpledialog.askstring(
-            "Save preset",
-            "Name for this filter set:",
+            self._("preset_save_title"),
+            self._("preset_save_prompt"),
             initialvalue=initial,
             parent=self,
         )
@@ -3345,13 +3377,13 @@ class IndexerApp(tk.Tk):
             return
         name = name.strip()
         if not name:
-            messagebox.showerror("Presets", "Preset name cannot be empty.")
+            messagebox.showerror(self._("presets_title"), self._("preset_name_empty"))
             return
         existing = get_preset(path, name)
         if existing is not None:
             if not messagebox.askyesno(
-                "Presets",
-                f"Replace existing preset {name!r}?",
+                self._("presets_title"),
+                self._("preset_replace", name=name),
                 parent=self,
             ):
                 return
@@ -3359,24 +3391,26 @@ class IndexerApp(tk.Tk):
         try:
             upsert_preset(path, preset)
         except OSError as exc:
-            messagebox.showerror("Presets", str(exc))
+            messagebox.showerror(self._("presets_title"), str(exc))
             return
         self._refresh_preset_combo()
         self.preset_var.set(name)
-        self.status_var.set(f"Saved preset {name!r} → {PRESETS_FILENAME}")
+        self.status_var.set(
+            self._("preset_saved", name=name, filename=PRESETS_FILENAME)
+        )
 
     def _load_selected_preset(self) -> None:
         path = self._presets_path()
         name = self.preset_var.get().strip()
         if path is None:
-            messagebox.showerror("Presets", "Choose a target folder first.")
+            messagebox.showerror(self._("presets_title"), self._("preset_need_target_short"))
             return
         if not name:
-            messagebox.showinfo("Presets", "Select a preset name, then Load.")
+            messagebox.showinfo(self._("presets_title"), self._("preset_select_load"))
             return
         preset = get_preset(path, name)
         if preset is None:
-            messagebox.showinfo("Presets", f"Preset {name!r} not found.")
+            messagebox.showinfo(self._("presets_title"), self._("preset_not_found", name=name))
             self._refresh_preset_combo()
             return
         self._apply_filter_preset(preset)
@@ -3385,21 +3419,25 @@ class IndexerApp(tk.Tk):
         path = self._presets_path()
         name = self.preset_var.get().strip()
         if path is None:
-            messagebox.showerror("Presets", "Choose a target folder first.")
+            messagebox.showerror(self._("presets_title"), self._("preset_need_target_short"))
             return
         if not name:
-            messagebox.showinfo("Presets", "Select a preset to delete.")
+            messagebox.showinfo(self._("presets_title"), self._("preset_select_delete"))
             return
-        if not messagebox.askyesno("Presets", f"Delete preset {name!r}?", parent=self):
+        if not messagebox.askyesno(
+            self._("presets_title"),
+            self._("preset_delete_confirm", name=name),
+            parent=self,
+        ):
             return
         try:
             delete_preset(path, name)
         except OSError as exc:
-            messagebox.showerror("Presets", str(exc))
+            messagebox.showerror(self._("presets_title"), str(exc))
             return
         self.preset_var.set("")
         self._refresh_preset_combo()
-        self.status_var.set(f"Deleted preset {name!r}")
+        self.status_var.set(self._("preset_deleted", name=name))
 
     def _clear_filters(self, status_prefix: Optional[str] = None) -> None:
         self._filter_trace_lock = True
@@ -3501,7 +3539,7 @@ class IndexerApp(tk.Tk):
 
         db_path = self._db_path()
         if db_path is None or not db_path.is_file():
-            self.status_var.set("No database yet — run a scan or open an existing DB.")
+            self.status_var.set(self._("status_no_db"))
             return
 
         text = self.search_var.get().strip() or None
@@ -3548,14 +3586,14 @@ class IndexerApp(tk.Tk):
             self.status_var.set(str(exc))
             return
         except Exception as exc:  # noqa: BLE001
-            self.status_var.set(f"Search error: {exc}")
+            self.status_var.set(self._("search_error", error=exc))
             return
 
         self._fill_tree(rows)
         missing_n = int(getattr(self, "_missing_source_count", 0) or 0)
-        bits = [f"{len(rows)} shown"]
+        bits = [self._("status_shown", n=len(rows))]
         if total > len(rows):
-            bits.append(f"of {total} in DB")
+            bits.append(self._("status_of_db", total=total))
         if missing_n:
             bits.append(self._("status_missing_sources", n=missing_n))
         if text:
@@ -3577,7 +3615,7 @@ class IndexerApp(tk.Tk):
         if programmer_filter:
             bits.append(f"programmer={programmer_filter}")
         if self.newest_only_var.get():
-            bits.append("newest-only")
+            bits.append(self._("status_newest_only"))
         if self._sort_col:
             arrow = "↓" if self._sort_reverse else "↑"
             bits.append(f"sort={self._sort_col}{arrow}")
@@ -3759,17 +3797,22 @@ class IndexerApp(tk.Tk):
         row = rows[0]
         label = instance_label(row)
         if len(rows) > 1:
-            header = f"Preview — {label}  (first of {len(rows)} selected; Compare… for two)"
+            header = self._(
+                "preview_header_multi", label=label, n=len(rows)
+            )
         else:
-            header = f"Preview — {label}"
+            header = self._("preview_header", label=label)
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
         body, err = preview_text(
             row,
             backup_root=backup or None,
             path_remaps=self._active_path_remaps(),
+            lang=self._lang,
         )
         if err:
-            self._set_preview_body(header, f"Cannot preview:\n{err}", is_error=True)
+            self._set_preview_body(
+                header, self._("preview_error", error=err), is_error=True
+            )
             return
         self._set_preview_body(header, body)
 
@@ -3867,8 +3910,8 @@ class IndexerApp(tk.Tk):
         rows = self._selected_rows()
         if len(rows) != 2:
             messagebox.showinfo(
-                "Compare",
-                "Select exactly two result rows (Ctrl/Shift+click), then Compare…",
+                self._("compare_title"),
+                self._("compare_need_two"),
             )
             return
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
@@ -3877,9 +3920,10 @@ class IndexerApp(tk.Tk):
             rows[1],
             backup_root=backup or None,
             path_remaps=self._active_path_remaps(),
+            lang=self._lang,
         )
         if err:
-            messagebox.showerror("Compare", err)
+            messagebox.showerror(self._("compare_title"), err)
             return
         CompareDiffDialog(
             self,
@@ -3920,12 +3964,12 @@ class IndexerApp(tk.Tk):
     def _row_source_path(self) -> Optional[Path]:
         row = self._selected_row()
         if row is None:
-            messagebox.showinfo("Selection", "Select a search result first.")
+            messagebox.showinfo(self._("selection"), self._("err_select_row"))
             return None
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
         sp = str(row["source_path"] or "")
         if not sp:
-            messagebox.showerror("Path", "This row has no source path.")
+            messagebox.showerror(self._("path"), self._("err_no_source_path"))
             return None
         keys = row.keys() if hasattr(row, "keys") else ()
         scan_root = None
@@ -3950,9 +3994,9 @@ class IndexerApp(tk.Tk):
             return
         try:
             open_path_in_file_manager(path)
-            self.status_var.set(f"Opened folder for {path.name}")
+            self.status_var.set(self._("status_opened_folder", name=path.name))
         except OSError as exc:
-            messagebox.showerror("Open folder", str(exc))
+            messagebox.showerror(self._("open_folder"), str(exc))
 
     def _copy_selected_path(self) -> None:
         path = self._row_source_path()
@@ -3964,14 +4008,14 @@ class IndexerApp(tk.Tk):
             self.clipboard_append(text)
             self.update_idletasks()
         except tk.TclError as exc:
-            messagebox.showerror("Copy path", str(exc))
+            messagebox.showerror(self._("copy_path"), str(exc))
             return
-        self.status_var.set(f"Copied path: {text}")
+        self.status_var.set(self._("status_copied_path", path=text))
 
     def _extract_selected(self) -> None:
         rows = self._selected_rows()
         if not rows:
-            messagebox.showinfo("Extract", "Select one or more search results first.")
+            messagebox.showinfo(self._("extract_title"), self._("extract_need_selection"))
             return
         backup = self.backup_var.get().strip()
         extract_dir = self._extract_dir()
@@ -3996,8 +4040,8 @@ class IndexerApp(tk.Tk):
                 break
         if needs_backup and (not backup or not Path(backup).is_dir()):
             messagebox.showerror(
-                "Backup folder",
-                "Set the backup folder (needed to resolve relative source paths).",
+                self._("backup_folder"),
+                self._("extract_need_backup"),
             )
             return
 
@@ -4014,11 +4058,11 @@ class IndexerApp(tk.Tk):
                 return
             suggested = default_extract_filename(row)
             out = filedialog.asksaveasfilename(
-                title="Save extracted program",
+                title=self._("extract_save_title"),
                 initialdir=extract_dir,
                 initialfile=suggested,
                 defaultextension=".nc",
-                filetypes=[("NC / text", "*.nc *.txt"), ("All", "*.*")],
+                filetypes=[(self._("filetype_nc"), "*.nc *.txt *.mpf *.pgm"), (self._("filetype_all"), "*.*")],
             )
             if not out:
                 return
@@ -4035,13 +4079,13 @@ class IndexerApp(tk.Tk):
                     self._format_extract_error(exc, row),
                 )
                 return
-            self.status_var.set(f"Extracted → {path}")
-            messagebox.showinfo("Extracted", f"Wrote:\n{path}")
+            self.status_var.set(self._("status_extracted", path=path))
+            messagebox.showinfo(self._("extract_wrote_title"), self._("extract_wrote", path=path))
             return
 
         # Batch: pick output folder, write unique filenames
         out_dir = filedialog.askdirectory(
-            title=f"Extract {len(rows)} programs into folder",
+            title=self._("extract_batch_title", n=len(rows)),
             initialdir=extract_dir,
         )
         if not out_dir:
@@ -4068,15 +4112,27 @@ class IndexerApp(tk.Tk):
             except ExtractError as exc:
                 prog = row["program_number"] if "program_number" in row.keys() else "?"
                 errors.append(f"{prog}: {self._format_extract_error(exc, row)}")
-        msg = f"Extracted {ok} / {len(rows)} → {out_dir}"
+        msg = self._(
+            "extract_batch_ok", ok=ok, total=len(rows), folder=out_dir
+        )
         if errors:
-            msg += f"\n\n{len(errors)} failed:\n" + "\n".join(errors[:8])
+            msg = self._(
+                "extract_batch_partial",
+                ok=ok,
+                total=len(rows),
+                failed=len(errors),
+                folder=out_dir,
+            )
+            detail = "\n".join(errors[:8])
             if len(errors) > 8:
-                msg += f"\n… +{len(errors) - 8} more"
-            messagebox.showwarning("Batch extract", msg)
+                detail += "\n" + self._("map_more", n=len(errors) - 8)
+            msg = f"{msg}\n\n{detail}"
+            messagebox.showwarning(self._("extract_batch_dialog_title"), msg)
         else:
-            messagebox.showinfo("Batch extract", msg)
-        self.status_var.set(f"Extracted {ok} / {len(rows)} programs")
+            messagebox.showinfo(self._("extract_batch_dialog_title"), msg)
+        self.status_var.set(
+            self._("extract_batch_ok", ok=ok, total=len(rows), folder=out_dir).split("\n")[0]
+        )
 
     def _missing_source_path(self, row) -> Optional[Path]:
         """Return resolved path when source is missing; else None."""
@@ -4145,7 +4201,7 @@ class ManualViewerDialog(tk.Toplevel):
         *,
         title: str,
         body: str,
-        close_label: str = "Close",
+        close_label: str = "Close"  # callers pass i18n,
     ) -> None:
         super().__init__(master)
         self.title(title)
@@ -4183,7 +4239,7 @@ class CompareDiffDialog(tk.Toplevel):
         diff_text: str,
     ) -> None:
         super().__init__(master)
-        self.title("Compare programs")
+        self.title(_tr(master, "compare_title"))
         self.minsize(640, 420)
         self.geometry("860x560")
         self.transient(master)
@@ -4191,7 +4247,7 @@ class CompareDiffDialog(tk.Toplevel):
 
         ttk.Label(
             self,
-            text=f"A: {label_a}\nB: {label_b}",
+            text=_tr(master, "compare_labels", a=label_a, b=label_b),
             wraplength=820,
         ).pack(fill=tk.X, padx=12, pady=(12, 6))
 
@@ -4231,7 +4287,7 @@ class CompareDiffDialog(tk.Toplevel):
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text="Close", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=_tr(master, "close"), command=self.destroy).pack(side=tk.RIGHT)
 
 
 class ScanHistoryDialog(tk.Toplevel):
@@ -4295,11 +4351,11 @@ class ScanHistoryDialog(tk.Toplevel):
                 )
                 mode = []
                 if entry.incremental:
-                    mode.append("incr")
+                    mode.append(_tr(master, "history_mode_incr"))
                 else:
-                    mode.append("full")
+                    mode.append(_tr(master, "history_mode_full"))
                 if entry.auto:
-                    mode.append("auto")
+                    mode.append(_tr(master, "history_mode_auto"))
                 tree.insert(
                     "",
                     tk.END,
@@ -4325,16 +4381,16 @@ class ScanReportDialog(tk.Toplevel):
 
     def __init__(self, master: tk.Tk, *, report: ScanReport) -> None:
         super().__init__(master)
-        self.title("Scan report")
+        self.title(_tr(master, "scan_report_title"))
         self.minsize(560, 420)
         self.geometry("720x560")
         self.transient(master)
         self.grab_set()
+        lang = getattr(master, "_lang", "pl")
 
         ttk.Label(
             self,
-            text="Index quality after the last scan — machines, copies, "
-            "MACHINE UNKNOWN, unmapped folders, skipped dumps.",
+            text=_tr(master, "scan_report_intro"),
             wraplength=680,
         ).pack(fill=tk.X, padx=12, pady=(12, 6))
 
@@ -4345,13 +4401,13 @@ class ScanReportDialog(tk.Toplevel):
         text.configure(yscrollcommand=sb.set)
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
-        body = format_scan_report(report)
+        body = format_scan_report(report, lang=lang)
         text.insert("1.0", body)
         text.configure(state=tk.DISABLED)
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text="Close", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=_tr(master, "close"), command=self.destroy).pack(side=tk.RIGHT)
 
 
 class DuplicatesDialog(tk.Toplevel):
@@ -4359,7 +4415,7 @@ class DuplicatesDialog(tk.Toplevel):
 
     def __init__(self, master: tk.Tk, *, groups: list[DuplicateGroup]) -> None:
         super().__init__(master)
-        self.title("Duplicate / near-duplicate finder")
+        self.title(_tr(master, "duplicates_title"))
         self.minsize(640, 440)
         self.geometry("780x520")
         self.transient(master)
@@ -4371,9 +4427,11 @@ class DuplicatesDialog(tk.Toplevel):
         n_near = sum(1 for g in groups if g.kind == "near")
         ttk.Label(
             self,
-            text=(
-                f"{n_exact} exact SHA group(s), {n_near} near-duplicate group(s). "
-                "Select a group, then Show in results to load members into the main table."
+            text=_tr(
+                master,
+                "duplicates_summary",
+                exact=n_exact,
+                near=n_near,
             ),
             wraplength=740,
         ).pack(fill=tk.X, padx=12, pady=(12, 6))
@@ -4392,7 +4450,11 @@ class DuplicatesDialog(tk.Toplevel):
         self.group_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         gsb.pack(side=tk.RIGHT, fill=tk.Y)
         for g in groups:
-            prefix = "SHA" if g.kind == "exact" else "Near"
+            prefix = (
+                _tr(master, "dup_kind_exact")
+                if g.kind == "exact"
+                else _tr(master, "dup_kind_near")
+            )
             self.group_list.insert(tk.END, f"[{prefix}] {g.label}")
         self.group_list.bind("<<ListboxSelect>>", self._on_group_select)
 
@@ -4401,12 +4463,12 @@ class DuplicatesDialog(tk.Toplevel):
             bottom, columns=cols, show="headings", selectmode="browse", height=10
         )
         headings = {
-            "program": ("Program #", 90),
-            "machine": ("Machine", 120),
-            "date": ("Date", 100),
-            "size": ("Size", 70),
-            "sha": ("SHA-256", 120),
-            "path": ("Source path", 280),
+            "program": (_tr(master, "col_program"), 90),
+            "machine": (_tr(master, "col_machine"), 120),
+            "date": (_tr(master, "col_date"), 100),
+            "size": (_tr(master, "col_size"), 70),
+            "sha": (_tr(master, "col_sha"), 120),
+            "path": (_tr(master, "col_path"), 280),
         }
         for key, (label, width) in headings.items():
             self.member_tree.heading(key, text=label)
@@ -4418,10 +4480,11 @@ class DuplicatesDialog(tk.Toplevel):
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
-        ttk.Button(btns, text="Show in results", command=self._show_in_results).pack(
-            side=tk.RIGHT, padx=8
-        )
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(
+            btns, text=_tr(master, "show_in_results"), command=self._show_in_results
+        ).pack(side=tk.RIGHT, padx=8)
+        self._master = master
 
         if groups:
             self.group_list.selection_set(0)
@@ -4456,7 +4519,11 @@ class DuplicatesDialog(tk.Toplevel):
     def _show_in_results(self) -> None:
         sel = self.group_list.curselection()
         if not sel:
-            messagebox.showinfo("Duplicates", "Select a group first.", parent=self)
+            messagebox.showinfo(
+                _tr(self.master, "duplicates_title"),
+                _tr(self.master, "duplicates_select_group"),
+                parent=self,
+            )
             return
         self.selected_members = list(self._groups[sel[0]].members)
         self.destroy()
@@ -4482,7 +4549,7 @@ class FolderMapDialog(tk.Toplevel):
         local_aliases_path: Path,
     ) -> None:
         super().__init__(master)
-        self.title("Map unmatched folders → machines")
+        self.title(_tr(master, "map_dialog_title"))
         self.minsize(560, 400)
         self.geometry("680x520")
         self.transient(master)
@@ -4498,31 +4565,33 @@ class FolderMapDialog(tk.Toplevel):
         self._choices = list(machine_choices)
         self._vars: dict[str, tk.StringVar] = {}
 
-        summary = (
-            f"Auto-matched via aliases: {partition.auto_count}  ·  "
-            f"Previously mapped: {len(partition.previously_mapped)}  ·  "
-            f"Need manual assign: {partition.manual_count}"
+        summary = _tr(
+            master,
+            "map_summary",
+            auto=partition.auto_count,
+            prev=len(partition.previously_mapped),
+            manual=partition.manual_count,
         )
         ttk.Label(self, text=summary, wraplength=640).pack(
             fill=tk.X, padx=12, pady=(12, 4)
         )
         ttk.Label(
             self,
-            text="Only unmatched folders are listed. Assign a machine, then Save. "
-            "Optional: also store the folder name as a local alias for future scans "
-            f"({LOCAL_ALIASES_FILENAME} next to the database).",
+            text=_tr(master, "map_hint"),
             wraplength=640,
         ).pack(fill=tk.X, padx=12, pady=(0, 6))
 
         if partition.auto_matched:
-            auto_frame = ttk.LabelFrame(self, text="Auto-matched (skipped)")
+            auto_frame = ttk.LabelFrame(self, text=_tr(master, "map_auto_frame"))
             auto_frame.pack(fill=tk.X, padx=12, pady=4)
             preview = ", ".join(
                 f"{name}→{info.label or info.machine_id}"
                 for name, info in partition.auto_matched[:12]
             )
             if len(partition.auto_matched) > 12:
-                preview += f", … (+{len(partition.auto_matched) - 12} more)"
+                preview += ", " + _tr(
+                    master, "map_more", n=len(partition.auto_matched) - 12
+                )
             ttk.Label(auto_frame, text=preview, wraplength=620).pack(
                 fill=tk.X, padx=8, pady=6
             )
@@ -4541,8 +4610,12 @@ class FolderMapDialog(tk.Toplevel):
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
 
-        ttk.Label(inner, text="Folder").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
-        ttk.Label(inner, text="Machine").grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(inner, text=_tr(master, "map_col_folder")).grid(
+            row=0, column=0, sticky=tk.W, padx=4, pady=2
+        )
+        ttk.Label(inner, text=_tr(master, "map_col_machine")).grid(
+            row=0, column=1, sticky=tk.W, padx=4, pady=2
+        )
 
         for i, folder in enumerate(partition.needs_manual, start=1):
             a = suggested.get(folder)
@@ -4566,14 +4639,16 @@ class FolderMapDialog(tk.Toplevel):
         self._save_aliases_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             self,
-            text="Also save assignments as local aliases (for new scans)",
+            text=_tr(master, "map_save_aliases_cb"),
             variable=self._save_aliases_var,
         ).pack(anchor=tk.W, padx=12, pady=(4, 0))
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
-        ttk.Button(btns, text="Save map", command=self._save).pack(side=tk.RIGHT, padx=8)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=_tr(master, "map_save"), command=self._save).pack(
+            side=tk.RIGHT, padx=8
+        )
 
     def _save(self) -> None:
         out = FolderMachineMap()
@@ -4592,14 +4667,16 @@ class FolderMapDialog(tk.Toplevel):
         try:
             out.save(self._save_path)
         except OSError as exc:
-            messagebox.showerror("Save map", str(exc), parent=self)
+            messagebox.showerror(_tr(self.master, "map_save"), str(exc), parent=self)
             return
         if self._save_aliases_var.get() and self._aliases.local_alias_count:
             try:
                 self._aliases.save_local(self._local_aliases_path)
                 self.aliases_saved = True
             except OSError as exc:
-                messagebox.showerror("Save local aliases", str(exc), parent=self)
+                messagebox.showerror(
+                    _tr(self.master, "aliases_save_local"), str(exc), parent=self
+                )
                 return
         self.saved = True
         self.destroy()
@@ -4616,13 +4693,7 @@ class AliasEditorDialog(tk.Toplevel):
         save_path: Path,
     ) -> None:
         super().__init__(master)
-        title = "Machines & aliases"
-        if hasattr(master, "_"):
-            try:
-                title = master._("aliases_dialog_title")  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001
-                pass
-        self.title(title)
+        self.title(_tr(master, "aliases_dialog_title"))
         self.minsize(780, 480)
         self.geometry("900x560")
         self.transient(master)
@@ -4641,13 +4712,7 @@ class AliasEditorDialog(tk.Toplevel):
 
         ttk.Label(
             self,
-            text=(
-                "Select a machine on the left, then edit its folder-name aliases "
-                "(how the machine appears in the backup tree). "
-                "Add or remove machines as needed. "
-                "Local aliases are saved next to the database and override the bundled map. "
-                "Bundled aliases are read-only — add a local spelling to customize."
-            ),
+            text=_tr(master, "aliases_intro"),
             wraplength=860,
         ).pack(fill=tk.X, padx=12, pady=(12, 6))
 
@@ -4658,7 +4723,7 @@ class AliasEditorDialog(tk.Toplevel):
         body.rowconfigure(0, weight=1)
 
         # --- Left: machines ----------------------------------------------------
-        left = ttk.LabelFrame(body, text="Machines", padding=6)
+        left = ttk.LabelFrame(body, text=_tr(master, "machines"), padding=6)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         left.rowconfigure(0, weight=1)
         left.columnconfigure(0, weight=1)
@@ -4676,33 +4741,33 @@ class AliasEditorDialog(tk.Toplevel):
         self._machine_list.bind("<<ListboxSelect>>", self._on_machine_selected)
         mach_btns = ttk.Frame(left)
         mach_btns.grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        ttk.Button(mach_btns, text="Add machine…", command=self._add_machine).pack(
+        ttk.Button(mach_btns, text=_tr(master, "alias_add_machine"), command=self._add_machine).pack(
             side=tk.LEFT
         )
         ttk.Button(
-            mach_btns, text="Remove machine", command=self._remove_machine
+            mach_btns, text=_tr(master, "alias_remove_machine"), command=self._remove_machine
         ).pack(side=tk.LEFT, padx=6)
 
         # --- Right: details + aliases ------------------------------------------
-        right = ttk.LabelFrame(body, text="Selected machine", padding=6)
+        right = ttk.LabelFrame(body, text=_tr(master, "alias_selected_machine"), padding=6)
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(1, weight=1)
         right.rowconfigure(4, weight=1)
 
-        ttk.Label(right, text="Machine id").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(right, text=_tr(master, "alias_field_id")).grid(row=0, column=0, sticky=tk.W)
         self._mid_var = tk.StringVar()
         self._mid_entry = ttk.Entry(
             right, textvariable=self._mid_var, state="readonly"
         )
         self._mid_entry.grid(row=0, column=1, sticky=tk.EW, padx=4, pady=2)
 
-        ttk.Label(right, text="Label").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(right, text=_tr(master, "alias_field_label")).grid(row=1, column=0, sticky=tk.W)
         self._label_var = tk.StringVar()
         ttk.Entry(right, textvariable=self._label_var).grid(
             row=1, column=1, sticky=tk.EW, padx=4, pady=2
         )
 
-        ttk.Label(right, text="Control").grid(row=2, column=0, sticky=tk.W)
+        ttk.Label(right, text=_tr(master, "alias_field_control")).grid(row=2, column=0, sticky=tk.W)
         self._control_var = tk.StringVar()
         ttk.Combobox(
             right,
@@ -4711,7 +4776,7 @@ class AliasEditorDialog(tk.Toplevel):
             width=28,
         ).grid(row=2, column=1, sticky=tk.EW, padx=4, pady=2)
 
-        ttk.Label(right, text="Layout").grid(row=3, column=0, sticky=tk.W)
+        ttk.Label(right, text=_tr(master, "alias_field_layout")).grid(row=3, column=0, sticky=tk.W)
         self._layout_var = tk.StringVar()
         ttk.Combobox(
             right,
@@ -4727,7 +4792,7 @@ class AliasEditorDialog(tk.Toplevel):
             width=28,
         ).grid(row=3, column=1, sticky=tk.EW, padx=4, pady=2)
 
-        alias_frame = ttk.LabelFrame(right, text="Folder aliases", padding=4)
+        alias_frame = ttk.LabelFrame(right, text=_tr(master, "alias_folder_aliases"), padding=4)
         alias_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
         alias_frame.rowconfigure(0, weight=1)
         alias_frame.columnconfigure(0, weight=1)
@@ -4744,27 +4809,27 @@ class AliasEditorDialog(tk.Toplevel):
         alias_sb.grid(row=0, column=1, sticky="ns")
         alias_btns = ttk.Frame(alias_frame)
         alias_btns.grid(row=1, column=0, sticky="ew", pady=(4, 0))
-        ttk.Button(alias_btns, text="Add alias…", command=self._add_alias).pack(
+        ttk.Button(alias_btns, text=_tr(master, "alias_add"), command=self._add_alias).pack(
             side=tk.LEFT
         )
         ttk.Button(
-            alias_btns, text="Remove alias", command=self._remove_alias
+            alias_btns, text=_tr(master, "alias_remove"), command=self._remove_alias
         ).pack(side=tk.LEFT, padx=6)
         ttk.Label(
             alias_btns,
-            text="[bundled] = read-only catalog spelling",
+            text=_tr(master, "alias_bundled_hint"),
             style="Muted.TLabel",
         ).pack(side=tk.LEFT, padx=8)
 
         ttk.Button(
-            right, text="Apply machine details", command=self._apply_machine_details
+            right, text=_tr(master, "alias_apply_details"), command=self._apply_machine_details
         ).grid(row=5, column=0, columnspan=2, sticky=tk.E, pady=(8, 0))
 
         footer = ttk.Frame(self)
         footer.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Label(footer, text=f"Saves to: {self._save_path.name}").pack(side=tk.LEFT)
-        ttk.Button(footer, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
-        ttk.Button(footer, text="Save", command=self._save).pack(side=tk.RIGHT, padx=8)
+        ttk.Label(footer, text=_tr(master, "alias_saves_to", path=self._save_path.name)).pack(side=tk.LEFT)
+        ttk.Button(footer, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(footer, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT, padx=8)
 
         self._reload_machine_list()
         self._clear_detail()
@@ -4861,7 +4926,9 @@ class AliasEditorDialog(tk.Toplevel):
         if not mid or mid not in self._draft:
             if not silent:
                 messagebox.showinfo(
-                    "Machines", "Select a machine first.", parent=self
+                    _tr(self.master, "machines"),
+                    _tr(self.master, "alias_select_machine"),
+                    parent=self,
                 )
             return
         self._draft[mid]["label"] = self._label_var.get().strip()
@@ -4872,15 +4939,15 @@ class AliasEditorDialog(tk.Toplevel):
         self._reload_machine_list(select_mid=mid)
 
     def _add_machine(self) -> None:
-        form = MachineForm(self, title="Add machine")
+        form = MachineForm(self, title=_tr(self.master, "alias_add_machine_title"))
         self.wait_window(form)
         if not form.result:
             return
         mid, label, control, layout, alias = form.result
         if mid in self._draft:
             messagebox.showerror(
-                "Add machine",
-                f"Machine id “{mid}” already exists.",
+                _tr(self.master, "alias_add_machine_title"),
+                _tr(self.master, "alias_id_exists", id=mid),
                 parent=self,
             )
             return
@@ -4902,19 +4969,22 @@ class AliasEditorDialog(tk.Toplevel):
     def _remove_machine(self) -> None:
         mid = self._selected_mid
         if not mid:
-            messagebox.showinfo("Remove machine", "Select a machine first.", parent=self)
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_title"),
+                _tr(self.master, "alias_select_machine"),
+                parent=self,
+            )
             return
         row = self._draft.get(mid) or {}
         has_bundled = bool(row.get("bundled_aliases"))
+        name = self._machine_display(mid)
         if has_bundled:
-            msg = (
-                f"“{self._machine_display(mid)}” has bundled catalog aliases.\n\n"
-                "Remove only the local aliases for this machine?\n"
-                "(Bundled spellings stay in the catalog.)"
-            )
+            msg = _tr(self.master, "alias_remove_bundled_confirm", name=name)
         else:
-            msg = f"Remove machine “{self._machine_display(mid)}” and all its local aliases?"
-        if not messagebox.askyesno("Remove machine", msg, parent=self):
+            msg = _tr(self.master, "alias_remove_local_confirm", name=name)
+        if not messagebox.askyesno(
+            _tr(self.master, "alias_remove_title"), msg, parent=self
+        ):
             return
         if has_bundled:
             row["local_aliases"] = []
@@ -4928,12 +4998,16 @@ class AliasEditorDialog(tk.Toplevel):
     def _add_alias(self) -> None:
         mid = self._selected_mid
         if not mid:
-            messagebox.showinfo("Add alias", "Select a machine first.", parent=self)
+            messagebox.showinfo(
+                _tr(self.master, "alias_add_title"),
+                _tr(self.master, "alias_select_machine"),
+                parent=self,
+            )
             return
         self._apply_machine_details(silent=True)
         name = simpledialog.askstring(
-            "Add alias",
-            "Folder name as it appears in the backup tree:",
+            _tr(self.master, "alias_add_title"),
+            _tr(self.master, "alias_add_prompt"),
             parent=self,
         )
         if name is None:
@@ -4946,7 +5020,11 @@ class AliasEditorDialog(tk.Toplevel):
         existing = {a.casefold() for a in row["local_aliases"]}
         bundled = {a.casefold() for a in row["bundled_aliases"]}
         if name.casefold() in existing:
-            messagebox.showinfo("Add alias", "That local alias is already listed.", parent=self)
+            messagebox.showinfo(
+                _tr(self.master, "alias_add_title"),
+                _tr(self.master, "alias_already_listed"),
+                parent=self,
+            )
             return
         if name.casefold() in bundled:
             # Promoting: store as local override of same spelling
@@ -4964,14 +5042,17 @@ class AliasEditorDialog(tk.Toplevel):
             return
         sel = self._alias_list.curselection()
         if not sel:
-            messagebox.showinfo("Remove alias", "Select an alias first.", parent=self)
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_select_alias"),
+                parent=self,
+            )
             return
         raw = self._alias_list.get(sel[0])
         if " [bundled]" in raw:
             messagebox.showinfo(
-                "Remove alias",
-                "Bundled catalog aliases cannot be deleted.\n"
-                "Add a local spelling instead, or clear local overrides via Remove machine.",
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_cannot_remove_bundled"),
                 parent=self,
             )
             return
@@ -5013,7 +5094,9 @@ class AliasEditorDialog(tk.Toplevel):
         try:
             self._aliases.save_local(self._save_path)
         except OSError as exc:
-            messagebox.showerror("Save aliases", str(exc), parent=self)
+            messagebox.showerror(
+                _tr(self.master, "alias_save_title"), str(exc), parent=self
+            )
             return
         self.saved = True
         self._dirty = False
@@ -5023,28 +5106,32 @@ class AliasEditorDialog(tk.Toplevel):
 class MachineForm(tk.Toplevel):
     """Create a new machine id + display metadata (+ optional first alias)."""
 
-    def __init__(self, master: tk.Toplevel, *, title: str = "Add machine") -> None:
+    def __init__(self, master: tk.Toplevel, *, title: str | None = None) -> None:
         super().__init__(master)
-        self.title(title)
+        self.title(title or _tr(master, "alias_add_machine_title"))
         self.transient(master)
         self.grab_set()
         self.result: Optional[tuple[str, str, str, str, str]] = None
 
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(body, text="Machine id (stable key, e.g. haas-vf-2)").grid(
+        ttk.Label(body, text=_tr(master, "machine_form_id")).grid(
             row=0, column=0, sticky=tk.W
         )
         self.mid_var = tk.StringVar()
         ttk.Entry(body, textvariable=self.mid_var, width=40).grid(
             row=0, column=1, sticky=tk.EW, padx=6, pady=4
         )
-        ttk.Label(body, text="Label").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(body, text=_tr(master, "machine_form_label")).grid(
+            row=1, column=0, sticky=tk.W
+        )
         self.label_var = tk.StringVar()
         ttk.Entry(body, textvariable=self.label_var, width=40).grid(
             row=1, column=1, sticky=tk.EW, padx=6, pady=4
         )
-        ttk.Label(body, text="Control").grid(row=2, column=0, sticky=tk.W)
+        ttk.Label(body, text=_tr(master, "machine_form_control")).grid(
+            row=2, column=0, sticky=tk.W
+        )
         self.control_var = tk.StringVar()
         ttk.Combobox(
             body,
@@ -5052,7 +5139,9 @@ class MachineForm(tk.Toplevel):
             values=["", "haas", "fanuc", "sinumerik"],
             width=38,
         ).grid(row=2, column=1, sticky=tk.EW, padx=6, pady=4)
-        ttk.Label(body, text="Layout").grid(row=3, column=0, sticky=tk.W)
+        ttk.Label(body, text=_tr(master, "machine_form_layout")).grid(
+            row=3, column=0, sticky=tk.W
+        )
         self.layout_var = tk.StringVar()
         ttk.Combobox(
             body,
@@ -5067,7 +5156,7 @@ class MachineForm(tk.Toplevel):
             ],
             width=38,
         ).grid(row=3, column=1, sticky=tk.EW, padx=6, pady=4)
-        ttk.Label(body, text="Folder alias (optional)").grid(
+        ttk.Label(body, text=_tr(master, "machine_form_alias")).grid(
             row=4, column=0, sticky=tk.W
         )
         self.alias_var = tk.StringVar()
@@ -5076,7 +5165,7 @@ class MachineForm(tk.Toplevel):
         )
         ttk.Label(
             body,
-            text="Folder name as it appears in the backup tree (you can add more later).",
+            text=_tr(master, "machine_form_alias_hint"),
             style="Muted.TLabel",
             wraplength=420,
         ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
@@ -5084,16 +5173,28 @@ class MachineForm(tk.Toplevel):
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
-        ttk.Button(btns, text="OK", command=self._ok).pack(side=tk.RIGHT, padx=8)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+            side=tk.RIGHT, padx=8
+        )
 
     def _ok(self) -> None:
         mid = self.mid_var.get().strip()
         if not mid:
-            messagebox.showerror("Machine", "Machine id is required.", parent=self)
+            messagebox.showerror(
+                _tr(self.master, "machine_form_title"),
+                _tr(self.master, "machine_id_required"),
+                parent=self,
+            )
             return
         if mid == "unknown" or mid.startswith("unmapped:"):
-            messagebox.showerror("Machine", "That machine id is reserved.", parent=self)
+            messagebox.showerror(
+                _tr(self.master, "machine_form_title"),
+                _tr(self.master, "machine_id_reserved"),
+                parent=self,
+            )
             return
         # Normalize id a bit: spaces → dashes
         mid = mid.replace(" ", "-")

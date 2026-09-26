@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gcode_index.i18n import DEFAULT_LANG, t as i18n_t
+
 import sqlite3
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -212,63 +214,74 @@ def load_scan_report(
     )
 
 
-def format_scan_report(report: ScanReport) -> str:
+def format_scan_report(report: ScanReport, *, lang: str | None = None) -> str:
     """Plain-text body for the scan report panel / CLI."""
+    code = lang or DEFAULT_LANG
     lines: list[str] = []
     rid = (report.run_id or "")[:8]
-    lines.append(f"Scan report{f' (run {rid}…)' if rid else ''}")
+    run_sfx = i18n_t(code, "report_run_suffix", id=rid) if rid else ""
+    lines.append(i18n_t(code, "report_title", run=run_sfx))
     lines.append("=" * 48)
     lines.append(
-        f"Programs indexed: {report.instance_count}  ·  "
-        f"Files touched: {report.file_count}  ·  "
-        f"Unknown folders: {report.unknown_folder_count}"
+        i18n_t(
+            code,
+            "report_summary",
+            instances=report.instance_count,
+            files=report.file_count,
+            unknown=report.unknown_folder_count,
+        )
     )
     if report.provenance_counts:
         bits = ", ".join(f"{k}={v}" for k, v in sorted(report.provenance_counts.items()))
-        lines.append(f"Flags: {bits}")
+        lines.append(i18n_t(code, "report_flags", bits=bits))
     lines.append("")
-    lines.append("Per machine")
+    lines.append(i18n_t(code, "report_per_machine"))
     lines.append("-" * 48)
     if report.per_machine:
         for name, n in report.per_machine:
             lines.append(f"  {n:5d}  {name}")
     else:
-        lines.append("  (none)")
+        lines.append(i18n_t(code, "report_none"))
 
     lines.append("")
-    lines.append("Source types")
+    lines.append(i18n_t(code, "report_source_types"))
     lines.append("-" * 48)
     for name, n in report.source_type_counts:
         lines.append(f"  {n:5d}  {name}")
 
     lines.append("")
-    lines.append(f"*.nc.copy / *_copy files: {report.copy_count}")
+    lines.append(i18n_t(code, "report_copies", n=report.copy_count))
     for name, n in report.copy_by_type:
         lines.append(f"  {n:5d}  {name}")
 
     lines.append("")
     lines.append(
-        f"{UNKNOWN_MACHINE_LABEL} programs: {report.unknown_program_count}"
+        i18n_t(
+            code,
+            "report_unknown_programs",
+            label=UNKNOWN_MACHINE_LABEL,
+            n=report.unknown_program_count,
+        )
     )
     for path in report.unknown_sample_paths:
         lines.append(f"  · {path}")
     if report.unknown_program_count > len(report.unknown_sample_paths):
         extra = report.unknown_program_count - len(report.unknown_sample_paths)
-        lines.append(f"  … +{extra} more")
+        lines.append(i18n_t(code, "report_more", n=extra))
 
     lines.append("")
-    lines.append(f"Unmapped machine folders: {len(report.unknown_folders)}")
+    lines.append(i18n_t(code, "report_unmapped", n=len(report.unknown_folders)))
     for date_f, mach_f in report.unknown_folders:
         lines.append(f"  · {date_f} / {mach_f}")
 
     lines.append("")
-    lines.append(f"Skipped dumps / folders: {len(report.skipped)}")
+    lines.append(i18n_t(code, "report_skipped", n=len(report.skipped)))
     for path, note in report.skipped:
         suffix = f" — {note}" if note else ""
         lines.append(f"  · {path}{suffix}")
 
     lines.append("")
-    lines.append(f"Errors: {len(report.errors)}")
+    lines.append(i18n_t(code, "report_errors", n=len(report.errors)))
     for path, note in report.errors:
         suffix = f" — {note}" if note else ""
         lines.append(f"  · {path}{suffix}")

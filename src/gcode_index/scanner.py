@@ -48,23 +48,32 @@ class _ScanProgress:
         self.current = 0
         self.t0 = time.monotonic()
 
-    def emit(self, *, phase: str, message: str) -> None:
+    def emit(
+        self,
+        *,
+        phase: str,
+        message: str,
+        message_key: Optional[str] = None,
+        message_kwargs: Optional[dict] = None,
+    ) -> None:
         if not self.callback:
             return
         elapsed = time.monotonic() - self.t0
         eta = None
         if self.current > 0 and self.current < self.total:
             eta = elapsed / self.current * (self.total - self.current)
-        self.callback(
-            {
-                "phase": phase,
-                "message": message,
-                "current": self.current,
-                "total": self.total,
-                "elapsed_s": elapsed,
-                "eta_s": eta,
-            }
-        )
+        payload = {
+            "phase": phase,
+            "message": message,
+            "current": self.current,
+            "total": self.total,
+            "elapsed_s": elapsed,
+            "eta_s": eta,
+        }
+        if message_key:
+            payload["message_key"] = message_key
+            payload["message_kwargs"] = dict(message_kwargs or {})
+        self.callback(payload)
 
     def tick(self, message: str) -> None:
         self.current += 1
@@ -147,6 +156,7 @@ def scan_backup_tree(
             {
                 "phase": "counting",
                 "message": "Counting source files…",
+                "message_key": "scan_counting",
                 "current": 0,
                 "total": 0,
                 "elapsed_s": 0.0,
@@ -155,7 +165,12 @@ def scan_backup_tree(
         )
     total = _count_indexable_files(root)
     prog = _ScanProgress(progress, total)
-    prog.emit(phase="scanning", message=f"Scanning 0 / {total} files…")
+    prog.emit(
+        phase="scanning",
+        message=f"Scanning 0 / {total} files…",
+        message_key="scan_progress",
+        message_kwargs={"current": 0, "total": total},
+    )
     scan_root_s = str(root)
 
     # date → machine: glued dumps (.pgm / ALL-FLDR / ALL-PROG) + unknown-folder log
@@ -190,6 +205,8 @@ def scan_backup_tree(
     prog.emit(
         phase="done",
         message=f"Scan complete — {prog.current} / {prog.total} files",
+        message_key="scan_complete_files",
+        message_kwargs={"current": prog.current, "total": prog.total},
     )
     return result
 
@@ -256,6 +273,8 @@ def scan_with_extra_roots(
                 {
                     "phase": "scanning",
                     "message": f"Scanning {label}: {root_path}…",
+                    "message_key": "scan_root_progress",
+                    "message_kwargs": {"label": label, "root": str(root_path)},
                     "current": 0,
                     "total": 0,
                     "elapsed_s": 0.0,
@@ -286,6 +305,11 @@ def scan_with_extra_roots(
                     f"({n_bak} backup / green, {n_ext} extra / yellow"
                     f"{f', {n_cached} files reused' if n_cached else ''})"
                 ),
+                "message_key": "scan_complete_programs",
+                "message_kwargs": {
+                    "n": len(merged.instances),
+                    "roots": len(roots),
+                },
                 "current": len(merged.instances),
                 "total": max(len(merged.instances), 1),
                 "elapsed_s": 0.0,
