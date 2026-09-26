@@ -5,6 +5,7 @@ from typing import Iterable
 
 from openpyxl import Workbook
 
+from gcode_index.folder_tree_map import roles_from_db, roles_to_db
 from gcode_index.models import ProgramInstance
 
 COLUMNS = [
@@ -44,7 +45,9 @@ def export_excel(path: Path | str, instances: Iterable[ProgramInstance]) -> None
         row = []
         for attr, _ in COLUMNS:
             val = getattr(inst, attr)
-            if hasattr(val, "isoformat"):
+            if attr == "role":
+                val = roles_to_db(roles_from_db(val)) or ""
+            elif hasattr(val, "isoformat"):
                 val = val.isoformat()
             row.append(val)
         ws.append(row)

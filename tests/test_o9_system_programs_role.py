@@ -70,6 +70,60 @@ def test_o9_accumulates_with_folder_role(tmp_path: Path):
     assert ROLE_SYSTEM_PROGRAMS in roles
 
 
+def test_folder_system_plus_o9_is_single_system_programs(tmp_path: Path):
+    """System-folder alias + O9 auto-tag → one system_programs id (set)."""
+    bak = tmp_path / "bak"
+    hit = _write_nc(bak / "15.09.2026" / "VF2S" / "System" / "sys.nc", "O9001")
+    am = AliasMap.load(ALIASES)
+    colours = FolderColourAliasMap(
+        [FolderColourRule(alias="System", colour=ROLE_SYSTEM_PROGRAMS)]
+    )
+    result = scan_backup_tree(
+        bak, am, colour_map=colours, o9_system_programs_role=True
+    )
+    by = {
+        (Path(i.scan_root or "") / i.source_path).resolve(): i
+        for i in result.instances
+    }
+    roles = roles_from_db(by[hit.resolve()].role)
+    assert roles == [ROLE_SYSTEM_PROGRAMS]
+    assert roles.count(ROLE_SYSTEM_PROGRAMS) == 1
+    assert by[hit.resolve()].role == ROLE_SYSTEM_PROGRAMS
+
+
+def test_legacy_duplicate_csv_collapses_on_display_and_reindex(tmp_path: Path):
+    """Existing CSV with duplicate tags collapses via normalize / reindex."""
+    from gcode_index.folder_tree_map import normalize_roles_list, roles_to_db
+    from gcode_index.badge_style import flag_text
+    from gcode_index.models import PROVENANCE_BACKUP
+
+    raw = "system_programs,system_programs,system"
+    assert normalize_roles_list(raw) == [ROLE_SYSTEM_PROGRAMS]
+    assert roles_to_db(raw.split(",")) == ROLE_SYSTEM_PROGRAMS
+    assert flag_text(PROVENANCE_BACKUP, raw.split(",")) == "⬤"
+
+    bak = tmp_path / "bak"
+    hit = _write_nc(bak / "15.09.2026" / "VF2S" / "loose" / "sys.nc", "O9001")
+    am = AliasMap.load(ALIASES)
+    # Seed a dirty role string on a scan with O9 off, then reindex with O9 on
+    first = scan_backup_tree(bak, am, o9_system_programs_role=False)
+    by1 = {
+        (Path(i.scan_root or "") / i.source_path).resolve(): i
+        for i in first.instances
+    }
+    by1[hit.resolve()].role = "system_programs,system_programs"
+    # Display path collapses without rewrite
+    assert roles_from_db(by1[hit.resolve()].role) == [ROLE_SYSTEM_PROGRAMS]
+
+    second = scan_backup_tree(bak, am, o9_system_programs_role=True)
+    by2 = {
+        (Path(i.scan_root or "") / i.source_path).resolve(): i
+        for i in second.instances
+    }
+    assert by2[hit.resolve()].role == ROLE_SYSTEM_PROGRAMS
+    assert roles_from_db(by2[hit.resolve()].role).count(ROLE_SYSTEM_PROGRAMS) == 1
+
+
 def test_o9_toggle_off(tmp_path: Path):
     bak = tmp_path / "bak"
     hit = _write_nc(bak / "15.09.2026" / "VF2S" / "loose" / "sys.nc", "O9001")

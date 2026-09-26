@@ -74,6 +74,7 @@ from gcode_index.folder_tree_map import (
     list_child_dirs,
     load_folder_tree_map,
     roles_from_db,
+    roles_to_db,
     save_folder_tree_map,
     tree_map_path_for_target,
 )
@@ -7339,7 +7340,6 @@ class FolderTreeMapDialog(tk.Toplevel):
             parts = [path.name]
         # Simulate: temporarily consider extra_role for this name
         roles: list[str] = []
-        seen: set[str] = set()
         for part in parts:
             colour = None
             if extra_role and normalize_folder_name(part) == normalize_folder_name(
@@ -7348,9 +7348,9 @@ class FolderTreeMapDialog(tk.Toplevel):
                 colour = extra_role
             else:
                 colour = self._colour_map.match_segment(part)
-            if colour and colour != COLOUR_EXCLUDE and colour not in seen:
-                seen.add(colour)
+            if colour and colour != COLOUR_EXCLUDE:
                 roles.append(colour)
+        roles = roles_from_db(roles_to_db(roles))
         if not roles:
             return "—"
         labels = []

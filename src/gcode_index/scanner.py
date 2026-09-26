@@ -359,6 +359,7 @@ def scan_backup_tree(
         _apply_odbiorca_from_header(result, odbiorcy)
     if o9_system_programs_role:
         _apply_o9_system_programs_role(result)
+    _normalize_instance_roles(result)
 
     prog.emit(
         phase="done",
@@ -493,6 +494,7 @@ def scan_with_extra_roots(
         _apply_odbiorca_from_header(merged, odbiorcy)
     if o9_system_programs_role:
         _apply_o9_system_programs_role(merged)
+    _normalize_instance_roles(merged)
 
     if progress:
         n_bak = sum(1 for inst in merged.instances if inst.provenance == PROVENANCE_BACKUP)
@@ -527,7 +529,8 @@ def _apply_o9_system_programs_role(result: ScanResult) -> None:
     """Add ``system_programs`` when program_number is any O9… (accumulate).
 
     Never changes status, machine, or odbiorca. Runs after folder/path roles so
-    tree-map replacements still receive the O9 tag.
+    tree-map replacements still receive the O9 tag. Role ids are a set — never
+    append when the canonical id is already present.
     """
     n = 0
     for inst in result.instances:
@@ -535,11 +538,19 @@ def _apply_o9_system_programs_role(result: ScanResult) -> None:
             continue
         roles = roles_from_db(inst.role)
         if ROLE_SYSTEM_PROGRAMS in roles:
+            # Still rewrite so legacy duplicate CSV collapses on reindex
+            inst.role = roles_to_db(roles)
             continue
         roles.append(ROLE_SYSTEM_PROGRAMS)
         inst.role = roles_to_db(roles)
         n += 1
     result.o9_system_programs = n
+
+
+def _normalize_instance_roles(result: ScanResult) -> None:
+    """Collapse role CSV to a unique sorted set on every scan/reindex."""
+    for inst in result.instances:
+        inst.role = roles_to_db(roles_from_db(inst.role))
 
 
 def _apply_folder_colour_overrides(

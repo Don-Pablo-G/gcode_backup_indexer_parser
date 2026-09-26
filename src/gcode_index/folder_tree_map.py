@@ -39,9 +39,16 @@ def tree_map_path_for_target(target: Path | str) -> Path:
 
 
 def normalize_roles_list(raw: Any) -> list[str]:
-    """Normalize tags from list / CSV / single string → sorted unique ids."""
+    """Normalize tags from list / CSV / single string → sorted unique ids.
+
+    Roles are a set: duplicate spellings and aliases (``system`` / ``orange`` →
+    ``system_programs``) collapse to one canonical id.
+    """
     if raw is None:
         return []
+    # Lazy import: colour aliases own the legacy id map; avoid cycles at import.
+    from gcode_index.folder_colour_aliases import canonical_role_id
+
     items: list[str] = []
     if isinstance(raw, str):
         items = [p.strip() for p in raw.replace(";", ",").split(",")]
@@ -61,7 +68,7 @@ def normalize_roles_list(raw: Any) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for item in items:
-        key = item.casefold().replace(" ", "_").replace("-", "_")
+        key = canonical_role_id(item)
         if not key or key == COLOUR_EXCLUDE or key in seen:
             continue
         seen.add(key)

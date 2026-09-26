@@ -41,16 +41,25 @@ def role_dot(_badge: Optional[str] = None) -> str:
 
 
 def flag_text(prov: Optional[str], role_ids: Sequence[str] | None = None) -> str:
-    """Flag-column text: status disc + one disc per role (all take row tag colour)."""
-    parts = [DOT_LARGE]
-    for _rid in role_ids or []:
-        parts.append(DOT_LARGE)
-    return "".join(parts)
+    """Flag-column text: one disc per unique role, or a status disc when none.
+
+    Roles are a set — duplicate ids never produce extra chips. When roles are
+    present the row tag is role-coloured, so a separate status disc would look
+    like a second copy of the same role chip; show roles only in that case.
+    """
+    from gcode_index.folder_tree_map import normalize_roles_list
+
+    roles = normalize_roles_list(list(role_ids or []))
+    if roles:
+        return "".join(DOT_LARGE for _ in roles)
+    return DOT_LARGE
 
 
 def flag_tag(prov: Optional[str], role_ids: Sequence[str] | None = None) -> str:
-    """Treeview tag name: prefer first role id, else status."""
-    roles = [r for r in (role_ids or []) if r]
+    """Treeview tag name: prefer first unique role id, else status."""
+    from gcode_index.folder_tree_map import normalize_roles_list
+
+    roles = normalize_roles_list(list(role_ids or []))
     if roles:
         return f"flag_{roles[0]}"
     status = (prov or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP

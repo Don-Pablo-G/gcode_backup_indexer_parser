@@ -39,6 +39,14 @@ def test_normalize_roles_multi_and_csv():
     assert roles_from_db("fixture,wip") == ["fixture", "wip"]
     assert roles_from_db("wip") == ["wip"]
     assert roles_from_db(None) == []
+    # Exact duplicates and aliases collapse to one canonical id
+    assert normalize_roles_list("system_programs,system_programs") == [
+        "system_programs"
+    ]
+    assert normalize_roles_list(["system", "system_programs", "orange"]) == [
+        "system_programs"
+    ]
+    assert roles_to_db(["System Programs", "system_programs"]) == "system_programs"
 
 
 def test_longest_prefix_wins(tmp_path: Path):

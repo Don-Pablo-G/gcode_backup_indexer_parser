@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from gcode_index import PARSER_VERSION, __version__
+from gcode_index.folder_tree_map import roles_from_db, roles_to_db
 from gcode_index.models import FileSeen, ProgramInstance, ScanResult, UnknownFolder
 
 # Optional leading O + digits only → treat as a program-number search (#20)
@@ -204,7 +205,7 @@ def write_scan_result(
                 inst.error_message,
                 inst.header_kind,
                 inst.provenance or "backup",
-                inst.role,
+                roles_to_db(roles_from_db(inst.role)),
                 inst.odbiorca_id,
                 inst.scan_root,
                 inst.programmer,

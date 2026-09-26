@@ -117,6 +117,27 @@ def is_status_colour_id(raw: str | None) -> bool:
     return key in _STATUS_LEGACY_NAMES
 
 
+def canonical_role_id(raw: str | None) -> Optional[str]:
+    """Stable role id for set membership, or ``None`` if empty / status / exclude.
+
+    Collapses aliases (``system`` / ``orange`` → ``system_programs``) without
+    inventing ``prototype`` for unknown free-form tags.
+    """
+    key = (raw or "").strip().casefold().replace(" ", "_").replace("-", "_")
+    if not key:
+        return None
+    if key in _STATUS_LEGACY_NAMES or key in _STATUS_COLOUR_IDS:
+        return None
+    if key == COLOUR_EXCLUDE:
+        return None
+    if key in _LEGACY_COLOUR_NAMES:
+        mapped = _LEGACY_COLOUR_NAMES[key]
+        if mapped == COLOUR_EXCLUDE or mapped in _STATUS_COLOUR_IDS:
+            return None
+        return mapped
+    return key
+
+
 def normalize_colour_id(raw: str | None, *, known_ids: Optional[set[str]] = None) -> str:
     """Map a role label/id to a stable id, or ``exclude``.
 

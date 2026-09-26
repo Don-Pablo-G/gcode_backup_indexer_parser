@@ -26,10 +26,17 @@ def test_dots_are_monochrome_disc_not_emoji():
     assert status_dot() == DOT_LARGE == "⬤"
     assert role_dot("🔴") == "⬤"
     assert "🟢" not in flag_text(PROVENANCE_BACKUP, ["wip"])
-    assert flag_text(PROVENANCE_BACKUP, ["wip", "fixture"]) == "⬤⬤⬤"
+    # Unique role discs only (no status disc when roles present — avoids
+    # looking like a duplicate chip when the row is role-coloured).
+    assert flag_text(PROVENANCE_BACKUP, ["wip", "fixture"]) == "⬤⬤"
+    assert flag_text(PROVENANCE_BACKUP, ["wip", "wip", "WIP"]) == "⬤"
+    assert flag_text(PROVENANCE_BACKUP, []) == "⬤"
     assert DOT == "●"  # compact disc still available for labels
 
 
 def test_flag_tag_prefers_first_role():
     assert flag_tag(PROVENANCE_EXTRA, []) == "flag_extra"
-    assert flag_tag(PROVENANCE_BACKUP, ["wip", "fixture"]) == "flag_wip"
+    assert flag_tag(PROVENANCE_BACKUP, ["wip", "fixture"]) == "flag_fixture"
+    assert flag_tag(PROVENANCE_BACKUP, ["system", "system_programs"]) == (
+        "flag_system_programs"
+    )
