@@ -49,6 +49,10 @@ class DuplicateGroup:
     kind: str  # "exact" | "near"
     label: str
     members: list  # sqlite3.Row or mapping
+    # Distinct provenance / colour ids among members (exact groups)
+    colour_ids: frozenset[str] = field(default_factory=frozenset)
+    # True when exact body hash is shared across ≥2 colours
+    colour_conflict: bool = False
 
 
 def _machine_display(machine_id: Optional[str], machine_label: Optional[str]) -> str:
@@ -57,6 +61,17 @@ def _machine_display(machine_id: Optional[str], machine_label: Optional[str]) ->
     if label and label != mid:
         return f"{label} ({mid})"
     return mid
+
+
+def _member_provenance(row) -> str:
+    keys = row.keys() if hasattr(row, "keys") else ()
+    if "provenance" in keys and row["provenance"]:
+        return str(row["provenance"]).strip() or "backup"
+    return "backup"
+
+
+def _group_colour_ids(members: list) -> frozenset[str]:
+    return frozenset(_member_provenance(m) for m in members)
 
 
 def _is_copy_type(source_type: Optional[str]) -> bool:
@@ -313,11 +328,15 @@ def find_exact_duplicate_groups(
     conn: sqlite3.Connection,
     *,
     limit_groups: int = 200,
+    colour_conflicts_only: bool = False,
 ) -> list[DuplicateGroup]:
     """Groups sharing the same non-empty ``program_sha256`` (2+ members).
 
     Falls back to ``content_sha256`` only when ``program_sha256`` is absent
     (pre-reindex DBs) — that fallback is whole-file and will not cross glued↔.nc.
+
+    When ``colour_conflicts_only`` is True, keep only groups whose members span
+    ≥2 distinct ``provenance`` / colour ids (same body, disagreeing colours).
     """
     conn.row_factory = sqlite3.Row
     cols = {row[1] for row in conn.execute("PRAGMA table_info(program_instances)")}
@@ -356,7 +375,10 @@ def find_exact_duplicate_groups(
         )
         if len(members) < 2:
             continue
-        # Build label
+        colour_ids = _group_colour_ids(members)
+        colour_conflict = len(colour_ids) >= 2
+        if colour_conflicts_only and not colour_conflict:
+            continue
         machines = sorted(
             {
                 _machine_display(m["machine_id"], m["machine_label"])
@@ -368,12 +390,35 @@ def find_exact_duplicate_groups(
         if len(machines) > 4:
             mach_note += f", +{len(machines) - 4}"
         type_note = "/".join(t for t in types if t)[:40]
+        colours_note = "+".join(sorted(colour_ids))
         label = (
             f"Exact body · {len(members)} · {sha[:12]}… · {mach_note}"
             + (f" · {type_note}" if type_note else "")
+            + (f" · {colours_note}" if colours_note else "")
         )
-        groups.append(DuplicateGroup(kind="exact", label=label, members=members))
+        groups.append(
+            DuplicateGroup(
+                kind="exact",
+                label=label,
+                members=members,
+                colour_ids=colour_ids,
+                colour_conflict=colour_conflict,
+            )
+        )
+    # Conflicts first (indexer hygiene), then by size
+    groups.sort(key=lambda g: (not g.colour_conflict, -len(g.members)))
     return groups
+
+
+def find_colour_conflict_groups(
+    conn: sqlite3.Connection,
+    *,
+    limit_groups: int = 200,
+) -> list[DuplicateGroup]:
+    """Exact body duplicates that disagree on provenance / colour."""
+    return find_exact_duplicate_groups(
+        conn, limit_groups=limit_groups, colour_conflicts_only=True
+    )
 
 
 def find_near_duplicate_groups(
@@ -482,9 +527,20 @@ def find_duplicate_groups(
     size_ratio: float = DEFAULT_NEAR_SIZE_RATIO,
     size_abs: int = DEFAULT_NEAR_SIZE_ABS,
     limit_groups: int = 200,
+    colour_conflicts_only: bool = False,
 ) -> list[DuplicateGroup]:
-    """Exact SHA groups first, then near-duplicates."""
-    out = find_exact_duplicate_groups(conn, limit_groups=limit_groups)
+    """Exact SHA groups first (conflicts sorted to top), then near-duplicates.
+
+    ``colour_conflicts_only`` returns only exact groups with ≥2 colours
+    (near-duplicates are omitted).
+    """
+    out = find_exact_duplicate_groups(
+        conn,
+        limit_groups=limit_groups,
+        colour_conflicts_only=colour_conflicts_only,
+    )
+    if colour_conflicts_only:
+        return out
     if include_near:
         remaining = max(0, limit_groups - len(out))
         if remaining:

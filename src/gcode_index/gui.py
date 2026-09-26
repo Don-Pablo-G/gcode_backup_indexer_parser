@@ -4597,30 +4597,65 @@ class ScanReportDialog(tk.Toplevel):
 
 
 class DuplicatesDialog(tk.Toplevel):
-    """Exact SHA and near-duplicate (same O# + similar size) finder (#13)."""
+    """Exact body SHA and near-duplicate finder; colour-conflict hygiene (#13)."""
 
     def __init__(self, master: tk.Tk, *, groups: list[DuplicateGroup]) -> None:
         super().__init__(master)
         self.title(_tr(master, "duplicates_title"))
-        self.minsize(640, 440)
-        self.geometry("780x520")
+        self.minsize(720, 480)
+        self.geometry("900x580")
         self.transient(master)
         self.grab_set()
         self.selected_members: list = []
-        self._groups = groups
+        self._all_groups = list(groups)
+        self._groups: list[DuplicateGroup] = []
+        self._master = master
+        self._catalog = getattr(master, "_colour_catalog", None) or ColourCatalog()
+        self._conflicts_only = tk.BooleanVar(value=False)
 
         n_exact = sum(1 for g in groups if g.kind == "exact")
         n_near = sum(1 for g in groups if g.kind == "near")
-        ttk.Label(
+        n_conflict = sum(1 for g in groups if g.colour_conflict)
+        self._summary = ttk.Label(
             self,
             text=_tr(
                 master,
                 "duplicates_summary",
                 exact=n_exact,
                 near=n_near,
+                conflicts=n_conflict,
             ),
-            wraplength=740,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+            wraplength=860,
+        )
+        self._summary.pack(fill=tk.X, padx=12, pady=(12, 4))
+
+        filter_row = ttk.Frame(self)
+        filter_row.pack(fill=tk.X, padx=12, pady=(0, 4))
+        ttk.Checkbutton(
+            filter_row,
+            text=_tr(master, "dup_colour_conflicts_only"),
+            variable=self._conflicts_only,
+            command=self._rebuild_group_list,
+        ).pack(side=tk.LEFT)
+        ttk.Label(
+            filter_row,
+            text=_tr(master, "dup_colour_conflicts_hint", n=n_conflict),
+            wraplength=520,
+        ).pack(side=tk.LEFT, padx=(12, 0))
+
+        self._banner = tk.Label(
+            self,
+            text="",
+            anchor=tk.W,
+            justify=tk.LEFT,
+            padx=10,
+            pady=6,
+            wraplength=860,
+            background="#fff3cd",
+            foreground="#664d03",
+            font=("Segoe UI", 10, "bold"),
+        )
+        # Packed on demand when a conflict group is selected
 
         paned = ttk.Panedwindow(self, orient=tk.VERTICAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
@@ -4635,20 +4670,14 @@ class DuplicatesDialog(tk.Toplevel):
         self.group_list.configure(yscrollcommand=gsb.set)
         self.group_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         gsb.pack(side=tk.RIGHT, fill=tk.Y)
-        for g in groups:
-            prefix = (
-                _tr(master, "dup_kind_exact")
-                if g.kind == "exact"
-                else _tr(master, "dup_kind_near")
-            )
-            self.group_list.insert(tk.END, f"[{prefix}] {g.label}")
         self.group_list.bind("<<ListboxSelect>>", self._on_group_select)
 
-        cols = ("program", "machine", "date", "size", "sha", "path")
+        cols = ("flag", "program", "machine", "date", "size", "sha", "path")
         self.member_tree = ttk.Treeview(
             bottom, columns=cols, show="headings", selectmode="browse", height=10
         )
         headings = {
+            "flag": (_tr(master, "col_flag"), 56),
             "program": (_tr(master, "col_program"), 90),
             "machine": (_tr(master, "col_machine"), 120),
             "date": (_tr(master, "col_date"), 100),
@@ -4658,7 +4687,11 @@ class DuplicatesDialog(tk.Toplevel):
         }
         for key, (label, width) in headings.items():
             self.member_tree.heading(key, text=label)
-            self.member_tree.column(key, width=width, stretch=(key == "path"), minwidth=40)
+            self.member_tree.column(
+                key, width=width, stretch=(key == "path"), minwidth=40
+            )
+        for c in self._catalog.colours:
+            self.member_tree.tag_configure(f"flag_{c.id}", foreground=c.swatch)
         msb = ttk.Scrollbar(bottom, orient=tk.VERTICAL, command=self.member_tree.yview)
         self.member_tree.configure(yscrollcommand=msb.set)
         self.member_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -4666,22 +4699,110 @@ class DuplicatesDialog(tk.Toplevel):
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
         ttk.Button(
             btns, text=_tr(master, "show_in_results"), command=self._show_in_results
         ).pack(side=tk.RIGHT, padx=8)
-        self._master = master
 
-        if groups:
+        self._rebuild_group_list()
+
+    def _colour_badges(self, colour_ids: frozenset[str] | set[str]) -> str:
+        bits: list[str] = []
+        for cid in sorted(colour_ids):
+            c = self._catalog.get(cid)
+            bits.append(c.badge if c is not None else "●")
+        return "".join(bits)
+
+    def _flag_for(self, prov: str) -> tuple[str, str]:
+        cid = prov or PROVENANCE_BACKUP
+        c = self._catalog.get(cid)
+        if c is not None:
+            return c.badge, f"flag_{c.id}"
+        return "●", f"flag_{cid}"
+
+    def _rebuild_group_list(self) -> None:
+        only = bool(self._conflicts_only.get())
+        if only:
+            self._groups = [g for g in self._all_groups if g.colour_conflict]
+        else:
+            self._groups = list(self._all_groups)
+        self.group_list.delete(0, tk.END)
+        for g in self._groups:
+            prefix = (
+                _tr(self._master, "dup_kind_exact")
+                if g.kind == "exact"
+                else _tr(self._master, "dup_kind_near")
+            )
+            conflict = ""
+            if g.colour_conflict:
+                badges = self._colour_badges(g.colour_ids)
+                conflict = (
+                    f" ⚠ {_tr(self._master, 'dup_colour_conflict')} {badges} · "
+                )
+            self.group_list.insert(tk.END, f"[{prefix}]{conflict}{g.label}")
+        self._hide_banner()
+        self.member_tree.delete(*self.member_tree.get_children())
+        if self._groups:
             self.group_list.selection_set(0)
             self._on_group_select()
+        elif only:
+            self._show_banner(
+                _tr(self._master, "dup_colour_conflicts_none"),
+                conflict=False,
+            )
+
+    def _show_banner(self, text: str, *, conflict: bool = True) -> None:
+        if conflict:
+            self._banner.configure(
+                text=text,
+                background="#f8d7da",
+                foreground="#842029",
+            )
+        else:
+            self._banner.configure(
+                text=text,
+                background="#e2e3e5",
+                foreground="#41464b",
+            )
+        if self._banner.winfo_ismapped():
+            return
+        for child in self.winfo_children():
+            if isinstance(child, ttk.Panedwindow):
+                self._banner.pack(fill=tk.X, padx=12, pady=(0, 4), before=child)
+                return
+        self._banner.pack(fill=tk.X, padx=12, pady=(0, 4))
+
+    def _hide_banner(self) -> None:
+        if self._banner.winfo_ismapped():
+            self._banner.pack_forget()
 
     def _on_group_select(self, *_args) -> None:
         self.member_tree.delete(*self.member_tree.get_children())
         sel = self.group_list.curselection()
         if not sel:
+            self._hide_banner()
             return
         group = self._groups[sel[0]]
+        if group.colour_conflict:
+            badges = self._colour_badges(group.colour_ids)
+            colours = ", ".join(
+                self._catalog.label_for(cid, getattr(self._master, "_lang", "pl"))
+                for cid in sorted(group.colour_ids)
+            )
+            self._show_banner(
+                _tr(
+                    self._master,
+                    "dup_colour_conflict_banner",
+                    badges=badges,
+                    colours=colours,
+                    n=len(group.colour_ids),
+                ),
+                conflict=True,
+            )
+        else:
+            self._hide_banner()
         for i, m in enumerate(group.members):
             keys = m.keys()
             if "program_sha256" in keys and m["program_sha256"]:
@@ -4694,11 +4815,17 @@ class DuplicatesDialog(tk.Toplevel):
             size = m["source_size"]
             size_s = str(size) if size is not None else ""
             machine = m["machine_label"] or m["machine_id"] or ""
+            prov = "backup"
+            if "provenance" in keys and m["provenance"]:
+                prov = str(m["provenance"]).strip() or "backup"
+            badge, tag = self._flag_for(prov)
             self.member_tree.insert(
                 "",
                 tk.END,
                 iid=str(i),
+                tags=(tag,),
                 values=(
+                    badge,
                     m["program_number"] or "",
                     machine,
                     format_display_date(m["backup_date"]),

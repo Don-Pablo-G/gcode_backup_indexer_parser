@@ -9,6 +9,7 @@ from gcode_index.aliases import AliasMap
 from gcode_index.db import open_db, write_scan_result
 from gcode_index.models import FileSeen, ProgramInstance, ScanResult, UnknownFolder
 from gcode_index.scan_report import (
+    find_colour_conflict_groups,
     find_duplicate_groups,
     find_exact_duplicate_groups,
     find_near_duplicate_groups,
@@ -33,6 +34,7 @@ def _inst(
     source_type: str = "loose_nc",
     date: str = "2026-09-15T00:00:00+00:00",
     program_sha: str | None = None,
+    provenance: str = "backup",
 ) -> ProgramInstance:
     return ProgramInstance(
         program_number=program,
@@ -47,6 +49,7 @@ def _inst(
         content_sha256=sha,
         program_sha256=program_sha if program_sha is not None else sha,
         control_family="haas",
+        provenance=provenance,
     )
 
 
@@ -181,6 +184,8 @@ def test_exact_and_near_duplicates(tmp_path: Path):
     assert exact[0].kind == "exact"
     assert len(exact[0].members) == 2
     assert "Exact body" in exact[0].label
+    assert exact[0].colour_conflict is False
+    assert exact[0].colour_ids == frozenset({"backup"})
 
     near = find_near_duplicate_groups(conn)
     assert len(near) == 1
@@ -192,4 +197,69 @@ def test_exact_and_near_duplicates(tmp_path: Path):
     assert len(all_groups) == 2
     assert all_groups[0].kind == "exact"
     assert all_groups[1].kind == "near"
+    conn.close()
+
+
+def test_colour_conflict_exact_groups(tmp_path: Path):
+    """Same program_sha256 under green + yellow → colour conflict."""
+    db = tmp_path / "gcode_index.sqlite"
+    conn = open_db(db)
+    same = "cd" * 32
+    result = ScanResult(
+        instances=[
+            _inst(
+                program="7777",
+                machine="haas-vf-2",
+                sha=same,
+                size=800,
+                path="green/a.nc",
+                provenance="backup",
+            ),
+            _inst(
+                program="7777",
+                machine="haas-vf-2",
+                sha=same,
+                size=800,
+                path="yellow/WIP/a.nc",
+                provenance="extra",
+            ),
+            # Same colours — not a conflict
+            _inst(
+                program="8888",
+                machine="haas-sl-20",
+                sha="ee" * 32,
+                size=100,
+                path="g1/b.nc",
+                provenance="backup",
+            ),
+            _inst(
+                program="8888",
+                machine="haas-umc750",
+                sha="ee" * 32,
+                size=100,
+                path="g2/b.nc",
+                provenance="backup",
+            ),
+        ]
+    )
+    write_scan_result(
+        conn, backup_root=str(tmp_path), aliases_path=None, result=result
+    )
+
+    exact = find_exact_duplicate_groups(conn)
+    assert len(exact) == 2
+    # Conflicts sorted first
+    assert exact[0].colour_conflict is True
+    assert exact[0].colour_ids == frozenset({"backup", "extra"})
+    assert exact[1].colour_conflict is False
+
+    conflicts = find_colour_conflict_groups(conn)
+    assert len(conflicts) == 1
+    assert conflicts[0].colour_conflict is True
+    paths = {m["source_path"] for m in conflicts[0].members}
+    assert paths == {"green/a.nc", "yellow/WIP/a.nc"}
+
+    filtered = find_duplicate_groups(conn, colour_conflicts_only=True)
+    assert len(filtered) == 1
+    assert filtered[0].kind == "exact"
     conn.close()
