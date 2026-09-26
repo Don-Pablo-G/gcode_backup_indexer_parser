@@ -1,4 +1,8 @@
-"""Locate and open bundled user manuals (EN/PL, Simple/Full)."""
+"""Locate and open bundled user manuals (EN/PL; operator vs indexer).
+
+Kinds ``simple`` / ``full`` are legacy filenames for floor (`can_index=no`) vs
+indexer (`can_index=yes`) manuals — not a Prosty/Pełny UI mode.
+"""
 
 from __future__ import annotations
 

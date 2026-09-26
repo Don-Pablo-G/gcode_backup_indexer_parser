@@ -109,7 +109,10 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 
 ## Szukanie i wydobycie
 
-Jak na kliencie hali, plus **Więcej filtrów**, **Porównaj…**, **Duplikaty…**. Wydobycie sprawdza SHA-256 + rozmiar ze skanu.
+Jak na kliencie hali, plus:
+
+- **Uwzględniaj nieprzypisane** / **Include unassigned** (domyślnie **ON**) — przy aktywnym filtrze maszyn zostawia w wynikach **MACHINE UNKNOWN** / `unmapped:…`. Wyłączenie pokazuje ostrzeżenie. Zapis: `[scan] include_unknown` w `gcode-index.ini`. Na kliencie hali i przy blokadzie zawsze **ON** (kontrolka wyłączona).
+- **Więcej filtrów**, **Porównaj…**, **Duplikaty…**. Wydobycie sprawdza SHA-256 + rozmiar ze skanu.
 
 ---
 
@@ -121,9 +124,9 @@ Jak na kliencie hali, plus **Więcej filtrów**, **Porównaj…**, **Duplikaty�
 
 Komputery na hali: `settings_locked = yes` w ini **albo** pusty plik `operator.lock` / `can_index.lock` obok ini. Wtedy `can_index` jest wymuszane na **no**.
 
-## Odświeżanie wyników
+## Odświeżanie wyników (klienci po skanie przyrostowym)
 
-Zaznacz **Odświeżaj wyniki**, aby ponowić bieżące wyszukiwanie, gdy zmieni się `gcode_index.sqlite` (mtime, domyślnie ~20 s). Zapis: `search_auto_refresh` w ini.
+Zaznacz **Odświeżaj wyniki**, aby **ponowić bieżące wyszukiwanie**, gdy zmieni się `gcode_index.sqlite` (mtime, domyślnie ~20 s). Przydatne na hali z bazą na **udziale sieciowym**, gdy indeksator robi Obserwuj / harmonogram przyrostowy: nowe wiersze pojawiają się bez czyszczenia filtrów i bez ponownego otwierania pliku. Zapis: `search_auto_refresh` / `search_auto_refresh_s` w ini. Bez tego operator klika Szukaj ponownie po skanie.
 
 ## Ustawienia instalacji
 

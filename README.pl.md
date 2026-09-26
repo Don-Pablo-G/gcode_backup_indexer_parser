@@ -10,11 +10,11 @@ Indeksuje **drzewa kopii zapasowych** maszyn CNC do przenośnego katalogu **SQLi
 
 | Dokument | Dla kogo |
 |----------|----------|
-| [Instrukcja operatora (odczyt)](docs/pl/manual-simple.md) | Szukanie i wydobycie z gotowej bazy (`can_index=no`) |
-| [Instrukcja indeksatora](docs/pl/manual-full.md) | Budowa i utrzymanie bazy (`can_index=yes`) |
+| [Instrukcja operatora](docs/pl/manual-simple.md) | Klient hali (`can_index=no`) — szukanie i wydobycie |
+| [Instrukcja indeksatora](docs/pl/manual-full.md) | PC indeksatora (`can_index=yes`) — budowa i utrzymanie bazy |
 | Same manuals in English | [docs/en/](docs/en/) |
 
-W aplikacji GUI: menu **Pomoc** (otwiera te same instrukcje w oknie).
+W aplikacji GUI: menu **Pomoc** otwiera te same instrukcje (operator vs indeksator wg `can_index` tej instalacji). Nazwy plików `manual-simple` / `manual-full` są legacy — **nie ma** przełącznika Prosty/Pełny.
 
 ## Wymagania
 
@@ -43,12 +43,16 @@ python3 -m pip install -e ".[dev]"
 
 | `can_index` | Kto | Co widać |
 |-------------|-----|----------|
-| **no** (domyślnie / hala) | Operator | Tylko odczyt — otwórz bazę, szukaj, podgląd, **Wydobądź** |
-| **yes** (PC indeksatora) | Indeksator | Jedna powierzchnia wyszukiwania + skan, zieleń/żółć, harmonogram, **obserwacja folderów**, Windows **autostart** / **zasobnik**, mapa/aliasy, … |
+| **no** (domyślnie / hala) | Operator | Tylko odczyt — otwórz bazę, szukaj, **Uwzględniaj nieprzypisane** (zablokowane ON), podgląd (+ szukanie w podglądzie), **Wydobądź**. Opcjonalnie mapowanie ścieżek i **Odświeżaj wyniki**. |
+| **yes** (PC indeksatora) | Indeksator | Zakładki **Praca** (szukanie / wyniki / podgląd) i **Indeks** (foldery, skan, mapa, obserwacja Auto\|Poll, harmonogram + odliczanie, historia, autostart/zasobnik, …) |
 
-Legacy `[ui] mode=simple\|full` nadal się wczytuje (`simple`→`no`, `full`→`yes`). Wszystkie klucze: `gcode-index.ini.example`.
+Blokada wdrożenia: `settings_locked=yes` albo pusty `operator.lock` / `can_index.lock` obok ini wymusza odczyt. Legacy `[ui] mode=simple|full` nadal się wczytuje (`simple`→`no`, `full`→`yes`). Wszystkie klucze: `gcode-index.ini.example`.
 
 Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza).
+
+### Po skanie przyrostowym
+
+Indeksator (Watch / auto-indeks) nadpisuje współdzielony `gcode_index.sqlite`. Na hali zaznacz **Odświeżaj wyniki** — bieżące wyszukiwanie uruchamia się ponownie po zmianie mtime bazy (~20 s), bez czyszczenia filtrów.
 
 ## Windows — gotowy `.exe`
 

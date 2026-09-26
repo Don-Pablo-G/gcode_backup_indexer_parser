@@ -32,7 +32,8 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 2. Optionally open **Machines** and multi-select (Ctrl/Shift+click). Empty / all = every machine.
 3. Optionally set **Date from / to** as `DD.MM.YYYY` (or open the small calendar via **▾** next to each field).
 4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
-5. Click a **column header** in the results table to sort ascending/descending (click again to flip).
+5. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
+6. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 
 Results appear in the table. **Preview** stays docked on the **right** (full height, resizable) — not under the table.
 
@@ -82,13 +83,19 @@ Applies to the main backup and green/yellow roots under that prefix. Search work
 
 ---
 
-## Auto-refresh search
+## After the indexer updates the database
 
-Optional: tick **Auto-refresh results** so the table updates when the indexer writes a new database (shared network path). No need to clear or retype the search. Preference is stored in `gcode-index.ini`.
+When the indexer PC runs an **incremental** scan (Watch folders or scheduled auto-index), it rewrites `gcode_index.sqlite` on the shared path. Floor clients do **not** need to close the DB or clear the find bar:
+
+1. Tick **Auto-refresh results** / **Odświeżaj wyniki** (saved as `search_auto_refresh` in the ini; poll interval `search_auto_refresh_s`, default ~20 s).
+2. When the DB file’s mtime changes, the app **re-runs the current search** with the same text, machines, dates, and filters.
+3. New / updated / removed programs from the incremental scan show up in the table automatically.
+
+Without auto-refresh, click **Search** again (or change a filter) after the indexer finishes.
 
 ## Operator lock
 
-If this PC has `operator.lock` (or `settings_locked=yes`), it stays retrieve-only even if someone edits `can_index=yes` in the ini.
+If this PC has `operator.lock` / `can_index.lock` beside the ini or exe, or `settings_locked=yes` in the ini, it stays retrieve-only even if someone edits `can_index=yes`. There is **no** Prosty/Pełny (Simple/Full) mode switch — capability is only `can_index` + lock.
 
 ## Tips
 

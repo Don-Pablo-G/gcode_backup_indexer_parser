@@ -10,11 +10,11 @@ Index CNC machine **backup folder trees** into a portable **SQLite** catalog of 
 
 | Document | Audience |
 |----------|----------|
-| [Operator manual (Simple)](docs/en/manual-simple.md) | Search & extract from an existing database |
-| [Indexer manual (Full)](docs/en/manual-full.md) | Build & maintain the database |
+| [Operator manual](docs/en/manual-simple.md) | Floor client (`can_index=no`) — search & extract |
+| [Indexer manual](docs/en/manual-full.md) | Indexer PC (`can_index=yes`) — build & maintain the database |
 | Polish manuals | [docs/pl/](docs/pl/) |
 
-In the GUI: **Help / Pomoc** menu (and the **Help** button next to Mode) opens the same manuals.
+In the GUI: **Help / Pomoc** opens the same manuals (operator vs indexer text matches this PC’s `can_index`). Legacy filenames still say `manual-simple` / `manual-full`; there is **no** Prosty/Pełny mode switch.
 
 ## Requirements
 
@@ -45,7 +45,7 @@ Entry points:
 
 ## Instance settings (``gcode-index.ini``)
 
-The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening the app restores backup / database / extract / green & yellow scan roots / language / mode / schedule without re-picking folders.
+The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening the app restores backup / database / extract / green & yellow scan roots / language / `can_index` / schedule / watch / desktop prefs without re-picking folders.
 
 - Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example)
 - Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
@@ -60,67 +60,74 @@ REM or:
 python -m gcode_index.gui
 ```
 
-The GUI capability comes from **`gcode-index.ini`** next to the exe (not a runtime mode switch):
+The GUI capability comes from **`gcode-index.ini`** next to the exe (not a runtime Prosty/Pełny switch):
 
 | `can_index` | Who | What you see |
 |-------------|-----|----------------|
-| **no** (default / shop PCs) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, preview, **Wydobądź** / Extract. Optional extract folder + path remap. No scan / index / schedule / watch / map chrome. |
-| **yes** (indexer PC) | Indexer | Single search surface **plus** indexing tools: backup/target/extract, green/yellow extras, schedule, **watch folders** (+ status strip), Windows **autostart** / **tray**, map / machines & aliases, Excel, incremental, advanced filters, presets, compare, scan report, duplicates |
+| **no** (default / shop PCs) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, **Include unassigned** (locked ON), preview (+ find in preview), **Wydobądź** / Extract. Optional extract folder + path remap + auto-refresh. No scan / index / schedule / watch / map chrome. |
+| **yes** (indexer PC) | Indexer | Two nav tabs — **Work / Praca** (search, results, preview) and **Index / Indeks** (folders, scan, map, watch Auto\|Poll, schedule + countdown, history, autostart/tray, report/duplicates/Excel). |
 
-Legacy `[ui] mode=simple|full` still loads when `can_index` is absent (`simple`→`no`, `full`→`yes`). See `gcode-index.ini.example` for every setting commented.
+Deploy lock: `settings_locked=yes` or empty `operator.lock` / `can_index.lock` beside the ini forces retrieve-only. Legacy `[ui] mode=simple|full` still loads when `can_index` is absent (`simple`→`no`, `full`→`yes`). See `gcode-index.ini.example` for every setting commented.
 
 ### Floor client (`can_index=no`)
 
 1. Click green **Otwórz istniejącą bazę…** / **Open existing DB…** and pick `gcode_index.sqlite`.  
 2. Optionally set a separate **extract folder** for Wydobądź output (blank = same folder as the open DB). No backup/database path pickers.  
-3. Search / pick machines (popup) / dates; tick **Tylko najnowsze**.  
-4. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table.  
-5. Indexing happens on the PC with `can_index=yes` (edit that install’s `.ini`).
+3. Search / pick machines (popup) / dates; tick **Tylko najnowsze**. **Include unassigned** stays ON (locked) so MACHINE UNKNOWN rows remain when filtering machines.  
+4. Select a row → green **Wydobądź** (or double-click). Preview sits **beside** the results table; use **In preview** to find text in the body.  
+5. Optional **Auto-refresh results**: when the indexer rewrites the shared DB after an incremental scan, the current search re-runs automatically (~20 s mtime poll).  
+6. Indexing happens on the PC with `can_index=yes` (edit that install’s `.ini`). Path remap under **Change…** if this PC sees the backup share under a different drive letter.
 
 ### Indexer (`can_index=yes`)
 
-1. **Browse** → pick the main **backup folder** tree.  
-2. **Browse** → pick a **database folder** (`gcode_index.sqlite` + sidecar yaml live here).  
-3. Optionally **Browse** a separate **extract folder** for Wydobądź output (leave blank to write next to the DB).  
-4. Optionally **Add folder…** under **Extra folders** for other trees to index (and their subfolders).  
-   - Main backup programs get a **green** flag (ran on the machine / from backup).  
-   - Extra-folder programs get a **yellow** flag (not from backup / not confirmed run).  
-   - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.  
-5. Click **Map folders…** (optional but recommended). The app scans `<date>/<machine>` folders, **auto-matches** names it knows from aliases, and lists **only unmatched** folders for manual assign. Subfolders inherit.  
-   - Map is saved as `machine_folders.yaml` next to the DB (wins over aliases).  
-   - Optional checkbox: also save assignments as **local aliases** (`aliases.local.yaml` next to the DB) so the same odd folder names auto-match on later scans.  
-   - First scan prompts only when unmatched folders remain.  
-   - **Machines & aliases…** opens a **machine list**: select a machine to edit its folder aliases (and label / control / layout). **Add machine** / **Remove machine** manage shop-local machines. Bundled spellings are read-only; add a local spelling to customize. Bundled `aliases.yaml` stays read-only.  
-6. Click **Run index / scan** (optional Excel export checkbox; optional **Auto-index** schedule).  
-   After a successful scan the table lists indexed programs with **source path** and **in-file location**.  
-7. **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:  
-   - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).  
-     The list is seeded from `aliases.yaml` + local aliases (so **HAAS UMC750**, ST-20Y, … always appear) plus **MACHINE UNKNOWN**, and merged with machines seen in the last scan.  
-     VF-2 has three entries (legacy / **nowa** / **stara**); selecting **HAAS VF-2** also matches the nowa/stara ids.  
-   - **Date from / to** (`DD.MM.YYYY`, e.g. `15.09.2026`)  
-   - **Source type** (`loose_nc`, `haas_pgm_glued`, …)  
-   - **Control** (`haas`, `fanuc`, `sinumerik`)  
-   - **Flag** — all / green (backup) / yellow (extra)  
-   - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)  
-   - **Newest only** — one row per program + machine (latest backup date)  
-   - **Preset** — **Save current…** / **Load** / **Delete** named filter sets (`filter_presets.yaml` next to the DB)  
-   - Click any **results column header** to sort asc/desc (also on floor clients)  
-   - **More filters** (indexer): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges  
-   - **Incremental** — skip unchanged source files (size + mtime) and reuse their index rows; uncheck for a full re-parse  
-   - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)  
-   Text matches program #, part #, path, machine names, FANUC folder paths, and programmer.  
-   Program-number search is **O / zero-padding aware**: `O03232`, `03232`, and `3232` find the same program.  
-   Empty text + filters still works.  
-8. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser (defaults into the **extract folder**).  
-   **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).  
-   Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.  
-   Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).  
-   The **Preview** pane under the results table shows the selected program body before you extract (large programs are truncated in the pane only).  
-   Select **exactly two** rows → **Compare…** for a unified diff (also on right-click).  
-9. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.  
-10. **Duplicates…** finds **exact** copies (same content SHA-256) and **near**-duplicates (same program # + similar size, different hash) across machines/dates; **Show in results** loads a group into the main table.
+Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Indeks** for folders and scanning.
 
-While **Run index / scan** is running, a progress bar shows file count and ETA. You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar.
+1. On **Indeks**: **Browse** → pick the main **backup folder** tree.
+2. **Browse** → pick a **database folder** (`gcode_index.sqlite` + sidecar yaml live here).
+3. Optionally **Browse** a separate **extract folder** for Wydobądź output (leave blank to write next to the DB).
+4. Optionally **Add folder…** under **Extra folders** for other trees to index (and their subfolders).
+   - Main backup programs get a **green** flag (ran on the machine / from backup).
+   - Extra-folder programs get a **yellow** flag (not from backup / not confirmed run).
+   - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.
+5. **Path remap (client)** under **Change…** if Extract/preview need a different drive letter than `scan_root` in the DB.
+6. Click **Map folders…** (optional but recommended). The app scans `<date>/<machine>` folders, **auto-matches** names it knows from aliases, and lists **only unmatched** folders for manual assign. Subfolders inherit.
+   - Map is saved as `machine_folders.yaml` next to the DB (wins over aliases).
+   - Optional checkbox: also save assignments as **local aliases** (`aliases.local.yaml` next to the DB) so the same odd folder names auto-match on later scans.
+   - First scan prompts only when unmatched folders remain.
+   - **Machines & aliases…** opens a **machine list**: select a machine to edit its folder aliases (and label / control / layout). **Add machine** / **Remove machine** manage shop-local machines. Bundled spellings are read-only; add a local spelling to customize. Bundled `aliases.yaml` stays read-only.
+7. Click **Run index / scan** (optional Excel export; optional **Incremental**; optional **Auto-index** schedule with live countdown).
+   **Watch folders** — method **Auto** (OS events on local disks, stamp-poll on UNC/network) or **Poll only**. One PC holds `gcode_index.lock`.
+   **Scan history…** lists recent runs from `scan_history.json` (added/updated/removed/unchanged).
+   Windows: **Start at Windows logon**, **Close to tray** / **Minimize to tray**.
+   After a successful scan the table lists indexed programs with **source path** and **in-file location**.
+8. On **Praca**: **Find programs** with free text (letters, digits, dashes — e.g. `P-00253232 VA` or `O03232`; **case-insensitive**), plus filters:
+   - **Machines** (multi-select list — Ctrl/Shift+click; **All** / **None** buttons; empty selection = all machines).
+     The list is seeded from `aliases.yaml` + local aliases (so **HAAS UMC750**, ST-20Y, … always appear) plus **MACHINE UNKNOWN**, and merged with machines seen in the last scan.
+     VF-2 has three entries (legacy / **nowa** / **stara**); selecting **HAAS VF-2** also matches the nowa/stara ids.
+   - **Include unassigned** / **Uwzględniaj nieprzypisane** (default ON) — keep MACHINE UNKNOWN rows when a machine filter is active (`include_unknown` in ini).
+   - **Date from / to** (`DD.MM.YYYY`, e.g. `15.09.2026`)
+   - **Source type** (`loose_nc`, `haas_pgm_glued`, …)
+   - **Control** (`haas`, `fanuc`, `sinumerik`)
+   - **Flag** — all / green (backup) / yellow (extra)
+   - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)
+   - **Newest only** — one row per program + machine (latest backup date)
+   - **Preset** — **Save current…** / **Load** / **Delete** named filter sets (`filter_presets.yaml` next to the DB)
+   - Click any **results column header** to sort asc/desc (also on floor clients)
+   - **More filters** (indexer): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges
+   - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)
+   Search matches program #, part #, path, machine names, FANUC folder paths, and programmer.
+   Program-number search is **O / zero-padding aware**: `O03232`, `03232`, and `3232` find the same program.
+   Empty text + filters still works.
+9. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser (defaults into the **extract folder**).
+   **Multi-select** (Ctrl/Shift+click) → batch extract into a folder (filenames include program, machine, date).
+   Or use **Open folder** / **Copy path** (also on right-click) to jump to the source file in Explorer / copy its absolute path.
+   Extract **checks SHA-256 + size** stamped at scan time — if the source file changed, extract is refused (re-scan first).
+   The **Preview** pane beside the results shows the selected program body (**In preview** find with next/prev + highlight). Large programs are truncated in the pane only.
+   Select **exactly two** rows → **Compare…** for a unified diff (also on right-click).
+10. After each successful scan a **Scan report** panel opens (also via **Scan report…**): per-machine counts, `*.nc.copy` totals, MACHINE UNKNOWN samples, unmapped folders, skipped dumps / errors.
+11. **Duplicates…** finds **exact** copies (same content SHA-256) and **near**-duplicates (same program # + similar size, different hash) across machines/dates; **Show in results** loads a group into the main table.
+
+While **Run index / scan** is running, a progress bar shows file count and ETA. You can also **Open existing DB…** without re-scanning. **Clear filters** resets the find bar. Floor clients with **Auto-refresh results** re-query when this PC’s incremental scan updates the shared sqlite.
 
 ## Windows standalone app (`.exe`)
 
@@ -131,12 +138,12 @@ You do **not** need Python installed if you use a prebuilt bundle from GitHub Ac
 1. Open **Actions** → workflow **Windows GUI build**:  
    https://github.com/Don-Pablo-G/gcode_backup_indexer_parser/actions/workflows/windows-build.yml  
 2. Open the latest successful run (or click **Run workflow**).  
-3. Download the artifact named like **`gcode-index-gui-windows-0.2.3-b42`** (version + build in the name).  
+3. Download the artifact named like **`gcode-index-gui-windows-0.2.57-b80`** (version + build in the name).  
 4. Unzip anywhere and run **`gcode-index-gui.exe`** inside the `gcode-index-gui-<version>` folder.  
    Keep the whole folder together (this is an **onedir** build — DLLs sit next to the exe).  
    A `VERSION.txt` beside the exe records `version=` and `build=`.
 
-On a version tag (`v0.2.3`, …), the same zip (e.g. `gcode-index-gui-windows-0.2.3-b42.zip`) is also attached as a **Release** asset.
+On a version tag (`v0.2.57`, …), the same zip (e.g. `gcode-index-gui-windows-0.2.57-b80.zip`) is also attached as a **Release** asset.
 
 ### Build the exe yourself on Windows
 

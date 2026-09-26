@@ -32,7 +32,8 @@ Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder 
 2. Opcjonalnie **Maszyny** — wielokrotny wybór (Ctrl/Shift+klik). Puste / wszystkie = każda maszyna.
 3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR` (albo mały kalendarz przez **▾** obok pola).
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
-5. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
+5. **Uwzględniaj nieprzypisane** / **Include unassigned** na kliencie hali jest zawsze **włączone** i **zablokowane** — przy filtrze maszyn w wynikach zostają też **MACHINE UNKNOWN** / nieprzypisane. (Na PC indeksatora można wyłączyć po ostrzeżeniu; zapis: `include_unknown` w ini, domyślnie yes.)
+6. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 
 Wyniki są w tabeli. **Podgląd** jest na stałe **po prawej** (pełna wysokość, rozciągany) — nie pod tabelą.
 
@@ -82,13 +83,19 @@ Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym pre
 
 ---
 
-## Odświeżanie wyników
+## Po aktualizacji bazy przez indeksator
 
-Opcjonalnie: **Odświeżaj wyniki** — tabela aktualizuje się, gdy indeksator zapisze nową bazę (udział sieciowy). Bez ponownego wpisywania szukania.
+Gdy PC indeksatora robi skan **przyrostowy** (Obserwuj foldery lub auto-indeks), nadpisuje `gcode_index.sqlite` na udziale. Klient hali **nie** musi zamykać bazy ani czyścić paska szukania:
+
+1. Zaznacz **Odświeżaj wyniki** (zapis: `search_auto_refresh` w ini; interwał `search_auto_refresh_s`, domyślnie ~20 s).
+2. Gdy zmieni się mtime pliku bazy, aplikacja **ponawia bieżące wyszukiwanie** z tym samym tekstem, maszynami, datami i filtrami.
+3. Nowe / zmienione / usunięte programy ze skanu przyrostowego pojawiają się w tabeli automatycznie.
+
+Bez odświeżania kliknij ponownie **Szukaj** (albo zmień filtr) po zakończeniu skanu na indeksatorze.
 
 ## Blokada operatora
 
-Gdy jest `operator.lock` (lub `settings_locked=yes`), PC zostaje w trybie odczytu nawet po edycji `can_index=yes` w ini.
+Gdy jest `operator.lock` / `can_index.lock` obok ini lub exe, albo `settings_locked=yes` w ini, PC zostaje w trybie odczytu nawet po edycji `can_index=yes`. **Nie ma** przełącznika Prosty/Pełny — zdolność to tylko `can_index` + blokada.
 
 ## Wskazówki
 

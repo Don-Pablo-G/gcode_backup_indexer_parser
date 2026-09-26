@@ -126,6 +126,7 @@ The GUI is **single-instance**: launching again (including while it sits in the 
 
 Same find bar as the floor client, plus:
 
+- **Include unassigned** / **Uwzględniaj nieprzypisane** (default **ON**) — when a machine multi-select is active, keep **MACHINE UNKNOWN** / `unmapped:…` rows in the results. Turning OFF shows a confirm warning. Saved as `[scan] include_unknown` in `gcode-index.ini`. Floor clients and locked installs force this **ON** (control disabled).
 - **More filters** — source type, control, flag (green/yellow), programmer, presets, **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
 - Click any **results column header** to sort ascending/descending
 - **Compare…** — unified diff of exactly two selected rows
@@ -149,9 +150,9 @@ Shop PCs should stay retrieve-only. Either:
 
 When locked, `can_index` is forced to **no** even if the ini says yes. Remove the lock only on the indexer PC.
 
-## Auto-refresh search
+## Auto-refresh search (clients after incremental index)
 
-Tick **Auto-refresh results** / **Odświeżaj wyniki** to re-run the current search when `gcode_index.sqlite` changes (mtime poll, default ~20s). Optional for floor clients sharing a network DB. Saved as `search_auto_refresh` / `search_auto_refresh_s` in the ini.
+Tick **Auto-refresh results** / **Odświeżaj wyniki** to **re-run the current search** when `gcode_index.sqlite` changes (mtime poll, default ~20 s). Useful on floor clients that open a **network** copy of the DB while the indexer runs Watch / scheduled incremental scans: new rows appear without clearing filters or reopening the file. Saved as `search_auto_refresh` / `search_auto_refresh_s` in the ini. Without it, operators click Search again after the indexer finishes.
 
 ## Instance settings
 
