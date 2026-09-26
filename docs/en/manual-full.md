@@ -84,7 +84,7 @@ Results Flag column shows **status + role badge(s)**. Use separate **Status** an
 
 ## Map folders and aliases
 
-1. **Folder names…** — repeated folder names across the backup and extra roots (sorted by frequency); assign a machine, role and/or **recipient (odbiorca)** alias to a name (everywhere). Writes `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml` (exact name). Existing `machine_folders.yaml` is still read by the scanner.
+1. **Folder names…** — name-binding hub: list from the backup and extra roots (most frequent first), **chips** for machine / function / recipient when bound. **Right-click** (or double-click) → new recipient/machine/function from this name or alias to an existing entry (label and alias prefilled from the folder spelling). Recipients / Machines / Roles catalogues stay for maintenance. Writes `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml`.
 2. **Map tree…** — lazy path tree for machine + recipient + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins). Right-click a folder → name alias everywhere (machine / role / recipient).
 3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
 4. **Folder roles…** — role catalogue (swatch, meaning) and name → role aliases.

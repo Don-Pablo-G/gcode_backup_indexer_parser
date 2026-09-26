@@ -93,7 +93,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Map tree…** (`folder_tree_map.yaml`): path-specific machine + **multi-tag** roles + exclude; longest path prefix beats name aliases; reindex reapplies without reopening the tree.  
    - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.
 5. **Path remap (client)** under **Change…** if Extract/preview need a different drive letter than `scan_root` in the DB.
-6. Click **Folder names…** (optional but recommended). Lists distinct folder names across the backup and extra roots, **sorted by how often they appear**, so you can assign a **machine** and/or **role** name alias (everywhere). Same write path as Map tree right-click (`aliases.local.yaml` / exact `folder_colour_aliases`). Existing `machine_folders.yaml` is still read by the scanner if present.
+6. Click **Folder names…** (optional but recommended) — the **name-binding hub**. Frequency list with **chips** (machine / function / recipient). Right-click a row → create from this name or add an alias to an existing entry (label/alias prefilled). Catalogue dialogs stay for maintenance. Writes `aliases.local.yaml` / exact `folder_colour_aliases` / `odbiorcy.yaml`.
    - First scan prompts when unmatched date/machine folders remain.
    - **Machines & aliases…** opens a **machine list**: select a machine to edit its folder aliases (and label / control / layout). **Add machine** / **Remove machine** manage shop-local machines. Bundled spellings are read-only; add a local spelling to customize. Bundled `aliases.yaml` stays read-only.
 7. Click **Run index / scan** (optional Excel export; optional **Incremental**; optional **Auto-index** schedule with live countdown).

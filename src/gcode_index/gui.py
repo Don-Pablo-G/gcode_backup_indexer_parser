@@ -9,6 +9,7 @@ Stdlib only (no MSVC / extra GUI wheels). Launch::
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import threading
 import tkinter as tk
@@ -6199,11 +6200,11 @@ def _lang_of(master) -> str:
 
 
 class FolderNameBrowserDialog(tk.Toplevel):
-    """Browse repeated folder names across trees; assign machine/role name aliases.
+    """Nazwy folderów hub: frequency list + binding chips + context menu.
 
-    Writes ``aliases.local.yaml`` and/or ``folder_colour_aliases`` (exact name
-    rules) — same path as tree right-click. Does not write ``machine_folders.yaml``
-    (still readable by the scanner if present from older installs).
+    Primary bind surface for machine / role / odbiorca name aliases. Creates
+    catalogue entries from a folder spelling when needed. Does not write
+    ``machine_folders.yaml`` (still readable by the scanner).
     """
 
     def __init__(
@@ -6223,7 +6224,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
         super().__init__(master)
         self.title(_tr(master, "name_browser_dialog_title"))
         self.minsize(780, 480)
-        self.geometry("920x560")
+        self.geometry("940x560")
         self.transient(master)
         self.grab_set()
         self.changed = False
@@ -6247,7 +6248,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
         ttk.Label(
             self,
             text=_tr(master, "name_browser_intro"),
-            wraplength=820,
+            wraplength=900,
         ).pack(fill=tk.X, padx=12, pady=(12, 6))
 
         filt = ttk.Frame(self)
@@ -6263,43 +6264,33 @@ class FolderNameBrowserDialog(tk.Toplevel):
 
         body = ttk.Frame(self)
         body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
-        cols = ("name", "count", "machine", "role", "odbiorca")
+        cols = ("name", "count", "chips")
         self._tree = ttk.Treeview(
             body, columns=cols, show="headings", selectmode="browse"
         )
         self._tree.heading("name", text=_tr(master, "name_browser_col_name"))
         self._tree.heading("count", text=_tr(master, "name_browser_col_count"))
-        self._tree.heading("machine", text=_tr(master, "name_browser_col_machine"))
-        self._tree.heading("role", text=_tr(master, "name_browser_col_role"))
-        self._tree.heading("odbiorca", text=_tr(master, "name_browser_col_odbiorca"))
-        self._tree.column("name", width=180, stretch=True)
+        self._tree.heading("chips", text=_tr(master, "name_browser_col_chips"))
+        self._tree.column("name", width=200, stretch=True)
         self._tree.column("count", width=80, anchor=tk.E, stretch=False)
-        self._tree.column("machine", width=180, stretch=True)
-        self._tree.column("role", width=140, stretch=True)
-        self._tree.column("odbiorca", width=140, stretch=True)
+        self._tree.column("chips", width=480, stretch=True)
         sb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self._tree.yview)
         self._tree.configure(yscrollcommand=sb.set)
         self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tree.bind("<Double-Button-1>", lambda _e: self._assign_machine())
+        self._tree.bind("<Button-3>", self._on_row_context)
+        self._tree.bind("<Button-2>", self._on_row_context)
+        self._tree.bind("<Control-Button-1>", self._on_row_context)
+        self._tree.bind("<Double-Button-1>", self._on_row_context)
 
-        actions = ttk.Frame(self)
-        actions.pack(fill=tk.X, padx=12, pady=(4, 0))
-        ttk.Button(
-            actions,
-            text=_tr(master, "name_browser_assign_machine"),
-            command=self._assign_machine,
+        hint = ttk.Frame(self)
+        hint.pack(fill=tk.X, padx=12, pady=(4, 0))
+        ttk.Label(
+            hint,
+            text=_tr(master, "name_browser_context_hint"),
+            style="Muted.TLabel",
+            wraplength=900,
         ).pack(side=tk.LEFT)
-        ttk.Button(
-            actions,
-            text=_tr(master, "name_browser_assign_role"),
-            command=self._assign_role,
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Button(
-            actions,
-            text=_tr(master, "name_browser_assign_odbiorca"),
-            command=self._assign_odbiorca,
-        ).pack(side=tk.LEFT, padx=8)
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
@@ -6308,6 +6299,8 @@ class FolderNameBrowserDialog(tk.Toplevel):
         ).pack(side=tk.RIGHT)
 
         self._refresh_rows()
+
+    # --- display -------------------------------------------------------------
 
     def _selected_entry(self) -> Optional[FolderNameFreq]:
         sel = self._tree.selection()
@@ -6322,13 +6315,13 @@ class FolderNameBrowserDialog(tk.Toplevel):
     def _machine_label_for(self, name: str) -> str:
         info = self._aliases.resolve(name)
         if not info.mapped:
-            return "—"
-        return info.label or info.machine_id or "—"
+            return ""
+        return (info.label or info.machine_id or "").strip()
 
     def _role_label_for(self, name: str) -> str:
         rule = self._colour_map.rule_for_name(name)
         if rule is None:
-            return "—"
+            return ""
         if rule.colour == COLOUR_EXCLUDE:
             return _tr(self.master, "flag_exclude")
         c = self._catalog.get(rule.colour)
@@ -6337,10 +6330,26 @@ class FolderNameBrowserDialog(tk.Toplevel):
     def _odbiorca_label_for(self, name: str) -> str:
         rule = self._odbiorca_map.rule_for_name(name)
         if rule is None:
-            return "—"
-        return self._odbiorca_catalog.label_for(
-            rule.odbiorca_id, _lang_of(self.master)
-        ) or rule.odbiorca_id
+            return ""
+        return (
+            self._odbiorca_catalog.label_for(
+                rule.odbiorca_id, _lang_of(self.master)
+            )
+            or rule.odbiorca_id
+        )
+
+    def _chips_for(self, name: str) -> str:
+        bits: list[str] = []
+        m = self._machine_label_for(name)
+        if m:
+            bits.append(_tr(self.master, "name_browser_chip_machine", value=m))
+        r = self._role_label_for(name)
+        if r:
+            bits.append(_tr(self.master, "name_browser_chip_role", value=r))
+        o = self._odbiorca_label_for(name)
+        if o:
+            bits.append(_tr(self.master, "name_browser_chip_odbiorca", value=o))
+        return " · ".join(bits) if bits else "—"
 
     def _refresh_rows(self) -> None:
         needle = (self._filter_var.get() or "").strip().casefold()
@@ -6355,13 +6364,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
                 "",
                 tk.END,
                 iid=e.key,
-                values=(
-                    e.name,
-                    e.count,
-                    self._machine_label_for(e.name),
-                    self._role_label_for(e.name),
-                    self._odbiorca_label_for(e.name),
-                ),
+                values=(e.name, e.count, self._chips_for(e.name)),
             )
             self._iid_by_key[e.key] = e.key
             shown += 1
@@ -6375,14 +6378,76 @@ class FolderNameBrowserDialog(tk.Toplevel):
             return
         self._tree.item(
             entry.key,
-            values=(
-                entry.name,
-                entry.count,
-                self._machine_label_for(entry.name),
-                self._role_label_for(entry.name),
-                self._odbiorca_label_for(entry.name),
-            ),
+            values=(entry.name, entry.count, self._chips_for(entry.name)),
         )
+
+    def _sync_machine_choices(self) -> None:
+        displays = [
+            display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
+            *self._aliases.known_machine_displays(),
+        ]
+        self._choices = displays
+
+    # --- context menu --------------------------------------------------------
+
+    def _on_row_context(self, event=None) -> None:
+        if event is not None and hasattr(event, "y"):
+            iid = self._tree.identify_row(event.y)
+            if iid:
+                self._tree.selection_set(iid)
+                self._tree.focus(iid)
+        entry = self._selected_entry()
+        if entry is None:
+            return
+        name = entry.name
+        menu = tk.Menu(self, tearoff=0)
+        # Odbiorca
+        odb = tk.Menu(menu, tearoff=0)
+        odb.add_command(
+            label=_tr(self.master, "name_hub_odbiorca_new"),
+            command=lambda: self._new_odbiorca_from_name(entry),
+        )
+        odb.add_command(
+            label=_tr(self.master, "name_hub_odbiorca_alias"),
+            command=lambda: self._assign_odbiorca(entry),
+        )
+        menu.add_cascade(
+            label=_tr(self.master, "name_hub_menu_odbiorca"), menu=odb
+        )
+        # Maszyna
+        mach = tk.Menu(menu, tearoff=0)
+        mach.add_command(
+            label=_tr(self.master, "name_hub_machine_new"),
+            command=lambda: self._new_machine_from_name(entry),
+        )
+        mach.add_command(
+            label=_tr(self.master, "name_hub_machine_alias"),
+            command=lambda: self._assign_machine(entry),
+        )
+        menu.add_cascade(
+            label=_tr(self.master, "name_hub_menu_machine"), menu=mach
+        )
+        # Funkcja
+        role = tk.Menu(menu, tearoff=0)
+        role.add_command(
+            label=_tr(self.master, "name_hub_role_new"),
+            command=lambda: self._new_role_from_name(entry),
+        )
+        role.add_command(
+            label=_tr(self.master, "name_hub_role_alias"),
+            command=lambda: self._assign_role(entry),
+        )
+        menu.add_cascade(
+            label=_tr(self.master, "name_hub_menu_role"), menu=role
+        )
+        try:
+            if event is not None:
+                menu.tk_popup(event.x_root, event.y_root)
+            else:
+                # Double-click: show near pointer
+                menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+        finally:
+            menu.grab_release()
 
     def _alias_safety_ok(self, name: str) -> bool:
         risky, reason = is_risky_alias_name(name)
@@ -6407,8 +6472,107 @@ class FolderNameBrowserDialog(tk.Toplevel):
             )
         )
 
-    def _assign_machine(self) -> None:
-        entry = self._selected_entry()
+    @staticmethod
+    def _suggest_id(spelling: str) -> str:
+        raw = (spelling or "").strip().casefold()
+        raw = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+        if not raw:
+            raw = "item"
+        if raw[0].isdigit():
+            raw = "n_" + raw
+        return raw[:32]
+
+    # --- machine -------------------------------------------------------------
+
+    def _new_machine_from_name(self, entry: FolderNameFreq) -> None:
+        name = entry.name
+        if not self._alias_safety_ok(name):
+            return
+        form = MachineForm(
+            self, title=_tr(self.master, "name_hub_machine_new_title", name=name)
+        )
+        form.mid_var.set(self._suggest_id(name))
+        form.label_var.set(name)
+        form.alias_var.set(name)
+        self.wait_window(form)
+        if not form.result:
+            return
+        mid, label, control, layout, alias = form.result
+        alias = (alias or name).strip() or name
+        # Collision with existing machine id?
+        if any(
+            str(r.get("machine_id") or "") == mid
+            for r in self._aliases.machines_overview()
+        ):
+            messagebox.showerror(
+                _tr(self.master, "name_hub_machine_new_title", name=name),
+                _tr(self.master, "alias_id_exists", id=mid),
+                parent=self,
+            )
+            return
+        hits = entry.count
+        existing = self._aliases.resolve(alias)
+        target_disp = display_for_machine(mid, label or mid)
+        if existing.mapped:
+            cur = existing.label or existing.machine_id
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_machine_replace",
+                    name=alias,
+                    current=cur,
+                    new=target_disp,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "name_hub_machine_new_confirm",
+                    name=alias,
+                    mid=mid,
+                    label=label or mid,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        self._aliases.add_local_alias(
+            alias,
+            mid,
+            label=label or mid,
+            control_family=control or None,
+            layout=layout or None,
+        )
+        try:
+            self._aliases.save_local(self._local_aliases_path)
+        except OSError as exc:
+            messagebox.showerror(
+                _tr(self.master, "tree_alias_title"), str(exc), parent=self
+            )
+            return
+        self._sync_machine_choices()
+        self.changed = True
+        self._refresh_row(entry)
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(
+                self.master,
+                "tree_alias_saved_reindex",
+                name=alias,
+                target=target_disp,
+            ),
+            parent=self,
+        )
+
+    def _assign_machine(self, entry: Optional[FolderNameFreq] = None) -> None:
+        if entry is None:
+            entry = self._selected_entry()
         if entry is None:
             messagebox.showinfo(
                 _tr(self.master, "name_browser_dialog_title"),
@@ -6419,6 +6583,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
         name = entry.name
         if not self._alias_safety_ok(name):
             return
+        self._sync_machine_choices()
         machines = []
         for choice in self._choices:
             if not choice:
@@ -6503,8 +6668,108 @@ class FolderNameBrowserDialog(tk.Toplevel):
             parent=self,
         )
 
-    def _assign_role(self) -> None:
-        entry = self._selected_entry()
+    # --- role / function -----------------------------------------------------
+
+    def _new_role_from_name(self, entry: FolderNameFreq) -> None:
+        name = entry.name
+        if not self._alias_safety_ok(name):
+            return
+        form = _NameHubRoleForm(
+            self,
+            title=_tr(self.master, "name_hub_role_new_title", name=name),
+            prefill_id=self._suggest_id(name),
+            prefill_label=name,
+            alias=name,
+        )
+        self.wait_window(form)
+        if not form.result:
+            return
+        role_id, label_pl, label_en, swatch = form.result
+        if role_id in self._catalog.colour_ids:
+            messagebox.showerror(
+                _tr(self.master, "name_hub_role_new_title", name=name),
+                _tr(self.master, "name_hub_role_id_exists", id=role_id),
+                parent=self,
+            )
+            return
+        hits = entry.count
+        role_label = label_pl if _lang_of(self.master) != "en" else (label_en or label_pl)
+        existing = self._colour_map.rule_for_name(name)
+        if existing is not None:
+            cur_def = self._catalog.get(existing.colour)
+            cur_lab = (
+                cur_def.label(_lang_of(self.master))
+                if cur_def
+                else existing.colour
+            )
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_role_replace",
+                    name=name,
+                    current=cur_lab,
+                    new=role_label,
+                    count=hits,
+                    path_roles=role_label,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "name_hub_role_new_confirm",
+                    name=name,
+                    target=role_label,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        new_def = ColourDef(
+            id=role_id,
+            label_pl=label_pl or role_id,
+            label_en=label_en or label_pl or role_id,
+            swatch=normalize_hex_colour(swatch),
+            meaning_pl="",
+            meaning_en="",
+            badge="●",
+            builtin=False,
+        )
+        colours = list(self._catalog.colours) + [new_def]
+        self._colour_map.upsert_exact_role(name, new_def.id)
+        self._catalog = ColourCatalog(
+            colours=colours, rules=list(self._colour_map.rules)
+        )
+        self._colour_map = FolderColourAliasMap(
+            self._catalog.rules, known_ids=self._catalog.colour_ids
+        )
+        try:
+            save_colour_catalog(self._colour_save_path, self._catalog)
+        except OSError as exc:
+            messagebox.showerror(
+                _tr(self.master, "tree_alias_title"), str(exc), parent=self
+            )
+            return
+        self.changed = True
+        self._refresh_row(entry)
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(
+                self.master,
+                "tree_alias_saved_reindex",
+                name=name,
+                target=role_label,
+            ),
+            parent=self,
+        )
+
+    def _assign_role(self, entry: Optional[FolderNameFreq] = None) -> None:
+        if entry is None:
+            entry = self._selected_entry()
         if entry is None:
             messagebox.showinfo(
                 _tr(self.master, "name_browser_dialog_title"),
@@ -6542,7 +6807,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
         role_label = pick
         hits = entry.count
         existing = self._colour_map.rule_for_name(name)
-        path_roles = role_label  # name-wide; no single path context
+        path_roles = role_label
         if existing is not None:
             cur_def = self._catalog.get(existing.colour)
             cur_lab = (
@@ -6618,10 +6883,100 @@ class FolderNameBrowserDialog(tk.Toplevel):
             parent=self,
         )
 
+    # --- odbiorca ------------------------------------------------------------
 
+    def _new_odbiorca_from_name(self, entry: FolderNameFreq) -> None:
+        if self._odbiorca_save_path is None:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_need_odbiorca"),
+                parent=self,
+            )
+            return
+        name = entry.name
+        if not self._alias_safety_ok(name):
+            return
+        form = _NameHubOdbiorcaForm(
+            self,
+            title=_tr(self.master, "name_hub_odbiorca_new_title", name=name),
+            prefill_id=self._suggest_id(name),
+            prefill_label=name,
+            alias=name,
+        )
+        self.wait_window(form)
+        if not form.result:
+            return
+        oid, label_pl, label_en = form.result
+        if self._odbiorca_catalog.get(oid) is not None:
+            messagebox.showerror(
+                _tr(self.master, "name_hub_odbiorca_new_title", name=name),
+                _tr(self.master, "name_hub_odbiorca_id_exists", id=oid),
+                parent=self,
+            )
+            return
+        hits = entry.count
+        olabel = label_pl if _lang_of(self.master) != "en" else (label_en or label_pl)
+        existing = self._odbiorca_map.rule_for_name(name)
+        if existing is not None:
+            cur = self._odbiorca_catalog.label_for(
+                existing.odbiorca_id, _lang_of(self.master)
+            ) or existing.odbiorca_id
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_odbiorca_replace",
+                    name=name,
+                    current=cur,
+                    new=olabel,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "name_hub_odbiorca_new_confirm",
+                    name=name,
+                    target=olabel,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        new_def = OdbiorcaDef(id=oid, label_pl=label_pl, label_en=label_en)
+        self._odbiorca_map.upsert_exact(name, new_def.id)
+        self._odbiorca_catalog = OdbiorcaCatalog(
+            odbiorcy=list(self._odbiorca_catalog.odbiorcy) + [new_def],
+            rules=list(self._odbiorca_map.rules),
+        )
+        self._odbiorca_map = self._odbiorca_catalog.alias_map()
+        try:
+            save_odbiorca_catalog(self._odbiorca_save_path, self._odbiorca_catalog)
+        except OSError as exc:
+            messagebox.showerror(
+                _tr(self.master, "tree_alias_title"), str(exc), parent=self
+            )
+            return
+        self.changed = True
+        self._refresh_row(entry)
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(
+                self.master,
+                "tree_alias_saved_reindex",
+                name=name,
+                target=olabel,
+            ),
+            parent=self,
+        )
 
-    def _assign_odbiorca(self) -> None:
-        entry = self._selected_entry()
+    def _assign_odbiorca(self, entry: Optional[FolderNameFreq] = None) -> None:
+        if entry is None:
+            entry = self._selected_entry()
         if entry is None:
             messagebox.showinfo(
                 _tr(self.master, "name_browser_dialog_title"),
@@ -6732,6 +7087,156 @@ class FolderNameBrowserDialog(tk.Toplevel):
             ),
             parent=self,
         )
+
+
+class _NameHubRoleForm(tk.Toplevel):
+    """Create a new folder role (function) with alias prefilled from a name."""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        *,
+        title: str,
+        prefill_id: str,
+        prefill_label: str,
+        alias: str,
+    ) -> None:
+        super().__init__(master)
+        self.title(title)
+        self.transient(master)
+        self.grab_set()
+        self.result: Optional[tuple[str, str, str, str]] = None
+        body = ttk.Frame(self, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(body, text=_tr(master, "folder_colour_id")).grid(row=0, column=0, sticky=tk.W)
+        self.id_var = tk.StringVar(value=prefill_id)
+        ttk.Entry(body, textvariable=self.id_var, width=36).grid(
+            row=0, column=1, sticky=tk.EW, padx=6, pady=3
+        )
+        ttk.Label(body, text=_tr(master, "folder_colour_label_pl")).grid(
+            row=1, column=0, sticky=tk.W
+        )
+        self.pl_var = tk.StringVar(value=prefill_label)
+        ttk.Entry(body, textvariable=self.pl_var, width=36).grid(
+            row=1, column=1, sticky=tk.EW, padx=6, pady=3
+        )
+        ttk.Label(body, text=_tr(master, "folder_colour_label_en")).grid(
+            row=2, column=0, sticky=tk.W
+        )
+        self.en_var = tk.StringVar(value=prefill_label)
+        ttk.Entry(body, textvariable=self.en_var, width=36).grid(
+            row=2, column=1, sticky=tk.EW, padx=6, pady=3
+        )
+        ttk.Label(body, text=_tr(master, "folder_colour_swatch")).grid(
+            row=3, column=0, sticky=tk.W
+        )
+        self.swatch_var = tk.StringVar(value="#888888")
+        ttk.Entry(body, textvariable=self.swatch_var, width=12).grid(
+            row=3, column=1, sticky=tk.W, padx=6, pady=3
+        )
+        ttk.Label(
+            body,
+            text=_tr(master, "name_hub_role_alias_note", alias=alias),
+            style="Muted.TLabel",
+            wraplength=420,
+        ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+        body.columnconfigure(1, weight=1)
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+            side=tk.RIGHT, padx=8
+        )
+
+    def _ok(self) -> None:
+        cid = normalize_colour_id(self.id_var.get())
+        if not cid or cid == COLOUR_EXCLUDE:
+            messagebox.showerror(
+                self.title(),
+                _tr(self.master, "name_hub_role_id_required"),
+                parent=self,
+            )
+            return
+        self.result = (
+            cid,
+            self.pl_var.get().strip() or cid,
+            self.en_var.get().strip() or self.pl_var.get().strip() or cid,
+            normalize_hex_colour(self.swatch_var.get()),
+        )
+        self.destroy()
+
+
+class _NameHubOdbiorcaForm(tk.Toplevel):
+    """Create a new odbiorca with alias prefilled from a folder name."""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        *,
+        title: str,
+        prefill_id: str,
+        prefill_label: str,
+        alias: str,
+    ) -> None:
+        super().__init__(master)
+        self.title(title)
+        self.transient(master)
+        self.grab_set()
+        self.result: Optional[tuple[str, str, str]] = None
+        body = ttk.Frame(self, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(body, text=_tr(master, "odbiorca_id")).grid(row=0, column=0, sticky=tk.W)
+        self.id_var = tk.StringVar(value=prefill_id)
+        ttk.Entry(body, textvariable=self.id_var, width=36).grid(
+            row=0, column=1, sticky=tk.EW, padx=6, pady=3
+        )
+        ttk.Label(body, text=_tr(master, "odbiorca_label_pl")).grid(
+            row=1, column=0, sticky=tk.W
+        )
+        self.pl_var = tk.StringVar(value=prefill_label)
+        ttk.Entry(body, textvariable=self.pl_var, width=36).grid(
+            row=1, column=1, sticky=tk.EW, padx=6, pady=3
+        )
+        ttk.Label(body, text=_tr(master, "odbiorca_label_en")).grid(
+            row=2, column=0, sticky=tk.W
+        )
+        self.en_var = tk.StringVar(value=prefill_label)
+        ttk.Entry(body, textvariable=self.en_var, width=36).grid(
+            row=2, column=1, sticky=tk.EW, padx=6, pady=3
+        )
+        ttk.Label(
+            body,
+            text=_tr(master, "name_hub_odbiorca_alias_note", alias=alias),
+            style="Muted.TLabel",
+            wraplength=420,
+        ).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+        body.columnconfigure(1, weight=1)
+        btns = ttk.Frame(self)
+        btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+            side=tk.RIGHT, padx=8
+        )
+
+    def _ok(self) -> None:
+        oid = normalize_odbiorca_id(self.id_var.get())
+        if not oid:
+            messagebox.showerror(
+                self.title(),
+                _tr(self.master, "odbiorca_id_required"),
+                parent=self,
+            )
+            return
+        self.result = (
+            oid,
+            self.pl_var.get().strip() or oid,
+            self.en_var.get().strip() or self.pl_var.get().strip() or oid,
+        )
+        self.destroy()
 
 
 
