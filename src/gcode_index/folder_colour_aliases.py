@@ -277,21 +277,30 @@ default_roles = default_colours
 
 @dataclass(frozen=True)
 class FolderColourRule:
-    """One folder-name alias → role id or exclude."""
+    """One folder-name alias → role id or exclude.
+
+    ``exact=True`` (tree menu): match only the normalized spelling — no fuzzy
+    substring/prefix. Legacy rules default to ``exact=False`` (fuzzy allowed).
+    """
 
     alias: str
     colour: str = ROLE_PROTOTYPE
+    exact: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "alias", (self.alias or "").strip())
         object.__setattr__(self, "colour", normalize_colour_id(self.colour))
+        object.__setattr__(self, "exact", bool(self.exact))
 
     @property
     def key(self) -> str:
         return normalize_folder_name(self.alias)
 
-    def to_dict(self) -> dict[str, str]:
-        return {"alias": self.alias, "colour": self.colour}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"alias": self.alias, "colour": self.colour}
+        if self.exact:
+            d["exact"] = True
+        return d
 
 
 @dataclass
@@ -315,7 +324,9 @@ class ColourCatalog:
             # (previously yellow was wrongly remapped to fixture).
             if colour in _STATUS_COLOUR_IDS or is_status_colour_id(rule.colour):
                 continue
-            cleaned.append(FolderColourRule(alias=rule.alias, colour=colour))
+            cleaned.append(
+                FolderColourRule(alias=rule.alias, colour=colour, exact=bool(rule.exact))
+            )
         self.rules = cleaned
 
     @property
@@ -474,7 +485,15 @@ def _parse_rule(item: Any, *, known_ids: Optional[set[str]] = None) -> Optional[
         cid = normalize_colour_id(str(colour or ROLE_PROTOTYPE), known_ids=known_ids)
         if cid in _STATUS_COLOUR_IDS:
             return None
-        return FolderColourRule(alias=alias, colour=cid)
+        exact_raw = item.get("exact")
+        if exact_raw is None:
+            exact_raw = item.get("match")
+        exact = False
+        if isinstance(exact_raw, bool):
+            exact = exact_raw
+        elif isinstance(exact_raw, str):
+            exact = exact_raw.strip().casefold() in {"1", "true", "yes", "exact"}
+        return FolderColourRule(alias=alias, colour=cid, exact=exact)
     return None
 
 
@@ -574,7 +593,9 @@ class FolderColourAliasMap:
             colour = normalize_colour_id(rule.colour, known_ids=self._known)
             if colour in _STATUS_COLOUR_IDS or is_status_colour_id(rule.colour):
                 continue
-            r = FolderColourRule(alias=rule.alias, colour=colour)
+            r = FolderColourRule(
+                alias=rule.alias, colour=colour, exact=bool(getattr(rule, "exact", False))
+            )
             self._rules.append(r)
             self._by_key[r.key] = r
 
@@ -608,6 +629,8 @@ class FolderColourAliasMap:
         best: Optional[FolderColourRule] = None
         best_len = -1
         for rule in self._rules:
+            if rule.exact:
+                continue  # tree-created / exact-only — no fuzzy blast radius
             ak = rule.key
             if len(ak) < _MIN_SUBSTRING_ALIAS_LEN:
                 continue
@@ -619,6 +642,8 @@ class FolderColourAliasMap:
         best = None
         best_len = -1
         for rule in self._rules:
+            if rule.exact:
+                continue
             ak = rule.key
             if len(ak) < _MIN_PREFIX_ALIAS_LEN:
                 continue
@@ -628,18 +653,49 @@ class FolderColourAliasMap:
         return best
 
     def resolve_path_parts(self, parts: Sequence[str]) -> Optional[str]:
+        """Deepest-wins single role (legacy). Prefer ``resolve_path_parts_roles``."""
+        roles = self.resolve_path_parts_roles(parts)
+        if roles is None:
+            return None
+        if roles == COLOUR_EXCLUDE:
+            return COLOUR_EXCLUDE
+        return roles[-1] if roles else None
+
+    def resolve_path_parts_roles(
+        self, parts: Sequence[str]
+    ) -> Optional[str | list[str]]:
+        """Accumulate name-role matches along ``parts`` (union, order preserved).
+
+        Returns ``COLOUR_EXCLUDE`` when any segment matches exclude (drop branch).
+        Returns a list of role ids (possibly empty) otherwise. ``None`` when there
+        are no rules or no parts.
+        """
         if not self._rules or not parts:
             return None
-        best_colour: Optional[str] = None
-        best_idx = -1
-        for i, part in enumerate(parts):
+        found: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
             colour = self.match_segment(part)
-            if colour is not None and i >= best_idx:
-                best_idx = i
-                best_colour = colour
-        return best_colour
+            if colour is None:
+                continue
+            if colour == COLOUR_EXCLUDE:
+                return COLOUR_EXCLUDE
+            if colour not in seen:
+                seen.add(colour)
+                found.append(colour)
+        return found
 
     def resolve_source_path(self, source_path: str) -> Optional[str]:
+        roles = self.resolve_source_path_roles(source_path)
+        if roles is None:
+            return None
+        if roles == COLOUR_EXCLUDE:
+            return COLOUR_EXCLUDE
+        return roles[-1] if roles else None
+
+    def resolve_source_path_roles(
+        self, source_path: str
+    ) -> Optional[str | list[str]]:
         raw = (source_path or "").replace("\\", "/").strip("/")
         if not raw:
             return None
@@ -649,4 +705,73 @@ class FolderColourAliasMap:
         last = parts[-1]
         if "." in last:
             parts = parts[:-1]
-        return self.resolve_path_parts(parts)
+        return self.resolve_path_parts_roles(parts)
+
+    def upsert_exact_role(self, alias: str, role_id: str) -> FolderColourRule:
+        """Replace or add an exact name→role rule (tree menu)."""
+        alias = (alias or "").strip()
+        colour = normalize_colour_id(role_id, known_ids=self._known)
+        new = FolderColourRule(alias=alias, colour=colour, exact=True)
+        key = new.key
+        self._rules = [r for r in self._rules if r.key != key]
+        self._rules.append(new)
+        self._by_key[key] = new
+        return new
+
+    def rule_for_name(self, folder_raw: str) -> Optional[FolderColourRule]:
+        key = normalize_folder_name(folder_raw)
+        return self._by_key.get(key) if key else None
+
+
+def is_risky_alias_name(folder_raw: str) -> tuple[bool, str]:
+    """Return ``(risky, reason_code)`` for tree-alias safety checks.
+
+    reason_code: ``short`` | ``date`` | ``memory`` | ``ok``
+    """
+    from gcode_index.date_format import parse_display_date
+
+    raw = (folder_raw or "").strip()
+    key = normalize_folder_name(raw)
+    if not key or len(key) < 3:
+        return True, "short"
+    if raw.casefold() == "memory" or key == "memory":
+        return True, "memory"
+    if parse_display_date(raw) is not None:
+        return True, "date"
+    # Common backup date shapes not covered by parse_display_date
+    import re
+
+    if re.fullmatch(r"\d{4}[-_.]\d{2}[-_.]\d{2}", raw):
+        return True, "date"
+    if re.fullmatch(r"\d{8}", raw):  # YYYYMMDD
+        return True, "date"
+    return False, "ok"
+
+
+def count_same_name_dirs(
+    roots: Sequence[Path | str],
+    folder_name: str,
+    *,
+    max_hits: int = 5000,
+) -> int:
+    """Count directories under ``roots`` whose name matches ``folder_name`` (normalized)."""
+    key = normalize_folder_name(folder_name)
+    if not key:
+        return 0
+    n = 0
+    for root in roots:
+        try:
+            r = Path(root)
+            if not r.is_dir():
+                continue
+            for p in r.rglob("*"):
+                if n >= max_hits:
+                    return n
+                try:
+                    if p.is_dir() and normalize_folder_name(p.name) == key:
+                        n += 1
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    return n

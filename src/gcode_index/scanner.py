@@ -501,7 +501,7 @@ def _apply_folder_colour_overrides(
     result: ScanResult,
     colour_map: Optional[FolderColourAliasMap],
 ) -> None:
-    """Apply folder-name role aliases: set ``role`` (single → CSV) or drop on ``exclude``.
+    """Apply folder-name role aliases: union roles along the path, or drop on exclude.
 
     Never changes ``provenance`` (status) — that comes from scan roots only.
     """
@@ -509,11 +509,11 @@ def _apply_folder_colour_overrides(
         return
     kept = []
     for inst in result.instances:
-        colour = colour_map.resolve_source_path(inst.source_path or "")
-        if colour == COLOUR_EXCLUDE:
+        roles = colour_map.resolve_source_path_roles(inst.source_path or "")
+        if roles == COLOUR_EXCLUDE:
             continue
-        if colour:
-            inst.role = roles_to_db([colour])
+        if isinstance(roles, list) and roles:
+            inst.role = roles_to_db(roles)
         kept.append(inst)
     result.instances[:] = kept
 
@@ -525,9 +525,9 @@ def _apply_folder_tree_map_overrides(
 ) -> None:
     """Apply path-specific tree rules (longest prefix wins over name aliases).
 
-    Winning rule: ``exclude`` drops the row; non-empty ``tags`` replace roles;
-    ``machine_id`` overrides machine (label looked up from aliases when possible).
-    Status / provenance is never changed.
+    Winning rule: ``exclude`` drops the row; non-empty ``tags`` **replace** the
+    accumulated name-role set; ``machine_id`` overrides machine. Status is never
+    changed.
     """
     if tree_map is None or len(tree_map) == 0:
         return
@@ -543,6 +543,7 @@ def _apply_folder_tree_map_overrides(
         if rule.exclude:
             continue
         if rule.tags:
+            # Path tags replace name-wide role union for this prefix
             inst.role = roles_to_db(rule.tags)
         if rule.machine_id:
             mid = rule.machine_id

@@ -22,6 +22,7 @@ from gcode_index.aliases import (
     LOCAL_ALIASES_FILENAME,
     default_aliases_path,
     local_aliases_path_for_target,
+    normalize_folder_name,
 )
 from gcode_index.compare import (
     instance_label,
@@ -102,8 +103,10 @@ from gcode_index.folder_colour_aliases import (
     ColourDef,
     FolderColourAliasMap,
     FolderColourRule,
+    count_same_name_dirs,
     default_colours,
     folder_colour_aliases_path_for_target,
+    is_risky_alias_name,
     is_status_colour_id,
     load_colour_catalog,
     normalize_colour_id,
@@ -3124,11 +3127,19 @@ class IndexerApp(tk.Tk):
             catalog=catalog,
             machine_choices=machine_choices,
             save_path=save_path,
+            aliases=aliases,
+            local_aliases_path=local_aliases_path_for_target(target),
+            colour_save_path=folder_colour_aliases_path_for_target(target),
         )
         self.wait_window(dlg)
         if dlg.saved:
             self.status_var.set(
                 self._("status_tree_map_saved", filename=TREE_MAP_FILENAME)
+            )
+        if getattr(dlg, "aliases_changed", False):
+            note = self._("tree_alias_reindex_note")
+            self.status_var.set(
+                (self.status_var.get() + " — " if self.status_var.get() else "") + note
             )
 
     def _open_alias_editor(self) -> None:
@@ -5240,7 +5251,11 @@ class FolderTreeMapDialog(tk.Toplevel):
     """Lazy folder tree: assign machine + multi-role tags + exclude per path.
 
     Persists to ``folder_tree_map.yaml`` next to the database. Longest path
-    prefix wins on reindex; name-wide role aliases remain as fallback.
+    prefix wins on reindex; name-wide role aliases accumulate (union) and path
+    tags replace that union for the matched prefix.
+
+    Right-click a folder → alias that **name** everywhere as machine or role
+    (exact normalized spelling for roles).
     """
 
     _PLACEHOLDER = "__lazy__"
@@ -5254,6 +5269,9 @@ class FolderTreeMapDialog(tk.Toplevel):
         catalog: ColourCatalog,
         machine_choices: list[str],
         save_path: Path,
+        aliases: Optional[AliasMap] = None,
+        local_aliases_path: Optional[Path] = None,
+        colour_save_path: Optional[Path] = None,
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "map_tree_dialog_title"))
@@ -5262,9 +5280,20 @@ class FolderTreeMapDialog(tk.Toplevel):
         self.transient(master)
         self.grab_set()
         self.saved = False
+        self.aliases_changed = False
         self._save_path = Path(save_path)
         self._map = FolderTreeMap(rules=list(tree_map.rules))
         self._catalog = catalog
+        self._colour_map = FolderColourAliasMap(
+            catalog.rules, known_ids=catalog.colour_ids
+        )
+        self._colour_save_path = (
+            Path(colour_save_path) if colour_save_path else None
+        )
+        self._aliases = aliases
+        self._local_aliases_path = (
+            Path(local_aliases_path) if local_aliases_path else None
+        )
         self._roots = [Path(r) for r in roots]
         self._choices = list(machine_choices)
         self._leave_machine = _tr(master, "map_tree_machine_leave")
@@ -5311,6 +5340,10 @@ class FolderTreeMapDialog(tk.Toplevel):
         sb.grid(row=0, column=1, sticky=tk.NS)
         self._tree.bind("<<TreeviewOpen>>", self._on_open)
         self._tree.bind("<<TreeviewSelect>>", self._on_select)
+        self._tree.bind("<Button-3>", self._on_tree_context)
+        if sys.platform == "darwin":
+            self._tree.bind("<Button-2>", self._on_tree_context)
+            self._tree.bind("<Control-Button-1>", self._on_tree_context)
 
         right = ttk.LabelFrame(body, text=_tr(master, "map_tree_assign"), padding=8)
         right.grid(row=0, column=1, sticky=tk.NSEW)
@@ -5367,6 +5400,12 @@ class FolderTreeMapDialog(tk.Toplevel):
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
+        ttk.Label(
+            btns,
+            text=_tr(master, "tree_alias_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
@@ -5382,19 +5421,36 @@ class FolderTreeMapDialog(tk.Toplevel):
             iid = self._insert_dir("", root, is_root=True)
             self._ensure_placeholder(iid, root)
 
-    def _insert_dir(self, parent: str, path: Path, *, is_root: bool = False) -> str:
+    def _folder_label(self, path: Path, *, is_root: bool = False) -> str:
         label = str(path) if is_root else path.name
         exact, inherited = self._map.inherited_from(path)
         if exact is not None:
             label = f"{label} ★"
         elif inherited is not None:
             label = f"{label} ·"
+        # Name-wide role / machine badges (not path rules)
+        if not is_root:
+            bits: list[str] = []
+            role_rule = self._colour_map.rule_for_name(path.name)
+            if role_rule is not None and role_rule.colour != COLOUR_EXCLUDE:
+                c = self._catalog.get(role_rule.colour)
+                rlab = c.label(_lang_of(self.master)) if c else role_rule.colour
+                bits.append(rlab)
+            if self._aliases is not None:
+                info = self._aliases.resolve(path.name)
+                if info.mapped:
+                    bits.append(info.label or info.machine_id)
+            if bits:
+                label = f"{label}  [{' · '.join(bits)}]"
+        return label
+
+    def _insert_dir(self, parent: str, path: Path, *, is_root: bool = False) -> str:
+        label = self._folder_label(path, is_root=is_root)
         iid = self._tree.insert(parent, tk.END, text=label, open=False)
         self._path_by_iid[iid] = path
         return iid
 
     def _ensure_placeholder(self, iid: str, path: Path) -> None:
-        # Always add a dummy child so the expand arrow appears; filled on open.
         if self._tree.get_children(iid):
             return
         try:
@@ -5414,7 +5470,6 @@ class FolderTreeMapDialog(tk.Toplevel):
         kids = self._tree.get_children(sel)
         if kids and self._PLACEHOLDER in self._tree.item(kids[0], "tags"):
             self._tree.delete(kids[0])
-        # Only populate once
         if self._tree.get_children(sel):
             return
         for child in list_child_dirs(path):
@@ -5448,7 +5503,6 @@ class FolderTreeMapDialog(tk.Toplevel):
     def _load_rule_into_editor(self, rule, *, inherited: bool) -> None:
         if rule.machine_id:
             display = display_for_machine(rule.machine_id, rule.machine_id)
-            # Prefer catalog display if present
             for choice in self._choices:
                 mid, _lab = parse_machine_display(choice)
                 if mid == rule.machine_id:
@@ -5461,9 +5515,6 @@ class FolderTreeMapDialog(tk.Toplevel):
         for cid, var in self._tag_vars.items():
             var.set(cid in selected)
         self._exclude_var.set(bool(rule.exclude))
-        if inherited:
-            # Editing starts from inherited values; Apply writes an explicit rule.
-            pass
 
     def _reset_editor(self) -> None:
         self._machine_var.set(self._leave_machine)
@@ -5472,11 +5523,8 @@ class FolderTreeMapDialog(tk.Toplevel):
         self._exclude_var.set(False)
 
     def _set_editor_enabled(self, enabled: bool) -> None:
-        state = "normal" if enabled else "disabled"
-        # Combobox uses readonly when enabled
-        for child in self.winfo_children():
-            pass
-        # Soft enable: leave widgets alone; Apply checks selection.
+        # Soft enable: Apply checks selection.
+        return
 
     def _apply_node(self) -> None:
         path = self._selected_path
@@ -5521,14 +5569,304 @@ class FolderTreeMapDialog(tk.Toplevel):
         for iid, p in self._path_by_iid.items():
             if p == path or str(p).casefold() == str(path).casefold():
                 is_root = p in self._roots
-                label = str(p) if is_root else p.name
-                exact, inherited = self._map.inherited_from(p)
-                if exact is not None:
-                    label = f"{label} ★"
-                elif inherited is not None:
-                    label = f"{label} ·"
-                self._tree.item(iid, text=label)
+                self._tree.item(iid, text=self._folder_label(p, is_root=is_root))
                 break
+
+    def _refresh_all_name_badges(self) -> None:
+        for iid, p in list(self._path_by_iid.items()):
+            is_root = p in self._roots
+            self._tree.item(iid, text=self._folder_label(p, is_root=is_root))
+
+    def _on_tree_context(self, event) -> None:
+        iid = self._tree.identify_row(event.y)
+        if not iid:
+            return
+        self._tree.selection_set(iid)
+        self._tree.focus(iid)
+        path = self._path_by_iid.get(iid)
+        if path is None:
+            return
+        # Roots: no name-wide alias (would alias the whole backup root name)
+        if path in self._roots:
+            return
+        name = path.name
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label=_tr(self.master, "tree_alias_machine_menu", name=name),
+            command=lambda: self._alias_name_as_machine(path),
+        )
+        role_menu = tk.Menu(menu, tearoff=0)
+        for c in self._catalog.colours:
+            role_menu.add_command(
+                label=c.label(_lang_of(self.master)),
+                command=lambda cid=c.id, p=path: self._alias_name_as_role(p, cid),
+            )
+        menu.add_cascade(
+            label=_tr(self.master, "tree_alias_role_menu", name=name),
+            menu=role_menu,
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _alias_safety_ok(self, path: Path, name: str) -> bool:
+        if path in self._roots:
+            messagebox.showwarning(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_block_root"),
+                parent=self,
+            )
+            return False
+        risky, reason = is_risky_alias_name(name)
+        if not risky:
+            return True
+        if reason == "short":
+            messagebox.showwarning(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_block_short", name=name),
+                parent=self,
+            )
+            return False
+        key = {
+            "date": "tree_alias_warn_date",
+            "memory": "tree_alias_warn_memory",
+        }.get(reason, "tree_alias_warn_date")
+        return bool(
+            messagebox.askyesno(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, key, name=name),
+                parent=self,
+            )
+        )
+
+    def _count_name_hits(self, name: str) -> int:
+        return count_same_name_dirs(self._roots, name)
+
+    def _preview_roles_on_path(self, path: Path, extra_role: Optional[str] = None) -> str:
+        """Role union on path after applying optional new name→role for this folder."""
+        parts = []
+        try:
+            # Relative parts under nearest root
+            for root in self._roots:
+                try:
+                    rel = path.relative_to(root)
+                    parts = list(rel.parts)
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            parts = [path.name]
+        if not parts:
+            parts = [path.name]
+        # Simulate: temporarily consider extra_role for this name
+        roles: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            colour = None
+            if extra_role and normalize_folder_name(part) == normalize_folder_name(
+                path.name
+            ):
+                colour = extra_role
+            else:
+                colour = self._colour_map.match_segment(part)
+            if colour and colour != COLOUR_EXCLUDE and colour not in seen:
+                seen.add(colour)
+                roles.append(colour)
+        if not roles:
+            return "—"
+        labels = []
+        for rid in roles:
+            c = self._catalog.get(rid)
+            labels.append(c.label(_lang_of(self.master)) if c else rid)
+        return ", ".join(labels)
+
+    def _alias_name_as_machine(self, path: Path) -> None:
+        if self._aliases is None or self._local_aliases_path is None:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_need_aliases"),
+                parent=self,
+            )
+            return
+        name = path.name
+        if not self._alias_safety_ok(path, name):
+            return
+        # Pick machine from list (exclude leave / unknown empty)
+        machines = []
+        for choice in self._choices:
+            if not choice or choice == self._leave_machine:
+                continue
+            mid, _lab = parse_machine_display(choice)
+            if not mid or mid == UNKNOWN_ID:
+                continue
+            machines.append(choice)
+        if not machines:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_no_machines"),
+                parent=self,
+            )
+            return
+        pick = _pick_from_list(
+            self,
+            title=_tr(self.master, "tree_alias_machine_pick_title", name=name),
+            prompt=_tr(self.master, "tree_alias_machine_pick_prompt", name=name),
+            values=machines,
+        )
+        if not pick:
+            return
+        mid, _lab = parse_machine_display(pick)
+        if not mid:
+            return
+        hits = self._count_name_hits(name)
+        existing = self._aliases.resolve(name)
+        if existing.mapped:
+            cur = existing.label or existing.machine_id
+            if existing.machine_id == mid:
+                messagebox.showinfo(
+                    _tr(self.master, "tree_alias_title"),
+                    _tr(
+                        self.master,
+                        "tree_alias_machine_already",
+                        name=name,
+                        target=cur,
+                    ),
+                    parent=self,
+                )
+                return
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_machine_replace",
+                    name=name,
+                    current=cur,
+                    new=pick,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_machine_confirm",
+                    name=name,
+                    target=pick,
+                    count=hits,
+                ),
+                parent=self,
+            ):
+                return
+        self._aliases.add_local_alias(name, mid)
+        try:
+            self._aliases.save_local(self._local_aliases_path)
+        except OSError as exc:
+            messagebox.showerror(_tr(self.master, "tree_alias_title"), str(exc), parent=self)
+            return
+        self.aliases_changed = True
+        self._refresh_all_name_badges()
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(self.master, "tree_alias_saved_reindex", name=name, target=pick),
+            parent=self,
+        )
+
+    def _alias_name_as_role(self, path: Path, role_id: str) -> None:
+        if self._colour_save_path is None:
+            messagebox.showinfo(
+                _tr(self.master, "tree_alias_title"),
+                _tr(self.master, "tree_alias_need_roles"),
+                parent=self,
+            )
+            return
+        name = path.name
+        if not self._alias_safety_ok(path, name):
+            return
+        role_def = self._catalog.get(role_id)
+        role_label = (
+            role_def.label(_lang_of(self.master)) if role_def else role_id
+        )
+        hits = self._count_name_hits(name)
+        existing = self._colour_map.rule_for_name(name)
+        if existing is not None:
+            cur_def = self._catalog.get(existing.colour)
+            cur_lab = (
+                cur_def.label(_lang_of(self.master))
+                if cur_def
+                else existing.colour
+            )
+            if existing.colour == role_id:
+                messagebox.showinfo(
+                    _tr(self.master, "tree_alias_title"),
+                    _tr(
+                        self.master,
+                        "tree_alias_role_already",
+                        name=name,
+                        target=cur_lab,
+                    ),
+                    parent=self,
+                )
+                return
+            preview = self._preview_roles_on_path(path, extra_role=role_id)
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_replace_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_role_replace",
+                    name=name,
+                    current=cur_lab,
+                    new=role_label,
+                    count=hits,
+                    path_roles=preview,
+                ),
+                parent=self,
+            ):
+                return
+        else:
+            preview = self._preview_roles_on_path(path, extra_role=role_id)
+            if not messagebox.askyesno(
+                _tr(self.master, "tree_alias_confirm_title"),
+                _tr(
+                    self.master,
+                    "tree_alias_role_confirm",
+                    name=name,
+                    target=role_label,
+                    count=hits,
+                    path_roles=preview,
+                ),
+                parent=self,
+            ):
+                return
+        self._colour_map.upsert_exact_role(name, role_id)
+        # Persist full catalog with updated rules
+        self._catalog = ColourCatalog(
+            colours=list(self._catalog.colours),
+            rules=list(self._colour_map.rules),
+        )
+        self._colour_map = FolderColourAliasMap(
+            self._catalog.rules, known_ids=self._catalog.colour_ids
+        )
+        try:
+            save_colour_catalog(self._colour_save_path, self._catalog)
+        except OSError as exc:
+            messagebox.showerror(_tr(self.master, "tree_alias_title"), str(exc), parent=self)
+            return
+        self.aliases_changed = True
+        self._refresh_all_name_badges()
+        messagebox.showinfo(
+            _tr(self.master, "tree_alias_title"),
+            _tr(
+                self.master,
+                "tree_alias_saved_reindex",
+                name=name,
+                target=role_label,
+            ),
+            parent=self,
+        )
 
     def _save(self) -> None:
         try:
@@ -5538,6 +5876,46 @@ class FolderTreeMapDialog(tk.Toplevel):
             return
         self.saved = True
         self.destroy()
+
+
+def _pick_from_list(
+    parent: tk.Misc,
+    *,
+    title: str,
+    prompt: str,
+    values: list[str],
+) -> Optional[str]:
+    """Simple modal list picker. Returns selected string or None."""
+    dlg = tk.Toplevel(parent)
+    dlg.title(title)
+    dlg.transient(parent)
+    dlg.grab_set()
+    dlg.minsize(360, 280)
+    result: dict[str, Optional[str]] = {"value": None}
+    ttk.Label(dlg, text=prompt, wraplength=340).pack(fill=tk.X, padx=12, pady=(12, 6))
+    lb = tk.Listbox(dlg, exportselection=False, height=12)
+    lb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+    for v in values:
+        lb.insert(tk.END, v)
+    if values:
+        lb.selection_set(0)
+
+    def _ok() -> None:
+        sel = lb.curselection()
+        if sel:
+            result["value"] = lb.get(sel[0])
+        dlg.destroy()
+
+    def _cancel() -> None:
+        dlg.destroy()
+
+    btns = ttk.Frame(dlg)
+    btns.pack(fill=tk.X, padx=12, pady=12)
+    ttk.Button(btns, text=_tr(parent, "cancel"), command=_cancel).pack(side=tk.RIGHT)
+    ttk.Button(btns, text=_tr(parent, "save"), command=_ok).pack(side=tk.RIGHT, padx=8)
+    lb.bind("<Double-Button-1>", lambda _e: _ok())
+    parent.wait_window(dlg)
+    return result["value"]
 
 
 def _lang_of(master) -> str:
