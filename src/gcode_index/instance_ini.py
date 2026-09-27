@@ -100,8 +100,10 @@ class InstanceConfig:
     folders_expanded: Optional[bool] = None  # None = auto heuristic
     pelny_view: str = "praca"  # praca | indeks
     preview_find: str = ""
-    # Comma-separated results-table column ids to hide (empty = show all)
-    hidden_columns: list[str] = field(default_factory=list)
+    # Comma-separated results-table column ids to hide.
+    # Default hides Role — Flag discs + tip carry function meaning (0.2.95+).
+    # Empty saved list = user chose show-all (key present); missing key → default.
+    hidden_columns: list[str] = field(default_factory=lambda: ["role"])
     # Results column widths: column_id → pixels
     column_widths: dict[str, int] = field(default_factory=dict)
     # Preview popup WxH[+X+Y]; empty = default
@@ -428,13 +430,19 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         if cfg.pelny_view == "index":
             cfg.pelny_view = "indeks"
         cfg.preview_find = parser.get("session", "preview_find", fallback="").strip()
-        hidden_raw = parser.get("session", "hidden_columns", fallback="").strip()
-        if hidden_raw:
-            cfg.hidden_columns = [
-                p.strip() for p in hidden_raw.replace(";", ",").split(",") if p.strip()
-            ]
+        if parser.has_option("session", "hidden_columns"):
+            hidden_raw = parser.get("session", "hidden_columns", fallback="").strip()
+            if hidden_raw:
+                cfg.hidden_columns = [
+                    p.strip()
+                    for p in hidden_raw.replace(";", ",").split(",")
+                    if p.strip()
+                ]
+            else:
+                # Explicit empty = show all columns (user cleared hides)
+                cfg.hidden_columns = []
         else:
-            cfg.hidden_columns = []
+            cfg.hidden_columns = ["role"]
         widths_raw = parser.get("session", "column_widths", fallback="").strip()
         cfg.column_widths = parse_column_widths(widths_raw) if widths_raw else {}
         session_prev = parser.get("session", "preview_geometry", fallback="").strip()
@@ -682,9 +690,11 @@ odbiorca_from_header = {yn(data.odbiorca_from_header)}
 ; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
 ; old broad O9… tags outside that range. Does not change status / machine / odbiorca.
 o9_system_programs_role = {yn(data.o9_system_programs_role)}
-; Flag colour: one disc = status (green/yellow), or a role with
-; can_override_main_state_colour in folder_colour_aliases.yaml (prototype
-; defaults on). The old role_colours_overshadow_status key is ignored.
+; Flag: status disc (green/yellow) plus distinct-colour function discs from
+; roles in folder_colour_aliases.yaml (MANDATORY beside the DB for truthful
+; Flag colours). Prototype can_override_main_state_colour replaces status
+; (single blue). Same-colour doubles never shown. Role column optional
+; (default hidden). Old role_colours_overshadow_status key is ignored.
 ; yes/no — auto-refresh search results when the DB file changes (mtime)
 ; Useful on floor clients sharing a network DB — no need to retype search.
 search_auto_refresh = {yn(data.search_auto_refresh)}
@@ -763,7 +773,8 @@ folders_expanded = {("" if data.folders_expanded is None else yn(bool(data.folde
 pelny_view = {data.pelny_view}
 ; Preview “find in program” last string (optional)
 preview_find = {data.preview_find}
-; Results columns to hide (comma-separated ids: flag,src,program,part,…)
+; Results columns to hide (comma-separated ids: flag,role,src,program,…).
+; Default when key missing: role (Flag discs + tip carry functions). Empty = show all.
 hidden_columns = {",".join(data.hidden_columns)}
 ; Results column widths (id=pixels, comma-separated). Blank = defaults.
 column_widths = {format_column_widths(data.column_widths, list(DEFAULT_COLUMN_WIDTHS))}
@@ -772,17 +783,18 @@ preview_geometry = {data.preview_geometry}
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (auto-loaded; do not delete):
+;   folder_colour_aliases.yaml — MANDATORY for Flag colours (roles + swatches + override)
+;   folder_tree_map.yaml       — Map tree…; also needed for Flag tip path reasons
+;   aliases.local.yaml         — Machines & aliases…
 ;   machine_folders.yaml       — legacy folder→machine map (still read by scanner)
 ;   odbiorcy.yaml              — recipient/customer catalogue + name aliases
-;   aliases.local.yaml         — Machines & aliases…
-;   folder_colour_aliases.yaml — Folder roles… (catalogue + name aliases)
-;   folder_tree_map.yaml       — Map tree… (path machine/tags/exclude)
 ;   extra_scan_roots.yaml      — mirror of green/yellow roots (INI is primary)
 ;   views.yaml                 — named find-bar views / presets (Save current…)
 ;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
 ;   ui_settings.yaml           — schedule_last_run mirror (optional)
-;   indexer_settings.yaml      — shop scan/schedule/watch defaults (not can_index)
+;   indexer_settings.yaml      — shop scan/schedule/watch defaults (never can_index)
 ;   scan_history.json          — scan run history
+; Do NOT put can_index in the data pack — each PC opts in via local ini.
 ; Ustawienia wracają po restarcie — everything above + this ini is reloaded on start.
 ; ------------------------------------------------------------
 """

@@ -49,7 +49,7 @@ Entry points:
 
 - Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example) (every key commented, including `[filters]` / `[session]`)
 - Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
-- Sidecars next to the **database** folder (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, `extra_scan_roots.yaml`, …) auto-load with the DB — tree/role/machine maps survive restart
+- Sidecars next to the **database** folder (`folder_colour_aliases.yaml` **mandatory for Flag colours**, `folder_tree_map.yaml` for tip path reasons, `machine_folders.yaml`, `aliases.local.yaml`, `extra_scan_roots.yaml`, …) auto-load with the DB — tree/role/machine maps survive restart. Do **not** put `can_index` in the pack.
 - **`target`** = database folder · **`extract`** = Wydobądź output (blank → same as `target`)
 
 ## Windows GUI (Phase 2)
@@ -89,7 +89,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - Main backup programs get a **green** flag (ran on the machine / from backup).
    - Extra-folder programs get a **yellow** flag (not from backup / not confirmed run).  
    - Nested roots: the **deepest** configured root that contains a file owns it (child colour wins; no duplicate rows).  
-   - **Status** 🟢 on-machine / 🟡 unknown comes from scan roots. **Flag = one disc** (row colour follows it). **Folder roles** (`folder_colour_aliases.yaml`): editable roles + name → role/exclude aliases; deepest segment wins. Roles with **can override main state colour** (prototype on by default) replace the status disc; other roles stay in the **Role** column / chips only.  
+   - **Status** 🟢 on-machine / 🟡 unknown comes from scan roots. **Flag** = status disc **plus** one disc per distinct function colour (image-drawn; never same-colour doubles). **`folder_colour_aliases.yaml` is mandatory** beside the DB for truthful Flag colours on floor clients. Roles with **can override main state colour** (prototype on by default) replace the status disc; other functions stay as additive Flag discs. **Role** text column is optional (hidden by default; tip explains reasons). **`folder_tree_map.yaml`** needed for tip path reasons.  
    - **Map tree…** (`folder_tree_map.yaml`): path-specific machine + **multi-tag** roles + exclude; longest path prefix beats name aliases; reindex reapplies without reopening the tree.  
    - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.
 5. **Path remap (client)** under **Mapping…** (Indexer) or **Change…** (floor client) if Extract/preview need a different drive letter than `scan_root` in the DB.

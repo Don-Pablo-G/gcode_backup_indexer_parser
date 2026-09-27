@@ -4,15 +4,21 @@ Emoji (🟢🟡🔴) often render as patterned B&W glyphs under Windows tk fonts
 Use a monochrome circle ``●`` (U+25CF) that takes Treeview/Listbox
 ``foreground=`` hex, or a solid ``tk.Label`` background chip for legends.
 
-**One disc model:** the Flag column always shows exactly one disc. Default =
-status (green backup / yellow extra). A role with
-``can_override_main_state_colour`` may replace that disc (and the row colour).
-Non-override roles stay in the Role column / chips — never a second Flag disc.
+**Multi-colour Flag model** (restated 0.2.95):
+
+- Always show **status** 🟢 backup / 🟡 extra, **unless** a role with
+  ``can_override_main_state_colour`` replaces it (prototype → single blue).
+- Then add **one disc per distinct function colour** from row roles.
+- Never two discs of the **same** colour (dedupe by swatch hex).
+- True multi-colour needs a composed image (see ``flag_image``) — Treeview
+  one-fg would paint every ``⬤`` the same colour (the old double-green bug).
+- Row text colour still follows the **primary** disc (status or override) via
+  ``flag_tag``; function discs do not recolour the whole row.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
 from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA, ROLE_PROTOTYPE
 
@@ -48,6 +54,23 @@ def role_dot(_badge: Optional[str] = None) -> str:
     return DOT_LARGE
 
 
+def normalize_swatch_hex(colour: Optional[str]) -> str:
+    """Lowercase ``#rrggbb`` for same-colour dedupe (3-digit expanded)."""
+    raw = (colour or "").strip() or "#888888"
+    if not raw.startswith("#"):
+        raw = f"#{raw}"
+    h = raw[1:]
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    if len(h) != 6:
+        return "#888888"
+    try:
+        int(h, 16)
+    except ValueError:
+        return "#888888"
+    return f"#{h.casefold()}"
+
+
 def pick_override_role(
     role_ids: Sequence[str] | None,
     override_role_ids: Sequence[str] | None = None,
@@ -77,19 +100,56 @@ def pick_override_role(
     return sorted(candidates)[0]
 
 
+def flag_discs(
+    prov: Optional[str],
+    role_ids: Sequence[str] | None = None,
+    *,
+    override_role_ids: Sequence[str] | None = None,
+    role_swatches: Mapping[str, str] | None = None,
+) -> list[tuple[str, str]]:
+    """Ordered Flag discs as ``(id, hex)`` — status/override then functions.
+
+    Rules:
+    - Override match → **only** that role's disc (replaces status).
+    - Otherwise → status disc, then one disc per **distinct** role colour
+      (skip when the swatch matches a disc already shown).
+    """
+    from gcode_index.folder_tree_map import normalize_roles_list
+
+    swatches = dict(role_swatches or {})
+    roles = normalize_roles_list(list(role_ids or []))
+    chosen = pick_override_role(roles, override_role_ids)
+    if chosen:
+        hx = swatches.get(chosen) or "#888888"
+        return [(chosen, hx)]
+
+    status = (prov or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP
+    status_hex = status_swatch(status)
+    discs: list[tuple[str, str]] = [(status, status_hex)]
+    seen = {normalize_swatch_hex(status_hex)}
+    for rid in roles:
+        hx = swatches.get(rid) or "#888888"
+        key = normalize_swatch_hex(hx)
+        if key in seen:
+            continue
+        seen.add(key)
+        discs.append((rid, hx))
+    return discs
+
+
 def flag_text(
     prov: Optional[str],
     role_ids: Sequence[str] | None = None,
     *,
     override_role_ids: Sequence[str] | None = None,
 ) -> str:
-    """Flag-column text: always exactly one disc (status or overriding role).
+    """Plain-text Flag fallback: one ``⬤`` only (never multi-glyph).
 
-    Meeting several green (or yellow) rules still yields one disc of that
-    colour. Non-override roles never add discs here.
+    GUI Work/floor results use ``flag_image`` for true multi-colour discs.
+    Do **not** put several ``⬤`` here — Treeview one-fg would reintroduce
+    same-colour doubles.
     """
-    # Always one glyph — colour comes from ``flag_tag`` / Treeview foreground.
-    _ = (prov, role_ids, override_role_ids)  # API kept for callers
+    _ = (prov, role_ids, override_role_ids)
     return DOT_LARGE
 
 
@@ -99,11 +159,10 @@ def flag_tag(
     *,
     override_role_ids: Sequence[str] | None = None,
 ) -> str:
-    """Treeview tag name for row/flag colour.
+    """Treeview tag name for **row text** colour (primary disc only).
 
     Default: **status** (green backup / yellow extra). When a matching role
-    has override enabled (see ``override_role_ids``), that role colours the
-    row instead — one disc, one colour.
+    has override enabled, that role colours the row instead.
     """
     chosen = pick_override_role(role_ids, override_role_ids)
     if chosen:
@@ -118,10 +177,11 @@ def is_flag_green(
     *,
     override_role_ids: Sequence[str] | None = None,
 ) -> bool:
-    """True when the one-disc Flag would show backup/trusted green.
+    """True when the primary Flag disc is backup/trusted green.
 
     Yellow (extra) and overriding function colours (e.g. prototype blue) are
-    not green — used by the Work GUI **Only green** filter.
+    not green — used by the Work GUI **Only green** filter. Additive function
+    discs beside green status do not change this.
     """
     return (
         flag_tag(prov, role_ids, override_role_ids=override_role_ids)

@@ -8,9 +8,12 @@ stored on ``program_instances.provenance`` (``backup`` / ``extra``). Folder
 aliases never change that DB field. Yellow status must never be labelled as a
 role (e.g. fixture).
 
-**Display:** the Flag column shows **one** disc — status by default, or a role
-with ``can_override_main_state_colour`` (prototype defaults on). Non-override
-roles stay in the Role column / chips only.
+**Display:** Flag always shows status 🟢/🟡 (or a role with
+``can_override_main_state_colour`` replacing it — prototype defaults on), then
+**one disc per distinct function colour**. Same-colour doubles are forbidden.
+``folder_colour_aliases.yaml`` beside the DB is **mandatory** for truthful
+function colours (clients fall back to baked seeds when the sidecar is missing).
+Role text column is optional; Flag tip explains reasons.
 
 **Role** is the editable catalogue (prototype, personal, system_programs,
 fixture, …) plus path aliases. Schema (v3)::
@@ -522,6 +525,15 @@ def folder_colour_aliases_path_for_target(target: Path | str) -> Path:
     return Path(target) / FOLDER_COLOUR_ALIASES_FILENAME
 
 
+def colour_aliases_sidecar_present(target: Path | str) -> bool:
+    """True when ``folder_colour_aliases.yaml`` exists next to the database.
+
+    Floor / Work Flag colours need this pack file for shop-edited swatches and
+    override flags. Missing → software seed catalogue only (warning in GUI).
+    """
+    return folder_colour_aliases_path_for_target(target).is_file()
+
+
 def _parse_colour_def(item: Any) -> Optional[ColourDef]:
     if isinstance(item, ColourDef):
         return item
@@ -632,12 +644,14 @@ def save_colour_catalog(path: Path | str, catalog: ColourCatalog) -> Path:
     payload = {
         "_comment": (
             "Folder roles + path aliases (v3). "
+            "MANDATORY beside gcode_index.sqlite for truthful Flag colours on every client. "
             "Status (🟢 on-machine / 🟡 status unknown) comes from scan roots, not these rules. "
-            "Flag column: one disc = status, or a role with can_override_main_state_colour "
-            "(prototype defaults on). Non-override roles stay in the Role column only. "
+            "Flag: status disc (or role with can_override_main_state_colour — prototype on) "
+            "plus one disc per distinct function colour (no same-colour doubles). "
             "Seed roles: prototype (blue), personal (red), system_programs (orange), fixture (purple). "
             "Yellow/green are status only — never role labels (yellow ≠ fixture). "
-            "rules: folder-name alias → role id or exclude; deepest segment wins."
+            "rules: folder-name alias → role id or exclude; deepest segment wins. "
+            "Tip path reasons also need folder_tree_map.yaml when Mapuj drzewo is used."
         ),
         "colours": [c.to_dict() for c in cat.colours],
         "rules": [r.to_dict() for r in cat.rules],

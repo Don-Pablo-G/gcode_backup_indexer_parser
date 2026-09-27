@@ -125,16 +125,18 @@ def test_source_column_always_ok_or_brak(tmp_path: Path, monkeypatch):
         assert len(kids) == 2
         vals0 = app.tree.item(kids[0], "values")
         vals1 = app.tree.item(kids[1], "values")
-        # column order: flag, role, src, program, …
-        src0, src1 = vals0[2], vals1[2]
+        # column order (data): role, src, program, … — Flag is #0 image
+        src0, src1 = vals0[1], vals1[1]
         ok = app._("badge_ok")
         missing = app._("badge_missing")
         assert src0 == ok
         assert src1 == missing
-        # Role column present (empty when no roles)
-        assert vals0[1] == ""
-        assert vals1[1] == ""
-        assert vals0[0]  # flag disc always present
+        # Role column present (empty when no roles); may be hidden by default
+        assert vals0[0] == ""
+        assert vals1[0] == ""
+        # Flag image (or text fallback) on #0
+        item0 = app.tree.item(kids[0])
+        assert item0.get("image") or item0.get("text")
         assert src0  # never blank when present
         assert src1  # never blank when missing
     finally:

@@ -22,6 +22,8 @@ Plików kopii zapasowej nigdy nie zmieniasz. Wydobycie zawsze zapisuje do osobne
 2. Sprawdź, że na tym PC w `gcode-index.ini` jest `can_index = no` (domyślnie dla kopii halowych).
 3. Kliknij zielony przycisk **Otwórz istniejącą bazę…** i wskaż `gcode_index.sqlite`.
 
+W folderze bazy musi też być **`folder_colour_aliases.yaml`**, żeby kolory Flagi zgadzały się z katalogiem sklepu. Bez niego zobaczysz ostrzeżenie i tylko domyślne kolory. Trzymaj też **`folder_tree_map.yaml`**, jeśli tip Flagi ma pokazywać powody ścieżek. W pakiecie współdzielonym nie umieszczaj `can_index`.
+
 Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder co otwarta baza). Na kliencie hali **nie ma** pól folderu kopii ani folderu bazy — katalog wybierasz przez **Otwórz istniejącą bazę…**.
 
 ---
@@ -32,9 +34,8 @@ Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder 
 2. Opcjonalnie **Maszyny** — wielokrotny wybór (Ctrl/Shift+klik). Puste / wszystkie = każda maszyna.
 3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR` (albo mały kalendarz przez **▾** obok pola).
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
-5. Opcjonalnie **Tylko zielone** / **Only green** — zostawia wiersze z zielonym krążkiem Flag (kopia/zaufany); ukrywa żółte i nadpisanie prototypem. Zapis: `only_green` w ini (domyślnie wyłączone).
-6. **Uwzględniaj nieprzypisane** / **Include unassigned** na kliencie hali jest zawsze **włączone** i **zablokowane** — przy filtrze maszyn w wynikach zostają też **MACHINE UNKNOWN** / nieprzypisane. (Na PC indeksatora można wyłączyć po ostrzeżeniu; zapis: `include_unknown` w ini, domyślnie yes.)
-7. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
+5. **Uwzględniaj nieprzypisane** / **Include unassigned** na kliencie hali jest zawsze **włączone** i **zablokowane** — przy filtrze maszyn w wynikach zostają też **MACHINE UNKNOWN** / nieprzypisane. (Na PC indeksatora można wyłączyć po ostrzeżeniu; zapis: `include_unknown` w ini, domyślnie yes.)
+6. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 
 Wyniki są w tabeli. **Podgląd** jest na stałe **po prawej** (pełna wysokość, rozciągany) — nie pod tabelą.
 
@@ -75,12 +76,14 @@ Zobacz **Instrukcję indeksatora** w menu Pomoc.
 
 ## Mapowanie ścieżek (klient)
 
-Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:**, ustaw w **Zmień…** sekcję **Mapowanie ścieżek (klient)**:
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), w **Zmień…** → **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
 
 - **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
-Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+
+Prawy przycisk na wyniku → **Wydobądź do…** — wybierz folder docelowy (ostatnie foldery są zapamiętywane).
 
 ---
 

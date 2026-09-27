@@ -22,6 +22,8 @@ You never change the backup files. Extract always writes to a separate folder.
 2. Confirm this PC’s `gcode-index.ini` has `can_index = no` (default for shop copies).
 3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.
 
+The database folder must also contain **`folder_colour_aliases.yaml`** so Flag colours match the shop catalogue. Without it you get a status warning and seed colours only. Keep **`folder_tree_map.yaml`** too if Flag hover tips should show path reasons. Do not expect `can_index` inside the shared pack.
+
 Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydobądź output (blank = same folder as the open database). Floor clients have **no** backup or database folder pickers — use **Open existing DB…** to choose the catalog.
 
 ---

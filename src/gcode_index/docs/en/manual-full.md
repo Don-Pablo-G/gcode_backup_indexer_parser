@@ -73,14 +73,16 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 | 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch / trusted roots |
 | 🟡 | Status unknown (`extra`) | Any other subtree (yellow extras, etc.) |
 
-**Flag column = one disc.** Row font colour follows that disc. Meeting several green (or yellow) rules still yields **one** disc of that colour — never two discs of the same colour.
+**Flag column = status + distinct function colours.** Always one green **or** yellow status disc (unless a role with **can override main state colour** replaces it — prototype defaults on → single blue). Then one disc per **distinct** function colour from row roles (e.g. system programs orange beside green). Same colour never doubles. Row font colour follows the **primary** disc (status or override). True multi-colour discs are drawn as an image (not multiple text glyphs).
+
+**`folder_colour_aliases.yaml` is mandatory** beside `gcode_index.sqlite` for truthful Flag colours on every client (floor or indexer). Opening a DB without that sidecar uses this software version’s seed colours and shows a status warning. **`folder_tree_map.yaml`** is needed when Flag tip reasons should show Map-tree path lines.
 
 **Role folderów…** / **Folder roles…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
 
 1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning, **can override main state colour**). Seeded: **prototype** (blue, override **on** by default), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
 2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases set roles only (they do not rewrite provenance). A folder may later receive **multiple** roles via the tree map.
 
-When a matching role has **can override main state colour** enabled: Flag drops green/yellow and shows that role’s disc; row colour = role colour. Priority if several overrides match: **prototype first**, then stable order. Non-override roles appear in the **Role** column and chips only — never a second Flag disc.
+When a matching role has **can override main state colour** enabled: Flag drops green/yellow and shows that role’s disc; row colour = role colour. Priority if several overrides match: **prototype first**, then stable order. Other (non-override) functions still appear as **additive coloured Flag discs** when their swatch differs from status. The **Role** text column is optional (hidden by default; show via **Columns**); Flag hover tip lists every function with alias / path / O9 reason.
 
 **Mapuj drzewo…** / **Map tree…** (indexer) edits `folder_tree_map.yaml` next to the database: lazy folder tree from the backup + green/yellow roots. Per node: machine (optional), **multiple role tags**, exclude, or clear. ★ = explicit path rule, · = inherited. **Longest path prefix wins** over name-wide aliases (path tags **replace** the name-role union). **Right-click** a folder → *Alias name “…” everywhere* → machine or role (exact name; name-role aliases **accumulate**). Status cannot be changed from the menu. Reindex reapplies the saved rules.
 

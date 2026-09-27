@@ -44,11 +44,11 @@ python3 -m pip install -e ".[dev]"
 | `can_index` | Kto | Co widać |
 |-------------|-----|----------|
 | **no** (domyślnie / hala) | Operator | Tylko odczyt — otwórz bazę, szukaj, **Uwzględniaj nieprzypisane** (zablokowane ON), podgląd (+ szukanie w podglądzie), **Wydobądź**. Opcjonalnie mapowanie ścieżek i **Odświeżaj wyniki**. |
-| **yes** (PC indeksatora) | Indeksator | Zakładki **Praca** / **Indeks**; skan; **Role folderów…** (prototyp/osobisty/system/przyrząd); obserwacja Auto\|Poll; … |
+| **yes** (PC indeksatora) | Indeksator | Zakładki **Praca** / **Indeks**; skan; **Role folderów…** (prototyp/osobisty/system/przyrząd); Flaga = status + kolorowe funkcje; obserwacja Auto\|Poll; … |
 
 Blokada wdrożenia: `settings_locked=yes` albo pusty `operator.lock` / `can_index.lock` obok ini wymusza odczyt. Legacy `[ui] mode=simple|full` nadal się wczytuje (`simple`→`no`, `full`→`yes`). Wszystkie klucze: `gcode-index.ini.example`.
 
-Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza).
+Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza). Obok bazy **obowiązkowo** `folder_colour_aliases.yaml` (kolory Flagi); `folder_tree_map.yaml` dla powodów ścieżek w tipie. Nie wkładaj `can_index` do pakietu danych.
 
 ### Po skanie przyrostowym
 

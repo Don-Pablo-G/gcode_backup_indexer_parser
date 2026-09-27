@@ -22,6 +22,8 @@ Plików kopii zapasowej nigdy nie zmieniasz. Wydobycie zawsze zapisuje do osobne
 2. Sprawdź, że na tym PC w `gcode-index.ini` jest `can_index = no` (domyślnie dla kopii halowych).
 3. Kliknij zielony przycisk **Otwórz istniejącą bazę…** i wskaż `gcode_index.sqlite`.
 
+W folderze bazy musi też być **`folder_colour_aliases.yaml`**, żeby kolory Flagi zgadzały się z katalogiem sklepu. Bez niego zobaczysz ostrzeżenie i tylko domyślne kolory. Trzymaj też **`folder_tree_map.yaml`**, jeśli tip Flagi ma pokazywać powody ścieżek. W pakiecie współdzielonym nie umieszczaj `can_index`.
+
 Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder co otwarta baza). Na kliencie hali **nie ma** pól folderu kopii ani folderu bazy — katalog wybierasz przez **Otwórz istniejącą bazę…**.
 
 ---

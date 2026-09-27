@@ -73,14 +73,16 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 | 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch / zaufane korzenie |
 | 🟡 | Status nieznany (`extra`) | Inne poddrzewa (żółte dodatki itd.) |
 
-**Kolumna Flaga = jeden krążek.** Kolor czcionki wiersza podąża za tym krążkiem. Kilka reguł tego samego koloru i tak daje **jeden** krążek — nigdy dwóch krążków w tym samym kolorze.
+**Kolumna Flaga = status + różne kolory funkcji.** Zawsze jeden krążek zielony **lub** żółty (status), chyba że rola z **może zastąpić kolor statusu** go zastąpi (prototyp domyślnie włączony → jeden niebieski). Potem jeden krążek na każdy **inny** kolor funkcji z ról wiersza (np. programy systemowe pomarańcz obok zielonego). Ten sam kolor nigdy się nie dubluje. Kolor czcionki wiersza podąża za **głównym** krążkiem (status lub nadpisanie). Prawdziwe wielokolorowe krążki są rysowane jako obraz (nie kilka znaków tekstu).
+
+**`folder_colour_aliases.yaml` jest obowiązkowy** obok `gcode_index.sqlite` dla prawdziwych kolorów Flagi na każdym kliencie (hala lub indeksator). Otwarcie bazy bez tego pliku używa domyślnych kolorów z tej wersji oprogramowania i pokazuje ostrzeżenie. **`folder_tree_map.yaml`** jest potrzebny, gdy tip Flagi ma pokazywać powody ścieżek z Mapuj drzewo.
 
 **Role folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
 
 1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie, **może zastąpić kolor statusu**). Startowo: **prototyp** (niebieski, nadpisanie **włączone**), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku.
 2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy ustawiają tylko role (nie nadpisują provenance). Wiele ról na folderze ustawisz w mapie drzewa.
 
-Gdy pasująca rola ma włączone **może zastąpić kolor statusu**: Flaga gubi zielony/żółty i pokazuje krążek tej roli; kolor wiersza = kolor roli. Priorytet przy kilku nadpisaniach: **najpierw prototyp**, potem stała kolejność. Role bez nadpisania tylko w kolumnie **Rola** / chipach — nigdy drugi krążek w Fladze.
+Gdy pasująca rola ma włączone **może zastąpić kolor statusu**: Flaga gubi zielony/żółty i pokazuje krążek tej roli; kolor wiersza = kolor roli. Priorytet przy kilku nadpisaniach: **najpierw prototyp**, potem stała kolejność. Pozostałe (bez nadpisania) funkcje nadal widać jako **dodatkowe kolorowe krążki Flagi**, gdy ich barwa różni się od statusu. Kolumna tekstowa **Rola** jest opcjonalna (domyślnie ukryta; pokaż przez **Kolumny**); podpowiedź Flagi wymienia każdą funkcję z powodem alias / ścieżka / O9.
 
 **Mapuj drzewo…** (indeksator) edytuje `folder_tree_map.yaml` obok bazy: leniwe drzewo z kopii + zielonych/żółtych korzeni. Per węzeł: maszyna (opcjonalnie), **wiele ról**, wyklucz lub wyczyść. ★ = reguła jawna, · = dziedziczona. **Najdłuższy prefiks ścieżki wygrywa** nad aliasami nazw (tagi ścieżki **zastępują** unię ról z nazw). **Prawy klik** na folder → *Alias nazwy „…” wszędzie* → maszyna albo rola (dokładna nazwa; role z aliasów nazw się kumulują). Statusu z menu nie zmienisz. Reindeks stosuje zapisane reguły.
 

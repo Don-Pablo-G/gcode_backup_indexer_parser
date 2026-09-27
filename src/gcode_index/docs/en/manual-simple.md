@@ -22,6 +22,8 @@ You never change the backup files. Extract always writes to a separate folder.
 2. Confirm this PC’s `gcode-index.ini` has `can_index = no` (default for shop copies).
 3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.
 
+The database folder must also contain **`folder_colour_aliases.yaml`** so Flag colours match the shop catalogue. Without it you get a status warning and seed colours only. Keep **`folder_tree_map.yaml`** too if Flag hover tips should show path reasons. Do not expect `can_index` inside the shared pack.
+
 Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydobądź output (blank = same folder as the open database). Floor clients have **no** backup or database folder pickers — use **Open existing DB…** to choose the catalog.
 
 ---
@@ -32,9 +34,8 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 2. Optionally open **Machines** and multi-select (Ctrl/Shift+click). Empty / all = every machine.
 3. Optionally set **Date from / to** as `DD.MM.YYYY` (or open the small calendar via **▾** next to each field).
 4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
-5. Optionally tick **Only green** / **Tylko zielone** to show only Flag-green (backup/trusted) rows — yellow and prototype-override colours are hidden. Saved as `only_green` in the ini (default off).
-6. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
-7. Click a **column header** in the results table to sort ascending/descending (click again to flip).
+5. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
+6. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 
 Results appear in the table. **Preview** stays docked on the **right** (full height, resizable) — not under the table.
 
@@ -75,12 +76,14 @@ See the **Indexer manual** in the Help menu.
 
 ## Path remap (client)
 
-If the index was built on a server as **C:** and this PC sees the same share as **Z:**, open **Change…** and set **Path remap (client)**:
+If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Change…** → **Path remap (client)** and **Add…** one or more rules:
 
 - **Prefix in index** = `C:\…` (as stored in the DB / `scan_root`)
 - **Local prefix** = `Z:\…` (as on this PC)
 
-Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+
+Right-click a result → **Extract to…** to pick a destination folder (recent folders are remembered).
 
 ---
 

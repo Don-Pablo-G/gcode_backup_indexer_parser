@@ -81,6 +81,7 @@ from gcode_index.folder_tree_map import (
 from gcode_index.badge_style import (
     DOT,
     STATUS_SWATCH,
+    flag_discs,
     flag_tag,
     flag_text,
     is_flag_green,
@@ -91,6 +92,7 @@ from gcode_index.badge_style import (
     status_dot,
     status_swatch,
 )
+from gcode_index.flag_image import FlagPhotoCache, flag_image_size
 from gcode_index.column_layout import (
     DEFAULT_COLUMN_WIDTHS,
     MIN_COLUMN_WIDTH,
@@ -117,6 +119,7 @@ from gcode_index.folder_colour_aliases import (
     FolderColourRule,
     FolderNameFreq,
     collect_folder_name_frequencies,
+    colour_aliases_sidecar_present,
     count_same_name_dirs,
     default_colours,
     folder_colour_aliases_path_for_target,
@@ -284,6 +287,8 @@ RESULT_COLUMNS: tuple[str, ...] = (
     "path",
     "location",
 )
+# Flag uses Treeview #0 (PhotoImage); remaining ids are data columns.
+RESULT_DATA_COLUMNS: tuple[str, ...] = tuple(c for c in RESULT_COLUMNS if c != "flag")
 DEFAULT_PREVIEW_GEOMETRY = "760x640"
 UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
@@ -379,7 +384,7 @@ class IndexerApp(tk.Tk):
         self._preview_body_error: bool = False
         self._preview_win: Optional[tk.Toplevel] = None
         self._preview_geometry: str = DEFAULT_PREVIEW_GEOMETRY
-        self._hidden_columns: set[str] = set()
+        self._hidden_columns: set[str] = {"role"}
         self._column_widths: dict[str, int] = dict(DEFAULT_COLUMN_WIDTHS)
         self._col_resize: Optional[dict] = None
         self._col_fill_after_id: Optional[str] = None
@@ -392,6 +397,8 @@ class IndexerApp(tk.Tk):
         self._flag_tip_after_id: Optional[str] = None
         self._flag_tip_win: Optional[tk.Toplevel] = None
         self._flag_tip_row: Optional[str] = None
+        self._flag_photos = FlagPhotoCache(self)
+        self._colours_sidecar_missing = False
         self._sort_col: Optional[str] = None
         self._sort_reverse: bool = False
         self._heading_labels: dict[str, str] = {}
@@ -3015,7 +3022,7 @@ class IndexerApp(tk.Tk):
 
     def _build_results_preview(self, parent, pad: dict, *, simple: bool) -> None:
         """Full-width results table; preview opens in a popup (with find)."""
-        cols = RESULT_COLUMNS
+        cols = RESULT_DATA_COLUMNS
         wrap = ttk.Frame(parent)
         wrap.pack(fill=tk.BOTH, expand=True, **pad)
 
@@ -3034,8 +3041,12 @@ class IndexerApp(tk.Tk):
         tree_frame = ttk.Frame(wrap)
         tree_frame.pack(fill=tk.BOTH, expand=True)
         self._results_pane = None  # legacy paned split removed
+        # show tree+#0 for multi-colour Flag PhotoImage (data columns lack images)
         self.tree = ttk.Treeview(
-            tree_frame, columns=cols, show="headings", selectmode="extended"
+            tree_frame,
+            columns=cols,
+            show="tree headings",
+            selectmode="extended",
         )
         headings = {
             "flag": self._("col_flag"),
@@ -3058,7 +3069,21 @@ class IndexerApp(tk.Tk):
             getattr(self, "_column_widths", None) or {},
             RESULT_COLUMNS,
         )
-        for key, label in headings.items():
+        flag_w = int(self._column_widths.get("flag", DEFAULT_COLUMN_WIDTHS.get("flag", 80)))
+        self.tree.heading(
+            "#0",
+            text=headings["flag"],
+            command=lambda: self._on_sort_column("flag"),
+        )
+        self.tree.column(
+            "#0",
+            width=flag_w,
+            stretch=False,
+            minwidth=MIN_COLUMN_WIDTH,
+            anchor=tk.CENTER,
+        )
+        for key in cols:
+            label = headings[key]
             self.tree.heading(
                 key, text=label, command=lambda c=key: self._on_sort_column(c)
             )
@@ -3154,14 +3179,21 @@ class IndexerApp(tk.Tk):
         ).pack(side=tk.RIGHT)
 
     def _visible_result_columns(self) -> list[str]:
+        """Data columns currently shown (Flag is #0 — not in this list)."""
         hidden = {
             c for c in getattr(self, "_hidden_columns", set()) if c in RESULT_COLUMNS
         }
-        visible = [c for c in RESULT_COLUMNS if c not in hidden]
-        if not visible:
+        visible = [c for c in RESULT_DATA_COLUMNS if c not in hidden]
+        if not visible and "flag" in hidden:
+            visible = ["program"]
+            self._hidden_columns = set(hidden) - {"program"}
+        elif not visible:
             visible = ["program"]
             self._hidden_columns = set(hidden) - {"program"}
         return visible
+
+    def _flag_column_visible(self) -> bool:
+        return "flag" not in getattr(self, "_hidden_columns", set())
 
     def _apply_column_visibility(self) -> None:
         if not hasattr(self, "tree"):
@@ -3178,7 +3210,21 @@ class IndexerApp(tk.Tk):
         if not hasattr(self, "tree"):
             return
         widths = getattr(self, "_column_widths", None) or DEFAULT_COLUMN_WIDTHS
-        for key in RESULT_COLUMNS:
+        # Flag lives in #0
+        if self._flag_column_visible():
+            fw = int(widths.get("flag", DEFAULT_COLUMN_WIDTHS.get("flag", 80)))
+            try:
+                self.tree.column(
+                    "#0", width=fw, stretch=False, minwidth=MIN_COLUMN_WIDTH
+                )
+            except tk.TclError:
+                pass
+        else:
+            try:
+                self.tree.column("#0", width=0, stretch=False, minwidth=0)
+            except tk.TclError:
+                pass
+        for key in RESULT_DATA_COLUMNS:
             w = int(widths.get(key, DEFAULT_COLUMN_WIDTHS.get(key, 100)))
             try:
                 self.tree.column(
@@ -3207,7 +3253,10 @@ class IndexerApp(tk.Tk):
         total = self._tree_usable_width()
         if total <= 0:
             return
-        visible = self._visible_result_columns()
+        visible = list(self._visible_result_columns())
+        if self._flag_column_visible():
+            # Include flag so redistribute accounts for #0 width
+            visible = ["flag", *visible]
         if not visible:
             return
         current = getattr(self, "_column_widths", None) or {}
@@ -3217,9 +3266,10 @@ class IndexerApp(tk.Tk):
         merged.update(filled)
         self._column_widths = merge_widths(merged, RESULT_COLUMNS)
         for key, w in filled.items():
+            col = "#0" if key == "flag" else key
             try:
                 self.tree.column(
-                    key, width=int(w), stretch=False, minwidth=MIN_COLUMN_WIDTH
+                    col, width=int(w), stretch=False, minwidth=MIN_COLUMN_WIDTH
                 )
             except tk.TclError:
                 pass
@@ -3274,8 +3324,13 @@ class IndexerApp(tk.Tk):
         except ValueError:
             return None
         visible = self._displaycolumns_list()
-        left = display_index_to_id(visible, idx)
-        right = display_index_to_id(visible, idx + 1)
+        # #0 = Flag tree column; #1+ = data displaycolumns
+        if idx == 0:
+            left = "flag"
+            right = display_index_to_id(visible, 1)
+        else:
+            left = display_index_to_id(visible, idx)
+            right = display_index_to_id(visible, idx + 1)
         if left is None or right is None:
             # Last separator with no right neighbor — let fill absorb on release
             if left is None:
@@ -3318,9 +3373,10 @@ class IndexerApp(tk.Tk):
         for key in (left, right) if right else (left,):
             if not key:
                 continue
+            col = "#0" if key == "flag" else key
             try:
                 self.tree.column(
-                    key,
+                    col,
                     width=int(self._column_widths[key]),
                     stretch=False,
                     minwidth=MIN_COLUMN_WIDTH,
@@ -3655,7 +3711,10 @@ class IndexerApp(tk.Tk):
         self.target_var.set(str(db.parent))
         self._load_extra_roots_into_list()
         self._load_colour_catalog()
-        self.status_var.set(self._("status_using_db", path=db))
+        if getattr(self, "_colours_sidecar_missing", False):
+            self.status_var.set(self._("warn_colours_sidecar_missing"))
+        else:
+            self.status_var.set(self._("status_using_db", path=db))
         self._refresh_filter_choices()
         self._clear_filters()
         self._update_folders_summary()
@@ -5628,10 +5687,11 @@ class IndexerApp(tk.Tk):
     def _load_colour_catalog(self) -> None:
         target = self.target_var.get().strip()
         if target:
-            self._colour_catalog = load_colour_catalog(
-                folder_colour_aliases_path_for_target(target)
-            )
+            path = folder_colour_aliases_path_for_target(target)
+            self._colours_sidecar_missing = not colour_aliases_sidecar_present(target)
+            self._colour_catalog = load_colour_catalog(path)
         else:
+            self._colours_sidecar_missing = False
             self._colour_catalog = ColourCatalog()
         self._configure_colour_tags()
         if hasattr(self, "provenance_combo"):
@@ -5648,6 +5708,16 @@ class IndexerApp(tk.Tk):
                 self.role_var.set(self._all_token())
         if hasattr(self, "tree") and getattr(self, "_result_rows", None) is not None:
             self._redraw_tree()
+        self._maybe_warn_colours_sidecar()
+
+    def _maybe_warn_colours_sidecar(self) -> None:
+        """Surface missing folder_colour_aliases.yaml in the status bar."""
+        if not getattr(self, "_colours_sidecar_missing", False):
+            return
+        try:
+            self.status_var.set(self._("warn_colours_sidecar_missing"))
+        except Exception:  # noqa: BLE001
+            pass
 
     def _configure_colour_tags(self) -> None:
         if not hasattr(self, "tree"):
@@ -5723,13 +5793,28 @@ class IndexerApp(tk.Tk):
         return status_dot(prov)
 
     def _flag_badge_and_tag(self, prov: str, role: Optional[str] = None) -> tuple[str, str]:
-        """Return Flag-column text + tree tag (one disc; colour via tag)."""
+        """Return Flag-column text fallback + tree tag (row colour = primary disc)."""
         status = prov or PROVENANCE_BACKUP
         tags = roles_from_db(role)
         catalog = getattr(self, "_colour_catalog", ColourCatalog())
         override_ids = catalog.override_role_ids()
         return flag_text(status, tags, override_role_ids=override_ids), flag_tag(
             status, tags, override_role_ids=override_ids
+        )
+
+    def _flag_discs_for_row(
+        self, prov: str, role: Optional[str] = None
+    ) -> list[tuple[str, str]]:
+        """Ordered ``(id, hex)`` discs for the multi-colour Flag image."""
+        status = prov or PROVENANCE_BACKUP
+        tags = roles_from_db(role)
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        swatches = {c.id: c.swatch for c in catalog.colours}
+        return flag_discs(
+            status,
+            tags,
+            override_role_ids=catalog.override_role_ids(),
+            role_swatches=swatches,
         )
 
     def _role_cell_text(self, role: Optional[str] = None) -> str:
@@ -5860,15 +5945,19 @@ class IndexerApp(tk.Tk):
         except tk.TclError:
             self._hide_flag_tip()
             return
-        if region != "cell" or not row_id or not col_spec:
+        if region not in ("cell", "tree") or not row_id or not col_spec:
             self._hide_flag_tip()
             return
-        try:
-            idx = int(str(col_spec)[1:])
-        except ValueError:
-            self._hide_flag_tip()
-            return
-        col_id = display_index_to_id(self._displaycolumns_list(), idx)
+        # Flag is Treeview #0 (image); data columns are #1+
+        if str(col_spec) == "#0":
+            col_id = "flag"
+        else:
+            try:
+                idx = int(str(col_spec)[1:])
+            except ValueError:
+                self._hide_flag_tip()
+                return
+            col_id = display_index_to_id(self._displaycolumns_list(), idx)
         if col_id != "flag":
             self._hide_flag_tip()
             return
@@ -5981,12 +6070,16 @@ class IndexerApp(tk.Tk):
 
     def _redraw_tree(self) -> None:
         self._hide_flag_tip()
+        cache = getattr(self, "_flag_photos", None)
+        if cache is not None:
+            cache.clear()
         self.tree.delete(*self.tree.get_children())
         badge_missing = self._("badge_missing")
         badge_ok = self._("badge_ok")
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
         remaps = self._active_path_remaps()
         missing_n = 0
+        max_discs = 1
         for i, r in enumerate(self._result_rows):
             date = format_display_date(r["backup_date"])
             machine = r["machine_label"] or r["machine_id"] or ""
@@ -6007,7 +6100,16 @@ class IndexerApp(tk.Tk):
             odbiorca_lab = ""
             if "odbiorca_id" in keys and r["odbiorca_id"]:
                 odbiorca_lab = self._odbiorca_label(str(r["odbiorca_id"]))
-            flag, tag = self._flag_badge_and_tag(prov, role)
+            _flag_fallback, tag = self._flag_badge_and_tag(prov, role)
+            discs = self._flag_discs_for_row(prov, role)
+            max_discs = max(max_discs, len(discs))
+            hexes = [hx for _id, hx in discs]
+            photo = None
+            if cache is not None:
+                try:
+                    photo = cache.photo_for(hexes)
+                except Exception:  # noqa: BLE001
+                    photo = None
             role_cell = self._role_cell_text(role)
             missing = self._row_source_missing(
                 r, backup_root=backup or None, path_remaps=remaps
@@ -6016,12 +6118,10 @@ class IndexerApp(tk.Tk):
                 missing_n += 1
             src_badge = badge_missing if missing else badge_ok
             tags = ("source_missing",) if missing else (tag,)
-            self.tree.insert(
-                "",
-                tk.END,
-                iid=str(i),
-                values=(
-                    flag,
+            insert_kw: dict = {
+                "iid": str(i),
+                "text": "",
+                "values": (
                     role_cell,
                     src_badge,
                     r["program_number"] or "",
@@ -6036,11 +6136,35 @@ class IndexerApp(tk.Tk):
                     r["source_path"] or "",
                     format_location(r),
                 ),
-                tags=tags,
-            )
+                "tags": tags,
+            }
+            if photo is not None:
+                insert_kw["image"] = photo
+            else:
+                # Pillow/Tk unavailable — one glyph only (never multi-glyph text)
+                insert_kw["text"] = _flag_fallback
+            self.tree.insert("", tk.END, **insert_kw)
         self._missing_source_count = missing_n
+        # Widen Flag #0 if this page needs more discs than the stored width
+        need_w, _ = flag_image_size(max_discs)
+        need_w = max(need_w + 8, MIN_COLUMN_WIDTH)
+        cur = int(
+            (getattr(self, "_column_widths", {}) or {}).get(
+                "flag", DEFAULT_COLUMN_WIDTHS.get("flag", 80)
+            )
+        )
+        if need_w > cur and self._flag_column_visible():
+            self._column_widths["flag"] = need_w
+            try:
+                self.tree.column(
+                    "#0", width=need_w, stretch=False, minwidth=MIN_COLUMN_WIDTH
+                )
+            except tk.TclError:
+                pass
         self._refresh_heading_labels()
         self._refresh_preview()
+        if getattr(self, "_colours_sidecar_missing", False):
+            self._maybe_warn_colours_sidecar()
 
     def _row_source_missing(
         self,
@@ -6082,9 +6206,14 @@ class IndexerApp(tk.Tk):
         for key, base in self._heading_labels.items():
             if self._sort_col == key:
                 mark = " ▼" if self._sort_reverse else " ▲"
-                self.tree.heading(key, text=base + mark)
+                text = base + mark
             else:
-                self.tree.heading(key, text=base)
+                text = base
+            col = "#0" if key == "flag" else key
+            try:
+                self.tree.heading(col, text=text)
+            except tk.TclError:
+                pass
 
     def _on_sort_column(self, column: str) -> None:
         """Toggle asc/desc sort when a results-table heading is clicked (#3)."""
@@ -6719,6 +6848,12 @@ class PrepareIndexerDialog(tk.Toplevel):
         row += 1
         ttk.Label(
             body,
+            text=_tr(master, "prepare_indexer_flag_pack"),
+            wraplength=560,
+        ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(4, 2))
+        row += 1
+        ttk.Label(
+            body,
             text=_tr(master, "prepare_indexer_floor_hint"),
             style="Muted.TLabel",
             wraplength=560,
@@ -7171,12 +7306,17 @@ class DuplicatesDialog(tk.Toplevel):
         gsb.pack(side=tk.RIGHT, fill=tk.Y)
         self.group_list.bind("<<ListboxSelect>>", self._on_group_select)
 
-        cols = ("flag", "program", "machine", "date", "size", "sha", "path")
+        cols = ("program", "machine", "date", "size", "sha", "path")
+        self._dup_flag_photos = FlagPhotoCache(self)
         self.member_tree = ttk.Treeview(
-            bottom, columns=cols, show="headings", selectmode="browse", height=10
+            bottom,
+            columns=cols,
+            show="tree headings",
+            selectmode="browse",
+            height=10,
         )
         headings = {
-            "flag": (_tr(master, "col_flag"), 72),
+            "flag": (_tr(master, "col_flag"), 80),
             "program": (_tr(master, "col_program"), 90),
             "machine": (_tr(master, "col_machine"), 120),
             "date": (_tr(master, "col_date"), 100),
@@ -7184,7 +7324,12 @@ class DuplicatesDialog(tk.Toplevel):
             "sha": (_tr(master, "col_sha"), 120),
             "path": (_tr(master, "col_path"), 280),
         }
-        for key, (label, width) in headings.items():
+        self.member_tree.heading("#0", text=headings["flag"][0])
+        self.member_tree.column(
+            "#0", width=headings["flag"][1], stretch=False, minwidth=40, anchor=tk.CENTER
+        )
+        for key in cols:
+            label, width = headings[key]
             self.member_tree.heading(key, text=label)
             self.member_tree.column(
                 key, width=width, stretch=(key == "path"), minwidth=40
@@ -7226,6 +7371,17 @@ class DuplicatesDialog(tk.Toplevel):
         override_ids = self._catalog.override_role_ids()
         return flag_text(status, tags, override_role_ids=override_ids), flag_tag(
             status, tags, override_role_ids=override_ids
+        )
+
+    def _flag_discs_for(self, prov: str, role: str | None = None) -> list[tuple[str, str]]:
+        status = prov or PROVENANCE_BACKUP
+        tags = roles_from_db(role)
+        swatches = {c.id: c.swatch for c in self._catalog.colours}
+        return flag_discs(
+            status,
+            tags,
+            override_role_ids=self._catalog.override_role_ids(),
+            role_swatches=swatches,
         )
 
     def _rebuild_group_list(self) -> None:
@@ -7285,6 +7441,9 @@ class DuplicatesDialog(tk.Toplevel):
             self._banner.pack_forget()
 
     def _on_group_select(self, *_args) -> None:
+        cache = getattr(self, "_dup_flag_photos", None)
+        if cache is not None:
+            cache.clear()
         self.member_tree.delete(*self.member_tree.get_children())
         sel = self.group_list.curselection()
         if not sel:
@@ -7340,13 +7499,18 @@ class DuplicatesDialog(tk.Toplevel):
             if "role" in keys and m["role"]:
                 role = str(m["role"]).strip() or None
             badge, tag = self._flag_for(prov, role)
-            self.member_tree.insert(
-                "",
-                tk.END,
-                iid=str(i),
-                tags=(tag,),
-                values=(
-                    badge,
+            discs = self._flag_discs_for(prov, role)
+            photo = None
+            if cache is not None:
+                try:
+                    photo = cache.photo_for([hx for _id, hx in discs])
+                except Exception:  # noqa: BLE001
+                    photo = None
+            insert_kw: dict = {
+                "iid": str(i),
+                "text": "" if photo is not None else badge,
+                "tags": (tag,),
+                "values": (
                     m["program_number"] or "",
                     machine,
                     format_display_date(m["backup_date"]),
@@ -7354,7 +7518,10 @@ class DuplicatesDialog(tk.Toplevel):
                     sha_short,
                     m["source_path"] or "",
                 ),
-            )
+            }
+            if photo is not None:
+                insert_kw["image"] = photo
+            self.member_tree.insert("", tk.END, **insert_kw)
 
     def _show_in_results(self) -> None:
         sel = self.group_list.curselection()

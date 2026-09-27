@@ -90,9 +90,11 @@ include_unknown = yes
 ; yes/no — auto-add role system_programs for program numbers O9000–O9099 (accumulate)
 ; Reindex to backfill / drop old broad O9… tags outside that range
 o9_system_programs_role = yes
-; Flag colour is one disc: green/yellow status, or a role with
-; can_override_main_state_colour in folder_colour_aliases.yaml (prototype
-; defaults on). Legacy key role_colours_overshadow_status is ignored if present.
+; Flag: status disc (green/yellow) plus distinct-colour function discs from
+; roles in folder_colour_aliases.yaml (MANDATORY beside the DB for truthful
+; Flag colours). Prototype can_override_main_state_colour replaces status
+; (single blue). Same-colour doubles never shown. Role column optional
+; (default hidden). Legacy key role_colours_overshadow_status is ignored.
 ; yes/no — auto-refresh search when gcode_index.sqlite mtime changes (clients)
 search_auto_refresh = no
 ; Seconds between DB mtime checks while auto-refresh is on (minimum 5)
@@ -179,13 +181,15 @@ preview_geometry =
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (paths implied by [folders] target=).
 ; Auto-loaded on start / scan / Map dialogs — never delete casually:
+;   folder_colour_aliases.yaml — MANDATORY for Flag colours (roles + swatches + override)
+;   folder_tree_map.yaml       — Map tree…; also needed for Flag tip path reasons
 ;   machine_folders.yaml       — Map folders… (date/machine → machine id)
 ;   aliases.local.yaml         — Machines & aliases…
-;   folder_colour_aliases.yaml — Folder roles… (catalogue + name→role/exclude)
-;   folder_tree_map.yaml       — Map tree… (path machine + multi-tags + exclude)
 ;   extra_scan_roots.yaml      — mirror of green/yellow (INI [green_roots]/[yellow_roots] wins)
 ;   views.yaml                 — named find-bar views (Save current…)
 ;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
 ;   ui_settings.yaml           — optional schedule_last_run mirror
+;   indexer_settings.yaml      — shop scan/schedule/watch defaults (never can_index)
 ;   scan_history.json          — scan run history
+; Do NOT put can_index in the data pack — each PC opts in via local ini.
 ; ------------------------------------------------------------
