@@ -95,8 +95,8 @@ Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **R
 ## Indeksuj / skanuj
 
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
-2. Zielony **Indeksuj / skanuj**.
-3. Opcje: **Przyrostowo**, **Zapisz też Excel**, **Odbiorca z nagłówka**, **O9000–O9099 → programy systemowe**, **Kolor roli nad statusem**, **Obserwuj foldery**.
+2. Zielony **Uruchom skan**.
+3. Głębsze ustawienia: **Mapowanie…**, **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja / zasobnik), **Raporty…**.
 4. Pasek postępu + **Raport skanu** po zakończeniu.
 
 ### Auto-indeks

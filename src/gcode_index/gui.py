@@ -350,6 +350,7 @@ class IndexerApp(tk.Tk):
         self.schedule_status_var = tk.StringVar(value="")
         self.watch_status_var = tk.StringVar(value="")
         self.watch_strip_var = tk.StringVar(value="")
+        self.indeks_status_var = tk.StringVar(value="")
         self.autostart_var = tk.BooleanVar(value=False)
         self.autostart_via_var = tk.StringVar(value="")
         self.close_to_tray_var = tk.BooleanVar(value=True)
@@ -2386,12 +2387,17 @@ class IndexerApp(tk.Tk):
 
 
     def _build_full_index_actions(self, parent, pad: dict) -> None:
-        """Indexer Indeks tab: scan, map, schedule, watch, tray, report tools."""
+        """Indexer Indeks tab: thin run bar + doorways into settings windows.
+
+        Deep setup (mapping, scan/watch options, reports) lives in dialogs A/B/C.
+        No checkboxes on this bar — only run controls, doorways, and a muted
+        schedule/watch status line.
+        """
         actions = ttk.Frame(parent)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
 
-        # Row 1 — index / scan actions (full labels, fixed height)
+        # Row 1 — run / pack
         row_scan = ttk.Frame(actions)
         row_scan.pack(fill=tk.X)
         self.scan_btn = self._make_primary_button(
@@ -2407,33 +2413,105 @@ class IndexerApp(tk.Tk):
             command=self._open_prepare_indexer,
         ).pack(side=tk.LEFT, padx=8)
 
-        # Row 2 — mapping / naming tools (own row so PL/EN labels stay visible)
-        row_map = ttk.Frame(actions)
-        row_map.pack(fill=tk.X, pady=(4, 0))
+        # Row 2 — three doorways (full captions must fit)
+        row_doors = ttk.Frame(actions)
+        row_doors.pack(fill=tk.X, pady=(6, 0))
         ttk.Button(
-            row_map, text=self._("map_folders"), command=self._open_folder_map
+            row_doors,
+            text=self._("indeks_door_mapping"),
+            command=self._open_indeks_mapping_window,
         ).pack(side=tk.LEFT)
         ttk.Button(
-            row_map, text=self._("map_tree"), command=self._open_folder_tree_map
-        ).pack(side=tk.LEFT, padx=4)
+            row_doors,
+            text=self._("indeks_door_scan_watch"),
+            command=self._open_indeks_scan_watch_window,
+        ).pack(side=tk.LEFT, padx=8)
         ttk.Button(
-            row_map, text=self._("aliases"), command=self._open_alias_editor
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row_map, text=self._("folder_colours"), command=self._open_folder_colour_editor
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row_map, text=self._("odbiorcy"), command=self._open_odbiorca_editor
-        ).pack(side=tk.LEFT, padx=4)
+            row_doors,
+            text=self._("indeks_door_reports"),
+            command=self._open_indeks_reports_window,
+        ).pack(side=tk.LEFT, padx=8)
 
-        # Row 3 — secondary tools + scan options (incl. watch) + schedule
-        row2 = ttk.Frame(actions)
-        row2.pack(fill=tk.X, pady=(4, 0))
-        sched = ttk.Frame(row2)
-        sched.pack(side=tk.RIGHT)
-        ttk.Label(sched, text=self._("schedule"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=(0, 2)
-        )
+        # Muted status line: schedule · watch (edit inside window B)
+        status_row = ttk.Frame(actions)
+        status_row.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(
+            status_row,
+            textvariable=self.indeks_status_var,
+            style="Muted.TLabel",
+            wraplength=900,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._update_schedule_status()
+        self._update_watch_status()
+        self._refresh_watch_strip()
+        self._refresh_indeks_status_line()
+
+    def _refresh_indeks_status_line(self) -> None:
+        """Combine schedule + watch into one muted Indeks status line."""
+        if not hasattr(self, "indeks_status_var"):
+            return
+        sched = (self.schedule_status_var.get() or "").strip()
+        watch = (self.watch_status_var.get() or "").strip()
+        strip = (self.watch_strip_var.get() or "").strip()
+        idle_strip = self._("watch_strip_idle")
+        bits: list[str] = []
+        if sched:
+            bits.append(f"{self._('schedule')}: {sched}")
+        if watch:
+            bits.append(f"{self._('watch_folders')}: {watch}")
+        if strip and strip != idle_strip:
+            bits.append(strip)
+        self.indeks_status_var.set(" · ".join(bits) if bits else "")
+
+    def _open_indeks_mapping_window(self) -> None:
+        """Window A — Mapowanie: aliases, tree, roles, odbiorcy, path remap."""
+        dlg = tk.Toplevel(self)
+        dlg.title(self._("indeks_win_mapping_title"))
+        dlg.transient(self)
+        dlg.minsize(480, 360)
+        body = ttk.Frame(dlg, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            body,
+            text=self._("indeks_win_mapping_intro"),
+            style="Muted.TLabel",
+            wraplength=440,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(0, 10))
+        for label_key, cmd in (
+            ("map_folders", self._open_folder_map),
+            ("map_tree", self._open_folder_tree_map),
+            ("aliases", self._open_alias_editor),
+            ("folder_colours", self._open_folder_colour_editor),
+            ("odbiorcy", self._open_odbiorca_editor),
+        ):
+            ttk.Button(body, text=self._(label_key), command=cmd).pack(
+                fill=tk.X, pady=2
+            )
+        # Path remap editor (same multi-rule list as folders expander)
+        remap_host = ttk.Frame(body)
+        remap_host.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
+        remap_host.columnconfigure(0, weight=1)
+        self._add_path_remap_fields(remap_host, 0)
+        foot = ttk.Frame(body)
+        foot.pack(fill=tk.X, pady=(12, 0))
+        ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+
+    def _open_indeks_scan_watch_window(self) -> None:
+        """Window B — Skan i obserwacja: schedule, watch, scan options, tray."""
+        dlg = tk.Toplevel(self)
+        dlg.title(self._("indeks_win_scan_watch_title"))
+        dlg.transient(self)
+        dlg.minsize(520, 420)
+        body = ttk.Frame(dlg, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        # Schedule
+        sched_box = ttk.LabelFrame(body, text=self._("schedule"), padding=8)
+        sched_box.pack(fill=tk.X, pady=(0, 8))
+        sched = ttk.Frame(sched_box)
+        sched.pack(fill=tk.X)
         self._sync_schedule_widgets()
         amount_entry = ttk.Entry(
             sched, textvariable=self.schedule_amount_var, width=5
@@ -2456,76 +2534,85 @@ class IndexerApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=(8, 0))
         self._update_schedule_status()
 
-        ttk.Button(
-            row2, text=self._("quality_dashboard"), command=self._open_quality_dashboard
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            row2, text=self._("scan_report"), command=self._open_scan_report
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row2, text=self._("scan_history"), command=self._open_scan_history
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row2, text=self._("duplicates"), command=self._open_duplicates
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row2, text=self._("clear_filters"), command=self._clear_filters
-        ).pack(side=tk.LEFT, padx=4)
+        # Watch
+        watch_box = ttk.LabelFrame(body, text=self._("watch_folders"), padding=8)
+        watch_box.pack(fill=tk.X, pady=(0, 8))
+        watch_row = ttk.Frame(watch_box)
+        watch_row.pack(fill=tk.X)
         ttk.Checkbutton(
-            row2, text=self._("also_excel"), variable=self.excel_var
-        ).pack(side=tk.LEFT, padx=(12, 0))
-        ttk.Checkbutton(
-            row2, text=self._("incremental"), variable=self.incremental_var
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Checkbutton(
-            row2,
-            text=self._("odbiorca_from_header"),
-            variable=self.odbiorca_from_header_var,
-            command=self._schedule_filter_ini_save,
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Checkbutton(
-            row2,
-            text=self._("o9_system_programs_role"),
-            variable=self.o9_system_programs_role_var,
-            command=self._schedule_filter_ini_save,
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Checkbutton(
-            row2,
-            text=self._("role_colours_overshadow_status"),
-            variable=self.role_colours_overshadow_status_var,
-            command=self._on_role_overshadow_toggled,
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Checkbutton(
-            row2,
+            watch_row,
             text=self._("watch_folders"),
             variable=self.watch_var,
             command=self._on_watch_toggled,
-        ).pack(side=tk.LEFT, padx=4)
-        self._build_watch_mode_segment(row2)
+        ).pack(side=tk.LEFT)
+        self._build_watch_mode_segment(watch_row)
         ttk.Label(
-            row2, textvariable=self.watch_status_var, style="Muted.TLabel"
-        ).pack(side=tk.LEFT, padx=(4, 0))
+            watch_row, textvariable=self.watch_status_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=(8, 0))
         self._update_watch_status()
+        strip_row = ttk.Frame(watch_box)
+        strip_row.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(
+            strip_row, text=self._("watch_strip") + ":", style="Muted.TLabel"
+        ).pack(side=tk.LEFT)
+        ttk.Label(
+            strip_row, textvariable=self.watch_strip_var, style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=(4, 0))
+        self._refresh_watch_strip()
 
-        # Row 3 — autostart / tray prefs (indexer, Windows-oriented)
-        row3 = ttk.Frame(actions)
-        row3.pack(fill=tk.X, pady=(4, 0))
+        # Scan options
+        opts = ttk.LabelFrame(
+            body, text=self._("indeks_win_scan_options"), padding=8
+        )
+        opts.pack(fill=tk.X, pady=(0, 8))
+        ttk.Checkbutton(
+            opts, text=self._("incremental"), variable=self.incremental_var
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            opts, text=self._("also_excel"), variable=self.excel_var
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            opts,
+            text=self._("odbiorca_from_header"),
+            variable=self.odbiorca_from_header_var,
+            command=self._schedule_filter_ini_save,
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            opts,
+            text=self._("o9_system_programs_role"),
+            variable=self.o9_system_programs_role_var,
+            command=self._schedule_filter_ini_save,
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            opts,
+            text=self._("role_colours_overshadow_status"),
+            variable=self.role_colours_overshadow_status_var,
+            command=self._on_role_overshadow_toggled,
+        ).pack(anchor=tk.W)
+
+        # Desktop / tray / autostart
+        desk = ttk.LabelFrame(
+            body, text=self._("indeks_win_desktop"), padding=8
+        )
+        desk.pack(fill=tk.X, pady=(0, 8))
+        desk_row = ttk.Frame(desk)
+        desk_row.pack(fill=tk.X)
         if tray_available():
             ttk.Checkbutton(
-                row3,
+                desk_row,
                 text=self._("close_to_tray"),
                 variable=self.close_to_tray_var,
                 command=self._on_desktop_pref_changed,
             ).pack(side=tk.LEFT)
             ttk.Checkbutton(
-                row3,
+                desk_row,
                 text=self._("minimize_to_tray"),
                 variable=self.minimize_to_tray_var,
                 command=self._on_desktop_pref_changed,
             ).pack(side=tk.LEFT, padx=(8, 0))
         if autostart_is_windows():
             ttk.Checkbutton(
-                row3,
+                desk_row,
                 text=self._("autostart"),
                 variable=self.autostart_var,
                 command=self._on_autostart_toggled,
@@ -2534,7 +2621,7 @@ class IndexerApp(tk.Tk):
                 self._autostart_via_label(self._autostart_via_code())
             )
             via = ttk.Combobox(
-                row3,
+                desk_row,
                 textvariable=self.autostart_via_var,
                 values=[
                     self._("autostart_via_startup"),
@@ -2545,17 +2632,52 @@ class IndexerApp(tk.Tk):
             )
             via.pack(side=tk.LEFT, padx=(4, 0))
             via.bind("<<ComboboxSelected>>", self._on_autostart_via_selected)
+        if not tray_available() and not autostart_is_windows():
+            ttk.Label(
+                desk,
+                text=self._("indeks_win_desktop_na"),
+                style="Muted.TLabel",
+            ).pack(anchor=tk.W)
 
-        # Compact watch health strip
-        strip = ttk.Frame(actions)
-        strip.pack(fill=tk.X, pady=(2, 0))
-        ttk.Label(strip, text=self._("watch_strip") + ":", style="Muted.TLabel").pack(
-            side=tk.LEFT
-        )
+        foot = ttk.Frame(body)
+        foot.pack(fill=tk.X, pady=(8, 0))
+
+        def _on_close() -> None:
+            self._refresh_indeks_status_line()
+            dlg.destroy()
+
+        ttk.Button(foot, text=self._("close"), command=_on_close).pack(side=tk.RIGHT)
+        dlg.bind("<Escape>", lambda _e: _on_close())
+        dlg.protocol("WM_DELETE_WINDOW", _on_close)
+
+    def _open_indeks_reports_window(self) -> None:
+        """Window C — Raporty: quality, scan report, history, duplicates."""
+        dlg = tk.Toplevel(self)
+        dlg.title(self._("indeks_win_reports_title"))
+        dlg.transient(self)
+        dlg.minsize(360, 240)
+        body = ttk.Frame(dlg, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
         ttk.Label(
-            strip, textvariable=self.watch_strip_var, style="Muted.TLabel"
-        ).pack(side=tk.LEFT, padx=(4, 0))
-        self._refresh_watch_strip()
+            body,
+            text=self._("indeks_win_reports_intro"),
+            style="Muted.TLabel",
+            wraplength=320,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(0, 10))
+        for label_key, cmd in (
+            ("quality_dashboard", self._open_quality_dashboard),
+            ("scan_report", self._open_scan_report),
+            ("scan_history", self._open_scan_history),
+            ("duplicates", self._open_duplicates),
+        ):
+            ttk.Button(body, text=self._(label_key), command=cmd).pack(
+                fill=tk.X, pady=2
+            )
+        foot = ttk.Frame(body)
+        foot.pack(fill=tk.X, pady=(12, 0))
+        ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
 
     def _build_progress_bar(self, parent) -> None:
@@ -3680,20 +3802,25 @@ class IndexerApp(tk.Tk):
             return
         if self._schedule == SCHEDULE_OFF:
             self.schedule_status_var.set(self._("schedule_idle"))
+            self._refresh_indeks_status_line()
             return
         if self._scan_busy:
             self.schedule_status_var.set(self._("schedule_running"))
+            self._refresh_indeks_status_line()
             return
         rem = seconds_until_next(self._schedule, self._schedule_last_run)
         if rem is None:
             self.schedule_status_var.set(self._("schedule_idle"))
+            self._refresh_indeks_status_line()
             return
         if rem <= 0.5:
             self.schedule_status_var.set(self._("schedule_due_now"))
+            self._refresh_indeks_status_line()
             return
         self.schedule_status_var.set(
             self._("schedule_countdown", countdown=format_countdown(rem))
         )
+        self._refresh_indeks_status_line()
 
     def _arm_schedule_timer(self) -> None:
         if self._schedule_after_id is not None:
@@ -3883,10 +4010,12 @@ class IndexerApp(tk.Tk):
             return
         if self._is_simple():
             self.watch_strip_var.set("")
+            self._refresh_indeks_status_line()
             return
         fw = self._folder_watcher
         if fw is None or not fw.running:
             self.watch_strip_var.set(self._("watch_strip_idle"))
+            self._refresh_indeks_status_line()
             return
         bits = [
             self._("watch_strip_poll", when=self._format_watch_when(fw.last_poll_at)),
@@ -3922,6 +4051,7 @@ class IndexerApp(tk.Tk):
                 else:
                     bits.append(self._("watch_strip_lock", holder=info.summary()))
         self.watch_strip_var.set(" · ".join(bits))
+        self._refresh_indeks_status_line()
 
     def _autostart_via_code(self) -> str:
         raw = (self.autostart_via_var.get() or "").strip()

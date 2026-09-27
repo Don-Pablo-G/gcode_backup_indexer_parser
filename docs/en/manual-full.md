@@ -99,14 +99,8 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 ## Run index / scan
 
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
-2. Click green **Run index / scan** / **Indeksuj / skanuj**.
-3. Options (second toolbar row under **Indeksuj**):
-   - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
-   - **Also write Excel** — export workbook next to the DB after scan
-   - **Odbiorca from header** — when folder/path left odbiorca empty, match aliases in header paren comments (O##### window only)
-   - **O9000–O9099 → system programs** — auto-add role `system_programs` when program number is O9000–O9099 (accumulates with other roles; reindex to backfill / drop old broad O9 tags outside that range)
-   - **Role colour over status** — when on, function/role colours overshadow green/yellow for the results row (default off: status always wins)
-   - **Watch folders** — see below
+2. Click green **Run scan** / **Uruchom skan**. Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
+3. Deep setup is under **Mapping…**, **Scan & watch…** (incremental / Excel / O9 / watch / tray), and **Reports…**.
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
 
 ### Auto-index
