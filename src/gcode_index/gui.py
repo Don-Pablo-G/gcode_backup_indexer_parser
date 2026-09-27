@@ -238,6 +238,7 @@ from gcode_index.indexer_lock import (
 )
 from gcode_index.help_docs import docs_roots, read_manual, resolve_manual
 from gcode_index.app_meta import format_version_build, window_title
+from gcode_index.dialog_shell import install_dialog_shell
 from gcode_index.ui_theme import (
     UI_ACCENT,
     UI_ACCENT_HOVER,
@@ -248,6 +249,12 @@ from gcode_index.ui_theme import (
     UI_NAV_IDLE_BG,
     UI_NAV_IDLE_FG,
     UI_NAV_IDLE_HOVER,
+    UI_STATUS_GREEN,
+    UI_STATUS_GREEN_HOVER,
+    UI_STATUS_GREEN_TEXT,
+    UI_STATUS_YELLOW,
+    UI_STATUS_YELLOW_HOVER,
+    UI_STATUS_YELLOW_TEXT,
 )
 
 log = logging.getLogger(__name__)
@@ -1361,6 +1368,45 @@ class IndexerApp(tk.Tk):
             highlightthickness=0,
         )
 
+    def _make_status_button(
+        self,
+        parent: tk.Misc,
+        text: str,
+        command,
+        *,
+        provenance: str,
+    ) -> tk.Button:
+        """Coloured Add green / Add yellow — matches Flag status disc swatches."""
+        if provenance == PROVENANCE_BACKUP:
+            bg, hover, fg = (
+                UI_STATUS_GREEN,
+                UI_STATUS_GREEN_HOVER,
+                UI_STATUS_GREEN_TEXT,
+            )
+        else:
+            bg, hover, fg = (
+                UI_STATUS_YELLOW,
+                UI_STATUS_YELLOW_HOVER,
+                UI_STATUS_YELLOW_TEXT,
+            )
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            activebackground=hover,
+            activeforeground=fg,
+            disabledforeground="#c8c8c8",
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=10,
+            pady=4,
+            font=self._ui_font(size=9, bold=True),
+            cursor="hand2",
+            highlightthickness=0,
+        )
+
     def _set_primary_button_enabled(self, btn: tk.Button | None, enabled: bool) -> None:
         if btn is None:
             return
@@ -2304,15 +2350,17 @@ class IndexerApp(tk.Tk):
             extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
             extra_btns = ttk.Frame(extra)
             extra_btns.pack(fill=tk.X, pady=(4, 0))
-            ttk.Button(
+            self._make_status_button(
                 extra_btns,
-                text=self._("add_green_folder"),
-                command=lambda: self._add_scan_root(PROVENANCE_BACKUP),
+                self._("add_green_folder"),
+                lambda: self._add_scan_root(PROVENANCE_BACKUP),
+                provenance=PROVENANCE_BACKUP,
             ).pack(side=tk.LEFT)
-            ttk.Button(
+            self._make_status_button(
                 extra_btns,
-                text=self._("add_yellow_folder"),
-                command=lambda: self._add_scan_root(PROVENANCE_EXTRA),
+                self._("add_yellow_folder"),
+                lambda: self._add_scan_root(PROVENANCE_EXTRA),
+                provenance=PROVENANCE_EXTRA,
             ).pack(side=tk.LEFT, padx=4)
             ttk.Button(
                 extra_btns,
@@ -2454,14 +2502,20 @@ class IndexerApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_mapping_title"))
         dlg.transient(self)
-        dlg.minsize(480, 360)
-        body = ttk.Frame(dlg, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            dlg,
+            min_width=520,
+            min_height=400,
+            width=560,
+            height=480,
+            scrollable=True,
+        )
+        body, foot = shell.body, shell.footer
         ttk.Label(
             body,
             text=self._("indeks_win_mapping_intro"),
             style="Muted.TLabel",
-            wraplength=440,
+            wraplength=500,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 10))
         for label_key, cmd in (
@@ -2479,8 +2533,6 @@ class IndexerApp(tk.Tk):
         remap_host.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
         remap_host.columnconfigure(0, weight=1)
         self._add_path_remap_fields(remap_host, 0)
-        foot = ttk.Frame(body)
-        foot.pack(fill=tk.X, pady=(12, 0))
         ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
@@ -2489,9 +2541,15 @@ class IndexerApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_scan_watch_title"))
         dlg.transient(self)
-        dlg.minsize(520, 420)
-        body = ttk.Frame(dlg, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            dlg,
+            min_width=560,
+            min_height=440,
+            width=600,
+            height=560,
+            scrollable=True,
+        )
+        body, foot = shell.body, shell.footer
 
         # Schedule
         sched_box = ttk.LabelFrame(body, text=self._("schedule"), padding=8)
@@ -2619,9 +2677,6 @@ class IndexerApp(tk.Tk):
                 style="Muted.TLabel",
             ).pack(anchor=tk.W)
 
-        foot = ttk.Frame(body)
-        foot.pack(fill=tk.X, pady=(8, 0))
-
         def _on_close() -> None:
             self._refresh_indeks_status_line()
             dlg.destroy()
@@ -2635,14 +2690,20 @@ class IndexerApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_reports_title"))
         dlg.transient(self)
-        dlg.minsize(360, 240)
-        body = ttk.Frame(dlg, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            dlg,
+            min_width=400,
+            min_height=280,
+            width=440,
+            height=320,
+            scrollable=False,
+        )
+        body, foot = shell.body, shell.footer
         ttk.Label(
             body,
             text=self._("indeks_win_reports_intro"),
             style="Muted.TLabel",
-            wraplength=320,
+            wraplength=400,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 10))
         for label_key, cmd in (
@@ -2654,8 +2715,6 @@ class IndexerApp(tk.Tk):
             ttk.Button(body, text=self._(label_key), command=cmd).pack(
                 fill=tk.X, pady=2
             )
-        foot = ttk.Frame(body)
-        foot.pack(fill=tk.X, pady=(12, 0))
         ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
@@ -6303,8 +6362,14 @@ class PrepareIndexerDialog(tk.Toplevel):
         self.title(_tr(master, "prepare_indexer_title"))
         self.transient(master)
         self.grab_set()
-        self.minsize(560, 420)
-        self.geometry("640x520")
+        shell = install_dialog_shell(
+            self,
+            min_width=560,
+            min_height=420,
+            width=640,
+            height=520,
+            scrollable=True,
+        )
         self.result: Optional[dict] = None
         self._app = master
 
@@ -6314,12 +6379,12 @@ class PrepareIndexerDialog(tk.Toplevel):
         has_pack = pack is not None
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "prepare_indexer_intro"),
             wraplength=600,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self, padding=12)
+        body = ttk.Frame(shell.body)
         body.pack(fill=tk.BOTH, expand=True)
         body.columnconfigure(1, weight=1)
 
@@ -6418,13 +6483,13 @@ class PrepareIndexerDialog(tk.Toplevel):
             wraplength=560,
         ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(4, 0))
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
         ttk.Button(
-            btns, text=_tr(master, "cancel"), command=self.destroy
+            shell.footer, text=_tr(master, "cancel"), command=self.destroy
         ).pack(side=tk.RIGHT)
         ttk.Button(
-            btns, text=_tr(master, "prepare_indexer_apply"), command=self._ok
+            shell.footer,
+            text=_tr(master, "prepare_indexer_apply"),
+            command=self._ok,
         ).pack(side=tk.RIGHT, padx=8)
 
     def _pick_backup(self) -> None:
@@ -7093,10 +7158,16 @@ class FolderTreeMapDialog(tk.Toplevel):
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "map_tree_dialog_title"))
-        self.minsize(720, 480)
-        self.geometry("900x580")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=720,
+            min_height=480,
+            width=900,
+            height=580,
+            scrollable=False,
+        )
         self.saved = False
         self.aliases_changed = False
         self._save_path = Path(save_path)
@@ -7146,13 +7217,13 @@ class FolderTreeMapDialog(tk.Toplevel):
         self._selected_path: Optional[Path] = None
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "map_tree_intro"),
             wraplength=860,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
         body.columnconfigure(0, weight=3)
         body.columnconfigure(1, weight=2)
         body.rowconfigure(0, weight=1)
@@ -7236,18 +7307,16 @@ class FolderTreeMapDialog(tk.Toplevel):
             abtns, text=_tr(master, "map_tree_clear_node"), command=self._clear_node
         ).pack(side=tk.LEFT, padx=6)
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
         ttk.Label(
-            btns,
+            shell.footer,
             text=_tr(master, "tree_alias_hint"),
             style="Muted.TLabel",
             wraplength=520,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "map_tree_save"), command=self._save).pack(
+        ttk.Button(shell.footer, text=_tr(master, "map_tree_save"), command=self._save).pack(
             side=tk.RIGHT, padx=8
         )
 
@@ -7849,11 +7918,18 @@ def _pick_from_list(
     dlg.title(title)
     dlg.transient(parent)
     dlg.grab_set()
-    dlg.minsize(360, 280)
+    shell = install_dialog_shell(
+        dlg,
+        min_width=360,
+        min_height=280,
+        width=400,
+        height=340,
+        scrollable=False,
+    )
     result: dict[str, Optional[str]] = {"value": None}
-    ttk.Label(dlg, text=prompt, wraplength=340).pack(fill=tk.X, padx=12, pady=(12, 6))
-    lb = tk.Listbox(dlg, exportselection=False, height=12)
-    lb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+    ttk.Label(shell.body, text=prompt, wraplength=360).pack(fill=tk.X, pady=(0, 6))
+    lb = tk.Listbox(shell.body, exportselection=False, height=12)
+    lb.pack(fill=tk.BOTH, expand=True, pady=4)
     for v in values:
         lb.insert(tk.END, v)
     if values:
@@ -7868,10 +7944,12 @@ def _pick_from_list(
     def _cancel() -> None:
         dlg.destroy()
 
-    btns = ttk.Frame(dlg)
-    btns.pack(fill=tk.X, padx=12, pady=12)
-    ttk.Button(btns, text=_tr(parent, "cancel"), command=_cancel).pack(side=tk.RIGHT)
-    ttk.Button(btns, text=_tr(parent, "save"), command=_ok).pack(side=tk.RIGHT, padx=8)
+    ttk.Button(shell.footer, text=_tr(parent, "cancel"), command=_cancel).pack(
+        side=tk.RIGHT
+    )
+    ttk.Button(shell.footer, text=_tr(parent, "save"), command=_ok).pack(
+        side=tk.RIGHT, padx=8
+    )
     lb.bind("<Double-Button-1>", lambda _e: _ok())
     parent.wait_window(dlg)
     return result["value"]
@@ -7905,10 +7983,16 @@ class FolderNameBrowserDialog(tk.Toplevel):
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "name_browser_dialog_title"))
-        self.minsize(780, 480)
-        self.geometry("940x560")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=780,
+            min_height=480,
+            width=940,
+            height=560,
+            scrollable=False,
+        )
         self.changed = False
         self._roots = list(roots)
         self._entries = list(entries)
@@ -7928,13 +8012,13 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._iid_by_key: dict[str, str] = {}
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "name_browser_intro"),
             wraplength=900,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        filt = ttk.Frame(self)
-        filt.pack(fill=tk.X, padx=12, pady=(0, 4))
+        filt = ttk.Frame(shell.body)
+        filt.pack(fill=tk.X, pady=(0, 4))
         ttk.Label(filt, text=_tr(master, "name_browser_filter")).pack(side=tk.LEFT)
         self._filter_var = tk.StringVar()
         self._filter_var.trace_add("write", lambda *_a: self._refresh_rows())
@@ -7944,8 +8028,8 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._count_var = tk.StringVar()
         ttk.Label(filt, textvariable=self._count_var).pack(side=tk.RIGHT)
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
         cols = ("name", "count", "chips")
         self._tree = ttk.Treeview(
             body, columns=cols, show="headings", selectmode="browse"
@@ -7965,19 +8049,14 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._tree.bind("<Control-Button-1>", self._on_row_context)
         self._tree.bind("<Double-Button-1>", self._on_row_context)
 
-        hint = ttk.Frame(self)
-        hint.pack(fill=tk.X, padx=12, pady=(4, 0))
         ttk.Label(
-            hint,
+            shell.footer,
             text=_tr(master, "name_browser_context_hint"),
             style="Muted.TLabel",
-            wraplength=900,
-        ).pack(side=tk.LEFT)
-
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
+            wraplength=700,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(
-            btns, text=_tr(master, "close"), command=self.destroy
+            shell.footer, text=_tr(master, "close"), command=self.destroy
         ).pack(side=tk.RIGHT)
 
         self._refresh_rows()
@@ -8877,8 +8956,15 @@ class _NameHubRoleForm(tk.Toplevel):
         self.transient(master)
         self.grab_set()
         self.result: Optional[tuple[str, str, str, str, bool]] = None
-        body = ttk.Frame(self, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            self,
+            min_width=440,
+            min_height=320,
+            width=480,
+            height=380,
+            scrollable=True,
+        )
+        body = shell.body
         ttk.Label(body, text=_tr(master, "folder_colour_id")).grid(row=0, column=0, sticky=tk.W)
         self.id_var = tk.StringVar(value=prefill_id)
         ttk.Entry(body, textvariable=self.id_var, width=36).grid(
@@ -8920,12 +9006,10 @@ class _NameHubRoleForm(tk.Toplevel):
             wraplength=420,
         ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
         body.columnconfigure(1, weight=1)
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+        ttk.Button(shell.footer, text=_tr(master, "ok"), command=self._ok).pack(
             side=tk.RIGHT, padx=8
         )
 
@@ -8965,8 +9049,15 @@ class _NameHubOdbiorcaForm(tk.Toplevel):
         self.transient(master)
         self.grab_set()
         self.result: Optional[tuple[str, str, str]] = None
-        body = ttk.Frame(self, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            self,
+            min_width=420,
+            min_height=240,
+            width=460,
+            height=280,
+            scrollable=False,
+        )
+        body = shell.body
         ttk.Label(body, text=_tr(master, "odbiorca_id")).grid(row=0, column=0, sticky=tk.W)
         self.id_var = tk.StringVar(value=prefill_id)
         ttk.Entry(body, textvariable=self.id_var, width=36).grid(
@@ -8993,12 +9084,10 @@ class _NameHubOdbiorcaForm(tk.Toplevel):
             wraplength=420,
         ).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
         body.columnconfigure(1, weight=1)
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+        ttk.Button(shell.footer, text=_tr(master, "ok"), command=self._ok).pack(
             side=tk.RIGHT, padx=8
         )
 
@@ -9026,10 +9115,16 @@ class FolderColourAliasDialog(tk.Toplevel):
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
         self.title(_tr(master, "folder_colours_dialog_title"))
-        self.minsize(740, 520)
-        self.geometry("820x560")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=740,
+            min_height=520,
+            width=820,
+            height=560,
+            scrollable=False,
+        )
         self.saved = False
         self._save_path = Path(save_path)
         self._catalog = load_colour_catalog(self._save_path)
@@ -9039,13 +9134,13 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._selected_colour_id: Optional[str] = None
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "folder_colours_intro"),
             wraplength=740,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        nb = ttk.Notebook(self)
-        nb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        nb = ttk.Notebook(shell.body)
+        nb.pack(fill=tk.BOTH, expand=True, pady=4)
         self._tab_colours = ttk.Frame(nb, padding=6)
         self._tab_aliases = ttk.Frame(nb, padding=6)
         nb.add(self._tab_colours, text=_tr(master, "folder_colours_tab_colours"))
@@ -9053,12 +9148,12 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._build_colours_tab()
         self._build_aliases_tab()
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=8)
-        ttk.Button(btns, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
-            side=tk.RIGHT, padx=6
+        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
+            side=tk.RIGHT
         )
+        ttk.Button(
+            shell.footer, text=_tr(master, "cancel"), command=self.destroy
+        ).pack(side=tk.RIGHT, padx=6)
         self._refresh_colour_list()
         self._refresh_alias_list()
         self._sync_alias_colour_choices()
@@ -9538,23 +9633,29 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
         self.title(_tr(master, "odbiorcy_dialog_title"))
-        self.minsize(520, 360)
-        self.geometry("640x420")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=520,
+            min_height=360,
+            width=640,
+            height=420,
+            scrollable=False,
+        )
         self.saved = False
         self._save_path = Path(save_path)
         self.catalog = load_odbiorca_catalog(self._save_path)
         self._lang = getattr(master, "_lang", None) or "pl"
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "odbiorcy_intro"),
             wraplength=600,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
 
@@ -9602,12 +9703,12 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
             right, text=_tr(master, "folder_colour_update"), command=self._apply
         ).grid(row=3, column=1, sticky=tk.E, pady=(8, 0))
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=8)
-        ttk.Button(btns, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
-            side=tk.RIGHT, padx=6
+        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
+            side=tk.RIGHT
         )
+        ttk.Button(
+            shell.footer, text=_tr(master, "cancel"), command=self.destroy
+        ).pack(side=tk.RIGHT, padx=6)
         self._refresh()
 
     def _row_label(self, o: OdbiorcaDef) -> str:
@@ -9721,10 +9822,16 @@ class AliasEditorDialog(tk.Toplevel):
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "aliases_dialog_title"))
-        self.minsize(780, 480)
-        self.geometry("900x560")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=780,
+            min_height=480,
+            width=900,
+            height=560,
+            scrollable=False,
+        )
         self.saved = False
         self._aliases = aliases
         self._save_path = Path(save_path)
@@ -9740,13 +9847,13 @@ class AliasEditorDialog(tk.Toplevel):
         self._load_draft_from_aliases()
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "aliases_intro"),
             wraplength=860,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
         body.columnconfigure(0, weight=1)
         body.columnconfigure(1, weight=2)
         body.rowconfigure(0, weight=1)
@@ -9854,11 +9961,15 @@ class AliasEditorDialog(tk.Toplevel):
             right, text=_tr(master, "alias_apply_details"), command=self._apply_machine_details
         ).grid(row=5, column=0, columnspan=2, sticky=tk.E, pady=(8, 0))
 
-        footer = ttk.Frame(self)
-        footer.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Label(footer, text=_tr(master, "alias_saves_to", path=self._save_path.name)).pack(side=tk.LEFT)
-        ttk.Button(footer, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
-        ttk.Button(footer, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT, padx=8)
+        ttk.Label(
+            shell.footer, text=_tr(master, "alias_saves_to", path=self._save_path.name)
+        ).pack(side=tk.LEFT)
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
+            side=tk.RIGHT, padx=8
+        )
 
         # Select first machine (if any) and show its details — do not clear
         # the detail pane afterward (that left highlight vs fields out of sync).
@@ -10188,9 +10299,15 @@ class MachineForm(tk.Toplevel):
         self.transient(master)
         self.grab_set()
         self.result: Optional[tuple[str, str, str, str, str]] = None
-
-        body = ttk.Frame(self, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            self,
+            min_width=440,
+            min_height=300,
+            width=480,
+            height=340,
+            scrollable=True,
+        )
+        body = shell.body
         ttk.Label(body, text=_tr(master, "machine_form_id")).grid(
             row=0, column=0, sticky=tk.W
         )
@@ -10247,12 +10364,10 @@ class MachineForm(tk.Toplevel):
         ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
         body.columnconfigure(1, weight=1)
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+        ttk.Button(shell.footer, text=_tr(master, "ok"), command=self._ok).pack(
             side=tk.RIGHT, padx=8
         )
 
