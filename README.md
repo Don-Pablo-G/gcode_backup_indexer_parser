@@ -112,6 +112,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Flag** — all / green (backup) / yellow (extra)
    - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)
    - **Newest only** — one row per program + machine (latest backup date)
+   - **Only green** / **Tylko zielone** — keep rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override blue (`only_green` in ini; AND with other filters)
    - **View** — **Save current…** / **Load** / **Delete** named filter sets (`views.yaml` next to the DB; legacy `filter_presets.yaml` still loads)
    - Click any **results column header** to sort asc/desc (also on floor clients)
    - **More filters** (indexer): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges

@@ -8,6 +8,7 @@ from gcode_index.badge_style import (
     STATUS_SWATCH,
     flag_tag,
     flag_text,
+    is_flag_green,
     pick_override_role,
     role_dot,
     status_dot,
@@ -109,3 +110,38 @@ def test_pick_override_priority_prototype_first():
         == ROLE_FIXTURE
     )
     assert pick_override_role(["wip"], [ROLE_PROTOTYPE]) is None
+
+
+def test_is_flag_green_matches_one_disc_rule():
+    """Only green = Flag disc is backup green (not yellow, not override)."""
+    assert is_flag_green(PROVENANCE_BACKUP, []) is True
+    assert is_flag_green(PROVENANCE_BACKUP, ["wip", "fixture"]) is True
+    assert is_flag_green(PROVENANCE_EXTRA, []) is False
+    assert is_flag_green(PROVENANCE_EXTRA, ["wip"]) is False
+    # Prototype override replaces green → not green
+    assert (
+        is_flag_green(
+            PROVENANCE_BACKUP,
+            [ROLE_PROTOTYPE],
+            override_role_ids=[ROLE_PROTOTYPE],
+        )
+        is False
+    )
+    # Non-override roles keep green
+    assert (
+        is_flag_green(
+            PROVENANCE_BACKUP,
+            [ROLE_PERSONAL, ROLE_FIXTURE],
+            override_role_ids=[ROLE_PROTOTYPE],
+        )
+        is True
+    )
+    # Override on yellow still not green
+    assert (
+        is_flag_green(
+            PROVENANCE_EXTRA,
+            [ROLE_PROTOTYPE],
+            override_role_ids=[ROLE_PROTOTYPE],
+        )
+        is False
+    )

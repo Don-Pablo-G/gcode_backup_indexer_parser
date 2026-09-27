@@ -90,6 +90,9 @@ class InstanceConfig:
     filter_role: str = ""  # role id or ""
     filter_programmer: str = ""
     filter_odbiorca: str = ""  # odbiorca id | __missing__ | ""
+    # Work GUI: show only rows whose Flag disc is green (backup/trusted;
+    # hides yellow and overriding function colours such as prototype).
+    filter_only_green: bool = False
     # --- [session] chrome / layout ---
     sort_col: str = ""
     sort_reverse: bool = False
@@ -403,6 +406,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.filter_odbiorca = _filter_all_to_empty(
             parser.get("filters", "odbiorca", fallback="")
         )
+        cfg.filter_only_green = _truthy(
+            parser.get("filters", "only_green", fallback="no"), default=False
+        )
 
     if parser.has_section("session"):
         cfg.sort_col = parser.get("session", "sort_col", fallback="").strip()
@@ -565,6 +571,9 @@ def save_instance_ini(
         ),
         filter_odbiorca=_filter_all_to_empty(
             str(kwargs.get("filter_odbiorca", base.filter_odbiorca) or "")
+        ),
+        filter_only_green=bool(
+            kwargs.get("filter_only_green", base.filter_only_green)
         ),
         sort_col=str(kwargs.get("sort_col", base.sort_col) or ""),
         sort_reverse=bool(kwargs.get("sort_reverse", base.sort_reverse)),
@@ -737,6 +746,10 @@ role = {data.filter_role}
 programmer = {data.filter_programmer}
 ; Odbiorca id, __missing__ = no recipient, or blank = all
 odbiorca = {data.filter_odbiorca}
+; yes/no — Work “Only green” / “Tylko zielone”: keep rows whose Flag disc is
+; green (backup/trusted). Hides yellow and overriding function colours
+; (e.g. prototype). Combines with other filters (AND). Default no.
+only_green = {yn(data.filter_only_green)}
 
 [session]
 ; Results sort column id (flag/program/part/machine/date/size/…) or blank

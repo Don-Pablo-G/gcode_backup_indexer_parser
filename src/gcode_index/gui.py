@@ -83,6 +83,7 @@ from gcode_index.badge_style import (
     STATUS_SWATCH,
     flag_tag,
     flag_text,
+    is_flag_green,
     make_swatch,
     pack_compact_colour_legend,
     pack_status_legend,
@@ -341,6 +342,7 @@ class IndexerApp(tk.Tk):
         self.odbiorca_var = tk.StringVar(value=ALL)
         self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
+        self.only_green_var = tk.BooleanVar(value=False)
         self.include_unknown_var = tk.BooleanVar(value=True)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
@@ -471,6 +473,7 @@ class IndexerApp(tk.Tk):
             self.odbiorca_var,
             self.programmer_var,
             self.newest_only_var,
+            self.only_green_var,
         ):
             var.trace_add("write", self._on_filter_changed)
         # Persist scan/option toggles immediately (also covered by quit save)
@@ -673,6 +676,8 @@ class IndexerApp(tk.Tk):
                         pass
             else:
                 self._pelny_view = "praca"
+            if hasattr(self, "only_green_var"):
+                self.only_green_var.set(bool(cfg.filter_only_green))
             if cfg.preview_find and hasattr(self, "preview_find_var"):
                 self.preview_find_var.set(cfg.preview_find)
             hidden = [
@@ -750,6 +755,7 @@ class IndexerApp(tk.Tk):
             filter_role=self._role_filter_value() or "",
             filter_programmer=self._combo_filter_for_ini(self.programmer_var.get()),
             filter_odbiorca=self._odbiorca_filter_for_ini(),
+            filter_only_green=bool(self.only_green_var.get()),
             sort_col=self._sort_col or "",
             sort_reverse=bool(self._sort_reverse),
             more_filters=bool(self._more_filters_open),
@@ -1463,6 +1469,7 @@ class IndexerApp(tk.Tk):
             if hasattr(self, "odbiorca_var")
             else "",
             "newest": bool(self.newest_only_var.get()),
+            "only_green": bool(self.only_green_var.get()),
             "include_unknown": bool(self.include_unknown_var.get()),
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
@@ -1725,6 +1732,8 @@ class IndexerApp(tk.Tk):
                 else:
                     self.role_var.set(self._all_token())
                 self.newest_only_var.set(bool(preserved.get("newest")))
+                if "only_green" in preserved:
+                    self.only_green_var.set(bool(preserved.get("only_green")))
                 if "include_unknown" in preserved:
                     self.include_unknown_var.set(bool(preserved.get("include_unknown")))
                 self.incremental_var.set(bool(preserved.get("incremental", True)))
@@ -2785,14 +2794,19 @@ class IndexerApp(tk.Tk):
             text=self._("newest_only"),
             variable=self.newest_only_var,
         ).grid(row=0, column=7, sticky=tk.E, padx=4)
+        ttk.Checkbutton(
+            filt,
+            text=self._("only_green"),
+            variable=self.only_green_var,
+        ).grid(row=0, column=8, sticky=tk.E, padx=4)
         self.extract_btn = self._make_primary_button(
             filt, self._("extract_selected"), self._extract_selected
         )
-        self.extract_btn.grid(row=0, column=8, padx=4)
+        self.extract_btn.grid(row=0, column=9, padx=4)
         filt.columnconfigure(1, weight=1)
 
         row2 = ttk.Frame(filt)
-        row2.grid(row=1, column=0, columnspan=9, sticky=tk.EW, pady=(6, 0))
+        row2.grid(row=1, column=0, columnspan=10, sticky=tk.EW, pady=(6, 0))
         ttk.Button(
             row2, text=self._("open_folder"), command=self._open_selected_folder
         ).pack(side=tk.LEFT)
@@ -5318,6 +5332,7 @@ class IndexerApp(tk.Tk):
                 self.odbiorca_var.set(self._all_token())
             self.programmer_var.set(self._all_token())
             self.newest_only_var.set(False)
+            self.only_green_var.set(False)
             self._sort_col = None
             self._sort_reverse = False
             self._refresh_heading_labels()
@@ -5501,6 +5516,28 @@ class IndexerApp(tk.Tk):
             self.status_var.set(self._("search_error", error=exc))
             return
 
+        if bool(self.only_green_var.get()):
+            catalog = getattr(self, "_colour_catalog", ColourCatalog())
+            override_ids = catalog.override_role_ids()
+            filtered: list = []
+            for r in rows:
+                keys = r.keys() if hasattr(r, "keys") else ()
+                prov = (
+                    str(r["provenance"] or PROVENANCE_BACKUP)
+                    if "provenance" in keys
+                    else PROVENANCE_BACKUP
+                )
+                role_raw = (
+                    str(r["role"]).strip() if "role" in keys and r["role"] else None
+                )
+                if is_flag_green(
+                    prov,
+                    roles_from_db(role_raw),
+                    override_role_ids=override_ids,
+                ):
+                    filtered.append(r)
+            rows = filtered
+
         self._fill_tree(rows)
         missing_n = int(getattr(self, "_missing_source_count", 0) or 0)
         bits = [self._("status_shown", n=len(rows))]
@@ -5532,6 +5569,8 @@ class IndexerApp(tk.Tk):
             bits.append(f"programmer={programmer_filter}")
         if self.newest_only_var.get():
             bits.append(self._("status_newest_only"))
+        if self.only_green_var.get():
+            bits.append(self._("status_only_green"))
         if self._sort_col:
             arrow = "↓" if self._sort_reverse else "↑"
             bits.append(f"sort={self._sort_col}{arrow}")

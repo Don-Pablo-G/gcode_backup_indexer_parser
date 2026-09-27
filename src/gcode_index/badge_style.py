@@ -112,6 +112,23 @@ def flag_tag(
     return f"flag_{status}"
 
 
+def is_flag_green(
+    prov: Optional[str],
+    role_ids: Sequence[str] | None = None,
+    *,
+    override_role_ids: Sequence[str] | None = None,
+) -> bool:
+    """True when the one-disc Flag would show backup/trusted green.
+
+    Yellow (extra) and overriding function colours (e.g. prototype blue) are
+    not green — used by the Work GUI **Only green** filter.
+    """
+    return (
+        flag_tag(prov, role_ids, override_role_ids=override_role_ids)
+        == f"flag_{PROVENANCE_BACKUP}"
+    )
+
+
 def make_swatch(
     parent: "tk.Misc",
     hex_colour: str,

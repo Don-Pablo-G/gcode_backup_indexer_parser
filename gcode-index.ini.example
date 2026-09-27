@@ -152,6 +152,9 @@ role =
 programmer =
 ; Odbiorca id, __missing__ = no recipient, or blank = all
 odbiorca =
+; yes/no — Work “Only green” / “Tylko zielone”: Flag disc green only
+; (hides yellow + overriding function colours). AND with other filters.
+only_green = no
 
 [session]
 ; Results table sort column id (flag / program / part / machine / date / size / …)

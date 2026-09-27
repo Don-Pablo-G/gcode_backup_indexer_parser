@@ -150,6 +150,7 @@ The GUI is **single-instance**: launching again (including while it sits in the 
 Same find bar as the floor client, plus:
 
 - **Include unassigned** / **Uwzględniaj nieprzypisane** (default **ON**) — when a machine multi-select is active, keep **MACHINE UNKNOWN** / `unmapped:…` rows in the results. Turning OFF shows a confirm warning. Saved as `[scan] include_unknown` in `gcode-index.ini`. Floor clients and locked installs force this **ON** (control disabled).
+- **Only green** / **Tylko zielone** — show only rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override colours. AND with other filters. Saved as `[filters] only_green` (default off).
 - **More filters** — source type, control, flag (green/yellow), role, odbiorca, programmer, **views** (named filter sets in `views.yaml` next to the DB), **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
 - Click any **results column header** to sort ascending/descending
 - **Compare…** — unified diff of exactly two selected rows
