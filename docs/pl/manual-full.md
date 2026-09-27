@@ -64,21 +64,25 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 ### Status + role folderów
 
-**Status** (czy był na maszynie?) pochodzi tylko z korzeni skanu — nigdy z aliasów folderów:
+**Status** (czy był na maszynie?) zapisuje się z korzeni skanu (`backup` / `extra`) — aliasy folderów nie zmieniają tego pola w bazie:
 
 | Odznaka | Znaczenie | Źródło |
 |---------|-----------|--------|
-| 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch |
-| 🟡 | Status nieznany (`extra`) | Żółte foldery dodatkowe |
+| 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch / zaufane korzenie |
+| 🟡 | Status nieznany (`extra`) | Inne poddrzewa (żółte dodatki itd.) |
+
+**Kolumna Flaga = jeden krążek.** Kolor czcionki wiersza podąża za tym krążkiem. Kilka reguł tego samego koloru i tak daje **jeden** krążek — nigdy dwóch krążków w tym samym kolorze.
 
 **Role folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
 
-1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: **prototyp** (niebieski), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku.
-2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy nigdy nie zmieniają statusu. Wiele ról na folderze ustawisz w mapie drzewa.
+1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie, **może zastąpić kolor statusu**). Startowo: **prototyp** (niebieski, nadpisanie **włączone**), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku.
+2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy ustawiają tylko role (nie nadpisują provenance). Wiele ról na folderze ustawisz w mapie drzewa.
+
+Gdy pasująca rola ma włączone **może zastąpić kolor statusu**: Flaga gubi zielony/żółty i pokazuje krążek tej roli; kolor wiersza = kolor roli. Priorytet przy kilku nadpisaniach: **najpierw prototyp**, potem stała kolejność. Role bez nadpisania tylko w kolumnie **Rola** / chipach — nigdy drugi krążek w Fladze.
 
 **Mapuj drzewo…** (indeksator) edytuje `folder_tree_map.yaml` obok bazy: leniwe drzewo z kopii + zielonych/żółtych korzeni. Per węzeł: maszyna (opcjonalnie), **wiele ról**, wyklucz lub wyczyść. ★ = reguła jawna, · = dziedziczona. **Najdłuższy prefiks ścieżki wygrywa** nad aliasami nazw (tagi ścieżki **zastępują** unię ról z nazw). **Prawy klik** na folder → *Alias nazwy „…” wszędzie* → maszyna albo rola (dokładna nazwa; role z aliasów nazw się kumulują). Statusu z menu nie zmienisz. Reindeks stosuje zapisane reguły.
 
-Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
+Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
 
 ---
 

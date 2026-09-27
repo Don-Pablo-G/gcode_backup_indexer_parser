@@ -90,9 +90,9 @@ include_unknown = yes
 ; yes/no — auto-add role system_programs for program numbers O9000–O9099 (accumulate)
 ; Reindex to backfill / drop old broad O9… tags outside that range
 o9_system_programs_role = yes
-; yes/no — when yes, function/role colours overshadow green/yellow for the results row
-; Default no: status (on-machine / unknown) always colours the row / primary flag
-role_colours_overshadow_status = no
+; Flag colour is one disc: green/yellow status, or a role with
+; can_override_main_state_colour in folder_colour_aliases.yaml (prototype
+; defaults on). Legacy key role_colours_overshadow_status is ignored if present.
 ; yes/no — auto-refresh search when gcode_index.sqlite mtime changes (clients)
 search_auto_refresh = no
 ; Seconds between DB mtime checks while auto-refresh is on (minimum 5)

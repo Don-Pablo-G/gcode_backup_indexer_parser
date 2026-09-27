@@ -261,6 +261,7 @@ ALL_TOKENS = frozenset({"(all)", "(wszystkie)"})
 # Results table column ids (order = default display order)
 RESULT_COLUMNS: tuple[str, ...] = (
     "flag",
+    "role",
     "src",
     "program",
     "part",
@@ -338,7 +339,6 @@ class IndexerApp(tk.Tk):
         self.watch_var = tk.BooleanVar(value=False)
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
         self.o9_system_programs_role_var = tk.BooleanVar(value=True)
-        self.role_colours_overshadow_status_var = tk.BooleanVar(value=False)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
@@ -473,7 +473,6 @@ class IndexerApp(tk.Tk):
             self.newest_only_var,
             self.odbiorca_from_header_var,
             self.o9_system_programs_role_var,
-            self.role_colours_overshadow_status_var,
         ):
             var.trace_add("write", self._on_scan_option_changed)
         # Persist folder edits typed by hand (debounced)
@@ -509,9 +508,6 @@ class IndexerApp(tk.Tk):
         self.watch_var.set(bool(cfg.watch_folders))
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
         self.o9_system_programs_role_var.set(bool(cfg.o9_system_programs_role))
-        self.role_colours_overshadow_status_var.set(
-            bool(cfg.role_colours_overshadow_status)
-        )
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
         self.search_auto_refresh_var.set(bool(cfg.search_auto_refresh))
@@ -722,9 +718,6 @@ class IndexerApp(tk.Tk):
             also_excel=bool(self.excel_var.get()),
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
             o9_system_programs_role=bool(self.o9_system_programs_role_var.get()),
-            role_colours_overshadow_status=bool(
-                self.role_colours_overshadow_status_var.get()
-            ),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
             close_to_tray=bool(self.close_to_tray_var.get()),
@@ -1430,9 +1423,6 @@ class IndexerApp(tk.Tk):
             "watch_mode": self._watch_mode,
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
             "o9_system_programs_role": bool(self.o9_system_programs_role_var.get()),
-            "role_colours_overshadow_status": bool(
-                self.role_colours_overshadow_status_var.get()
-            ),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
@@ -1700,10 +1690,6 @@ class IndexerApp(tk.Tk):
                 if "o9_system_programs_role" in preserved:
                     self.o9_system_programs_role_var.set(
                         bool(preserved.get("o9_system_programs_role"))
-                    )
-                if "role_colours_overshadow_status" in preserved:
-                    self.role_colours_overshadow_status_var.set(
-                        bool(preserved.get("role_colours_overshadow_status"))
                     )
                 if preserved.get("watch_mode") is not None:
                     self._watch_mode = normalize_watch_mode(
@@ -2583,12 +2569,6 @@ class IndexerApp(tk.Tk):
             variable=self.o9_system_programs_role_var,
             command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
-        ttk.Checkbutton(
-            opts,
-            text=self._("role_colours_overshadow_status"),
-            variable=self.role_colours_overshadow_status_var,
-            command=self._on_role_overshadow_toggled,
-        ).pack(anchor=tk.W)
 
         # Desktop / tray / autostart
         desk = ttk.LabelFrame(
@@ -2960,6 +2940,7 @@ class IndexerApp(tk.Tk):
         )
         headings = {
             "flag": self._("col_flag"),
+            "role": self._("col_role"),
             "src": self._("col_src"),
             "program": self._("col_program"),
             "part": self._("col_part"),
@@ -5599,21 +5580,23 @@ class IndexerApp(tk.Tk):
         return status_dot(prov)
 
     def _flag_badge_and_tag(self, prov: str, role: Optional[str] = None) -> tuple[str, str]:
-        """Return Flag-column text + tree tag (swatch colour, not emoji)."""
+        """Return Flag-column text + tree tag (one disc; colour via tag)."""
         status = prov or PROVENANCE_BACKUP
         tags = roles_from_db(role)
-        overshadow = bool(
-            getattr(self, "role_colours_overshadow_status_var", None)
-            and self.role_colours_overshadow_status_var.get()
-        )
-        return flag_text(status, tags), flag_tag(
-            status, tags, role_overshadow_status=overshadow
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        override_ids = catalog.override_role_ids()
+        return flag_text(status, tags, override_role_ids=override_ids), flag_tag(
+            status, tags, override_role_ids=override_ids
         )
 
-    def _on_role_overshadow_toggled(self) -> None:
-        self._schedule_filter_ini_save()
-        if hasattr(self, "tree") and getattr(self, "_result_rows", None) is not None:
-            self._redraw_tree()
+    def _role_cell_text(self, role: Optional[str] = None) -> str:
+        """Role / Funkcja column: labels for all roles (override and not)."""
+        tags = roles_from_db(role)
+        if not tags:
+            return ""
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        lang = getattr(self, "_lang", "pl")
+        return ", ".join(catalog.label_for(t, lang) for t in tags)
 
     def _provenance_filter_value(self) -> Optional[str]:
         return self._status_filter_value()
@@ -5725,6 +5708,7 @@ class IndexerApp(tk.Tk):
             if "odbiorca_id" in keys and r["odbiorca_id"]:
                 odbiorca_lab = self._odbiorca_label(str(r["odbiorca_id"]))
             flag, tag = self._flag_badge_and_tag(prov, role)
+            role_cell = self._role_cell_text(role)
             missing = self._row_source_missing(
                 r, backup_root=backup or None, path_remaps=remaps
             )
@@ -5738,6 +5722,7 @@ class IndexerApp(tk.Tk):
                 iid=str(i),
                 values=(
                     flag,
+                    role_cell,
                     src_badge,
                     r["program_number"] or "",
                     r["part_number"] or "",
@@ -6932,7 +6917,10 @@ class DuplicatesDialog(tk.Toplevel):
     def _flag_for(self, prov: str, role: str | None = None) -> tuple[str, str]:
         status = prov or PROVENANCE_BACKUP
         tags = roles_from_db(role)
-        return flag_text(status, tags), flag_tag(status, tags)
+        override_ids = self._catalog.override_role_ids()
+        return flag_text(status, tags, override_role_ids=override_ids), flag_tag(
+            status, tags, override_role_ids=override_ids
+        )
 
     def _rebuild_group_list(self) -> None:
         only = bool(self._conflicts_only.get())
@@ -8378,7 +8366,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self.wait_window(form)
         if not form.result:
             return
-        role_id, label_pl, label_en, swatch = form.result
+        role_id, label_pl, label_en, swatch, can_override = form.result
         if role_id in self._catalog.colour_ids:
             messagebox.showerror(
                 _tr(self.master, "name_hub_role_new_title", name=name),
@@ -8432,6 +8420,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
             meaning_en="",
             badge="●",
             builtin=False,
+            can_override_main_state_colour=bool(can_override),
         )
         colours = list(self._catalog.colours) + [new_def]
         self._colour_map.upsert_exact_role(name, new_def.id)
@@ -8887,7 +8876,7 @@ class _NameHubRoleForm(tk.Toplevel):
         self.title(title)
         self.transient(master)
         self.grab_set()
-        self.result: Optional[tuple[str, str, str, str]] = None
+        self.result: Optional[tuple[str, str, str, str, bool]] = None
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
         ttk.Label(body, text=_tr(master, "folder_colour_id")).grid(row=0, column=0, sticky=tk.W)
@@ -8918,12 +8907,18 @@ class _NameHubRoleForm(tk.Toplevel):
         _build_swatch_picker_ui(
             colour_box, tr_master=master, swatch_var=self.swatch_var
         )
+        self.override_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text=_tr(master, "folder_colour_can_override"),
+            variable=self.override_var,
+        ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
         ttk.Label(
             body,
             text=_tr(master, "name_hub_role_alias_note", alias=alias),
             style="Muted.TLabel",
             wraplength=420,
-        ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+        ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
         body.columnconfigure(1, weight=1)
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
@@ -8948,6 +8943,7 @@ class _NameHubRoleForm(tk.Toplevel):
             self.pl_var.get().strip() or cid,
             self.en_var.get().strip() or self.pl_var.get().strip() or cid,
             normalize_hex_colour(self.swatch_var.get()),
+            bool(self.override_var.get()),
         )
         self.destroy()
 
@@ -9114,6 +9110,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._badge_var = tk.StringVar(value="●")
         self._meaning_pl_var = tk.StringVar()
         self._meaning_en_var = tk.StringVar()
+        self._override_var = tk.BooleanVar(value=False)
 
         rows = [
             ("folder_colour_id", self._cid_var),
@@ -9148,19 +9145,26 @@ class FolderColourAliasDialog(tk.Toplevel):
             row=4, column=1, sticky=tk.EW, padx=4, pady=2
         )
 
+        ttk.Checkbutton(
+            right,
+            text=_tr(self.master, "folder_colour_can_override"),
+            variable=self._override_var,
+            command=lambda: self._persist_swatch_if_editing(),
+        ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(4, 2))
+
         ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_pl")).grid(
-            row=5, column=0, sticky=tk.NW
-        )
-        self._meaning_pl = tk.Text(right, height=3, width=40, wrap=tk.WORD)
-        self._meaning_pl.grid(row=5, column=1, sticky=tk.EW, padx=4, pady=2)
-        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_en")).grid(
             row=6, column=0, sticky=tk.NW
         )
+        self._meaning_pl = tk.Text(right, height=3, width=40, wrap=tk.WORD)
+        self._meaning_pl.grid(row=6, column=1, sticky=tk.EW, padx=4, pady=2)
+        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_en")).grid(
+            row=7, column=0, sticky=tk.NW
+        )
         self._meaning_en = tk.Text(right, height=3, width=40, wrap=tk.WORD)
-        self._meaning_en.grid(row=6, column=1, sticky=tk.EW, padx=4, pady=2)
+        self._meaning_en.grid(row=7, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(
             right, text=_tr(self.master, "folder_colour_update"), command=self._apply_colour_fields
-        ).grid(row=7, column=1, sticky=tk.E, pady=(8, 0))
+        ).grid(row=8, column=1, sticky=tk.E, pady=(8, 0))
 
     def _set_swatch_colour(self, hex_colour: str) -> None:
         self._swatch_var.set(normalize_hex_colour(hex_colour))
@@ -9207,6 +9211,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._label_en_var.set(c.label_en)
         self._swatch_var.set(c.swatch)
         self._badge_var.set(c.badge)
+        self._override_var.set(bool(c.can_override_main_state_colour))
         self._meaning_pl.delete("1.0", tk.END)
         self._meaning_pl.insert("1.0", c.meaning_pl)
         self._meaning_en.delete("1.0", tk.END)
@@ -9233,6 +9238,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         new_badge = self._badge_var.get()
         new_mpl = self._meaning_pl.get("1.0", tk.END).strip()
         new_men = self._meaning_en.get("1.0", tk.END).strip()
+        new_override = bool(self._override_var.get())
         display_changed = (
             old.label_pl != new_pl
             or old.label_en != new_en
@@ -9243,6 +9249,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             and old.badge == new_badge
             and old.meaning_pl == new_mpl
             and old.meaning_en == new_men
+            and bool(old.can_override_main_state_colour) == new_override
         ):
             return False
         updated = ColourDef(
@@ -9254,6 +9261,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             meaning_en=new_men,
             badge=new_badge,
             builtin=old.builtin,
+            can_override_main_state_colour=new_override,
         )
         colours = list(self._catalog.colours)
         colours[idx] = updated
@@ -9323,6 +9331,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             meaning_en="",
             badge="●",
             builtin=False,
+            can_override_main_state_colour=False,
         )
         prev = self._selected_colour_id or self._cid_var.get().strip()
         if prev:
@@ -9365,6 +9374,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             self._label_en_var.set("")
             self._swatch_var.set("#888888")
             self._badge_var.set("●")
+            self._override_var.set(False)
             self._meaning_pl.delete("1.0", tk.END)
             self._meaning_en.delete("1.0", tk.END)
         self._refresh_alias_list()

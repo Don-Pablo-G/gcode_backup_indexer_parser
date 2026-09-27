@@ -49,6 +49,11 @@ def test_default_catalog_seeds_roles():
     assert by[ROLE_PERSONAL].swatch == "#C0392B"  # red
     assert by[ROLE_SYSTEM_PROGRAMS].swatch == "#E67E22"  # orange
     assert by[ROLE_FIXTURE].swatch == "#8E44AD"  # purple
+    assert by[ROLE_PROTOTYPE].can_override_main_state_colour is True
+    assert by[ROLE_PERSONAL].can_override_main_state_colour is False
+    assert by[ROLE_SYSTEM_PROGRAMS].can_override_main_state_colour is False
+    assert by[ROLE_FIXTURE].can_override_main_state_colour is False
+    assert cat.override_role_ids() == {ROLE_PROTOTYPE}
     # Status ids must not appear as roles
     assert PROVENANCE_BACKUP not in ids
     assert PROVENANCE_EXTRA not in ids
@@ -194,6 +199,7 @@ def test_edited_seed_swatch_persists(tmp_path: Path):
         meaning_en=proto.meaning_en,
         badge=proto.badge,
         builtin=True,
+        can_override_main_state_colour=proto.can_override_main_state_colour,
     )
     others = [c for c in cat.colours if c.id != ROLE_PROTOTYPE]
     save_colour_catalog(path, ColourCatalog(colours=[edited, *others], rules=[]))
@@ -250,6 +256,44 @@ def test_role_alias_does_not_override_status(tmp_path: Path):
     assert by[other.resolve()].role is None
 
 
+def test_can_override_flag_roundtrip_and_legacy_default(tmp_path: Path):
+    """Prototype defaults ON; explicit False persists; legacy YAML seeds OK."""
+    path = tmp_path / "folder_colour_aliases.yaml"
+    cat = ColourCatalog()
+    assert cat.get(ROLE_PROTOTYPE).can_override_main_state_colour is True
+    proto = cat.get(ROLE_PROTOTYPE)
+    edited = ColourDef(
+        id=proto.id,
+        label_pl=proto.label_pl,
+        label_en=proto.label_en,
+        swatch=proto.swatch,
+        meaning_pl=proto.meaning_pl,
+        meaning_en=proto.meaning_en,
+        badge=proto.badge,
+        builtin=True,
+        can_override_main_state_colour=False,
+    )
+    others = [c for c in cat.colours if c.id != ROLE_PROTOTYPE]
+    save_colour_catalog(path, ColourCatalog(colours=[edited, *others], rules=[]))
+    loaded = load_colour_catalog(path)
+    assert loaded.get(ROLE_PROTOTYPE).can_override_main_state_colour is False
+    assert loaded.override_role_ids() == frozenset()
+
+    legacy = tmp_path / "legacy.yaml"
+    legacy.write_text(
+        "colours:\n"
+        "  - id: prototype\n"
+        "    label_pl: Proto\n"
+        "  - id: personal\n"
+        "    label_pl: Osoba\n",
+        encoding="utf-8",
+    )
+    leg = load_colour_catalog(legacy)
+    assert leg.get(ROLE_PROTOTYPE).can_override_main_state_colour is True
+    assert leg.get(ROLE_PERSONAL).can_override_main_state_colour is False
+    assert leg.override_role_ids() == {ROLE_PROTOTYPE}
+
+
 def test_edited_role_meaning_persists(tmp_path: Path):
     path = tmp_path / "folder_colour_aliases.yaml"
     cat = ColourCatalog()
@@ -264,6 +308,7 @@ def test_edited_role_meaning_persists(tmp_path: Path):
         meaning_en="Changed meaning",
         badge=proto.badge,
         builtin=True,
+        can_override_main_state_colour=proto.can_override_main_state_colour,
     )
     others = [c for c in cat.colours if c.id != ROLE_PROTOTYPE]
     save_colour_catalog(path, ColourCatalog(colours=[edited, *others], rules=[]))

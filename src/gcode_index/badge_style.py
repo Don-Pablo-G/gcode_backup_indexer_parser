@@ -3,13 +3,18 @@
 Emoji (🟢🟡🔴) often render as patterned B&W glyphs under Windows tk fonts.
 Use a monochrome circle ``●`` (U+25CF) that takes Treeview/Listbox
 ``foreground=`` hex, or a solid ``tk.Label`` background chip for legends.
+
+**One disc model:** the Flag column always shows exactly one disc. Default =
+status (green backup / yellow extra). A role with
+``can_override_main_state_colour`` may replace that disc (and the row colour).
+Non-override roles stay in the Role column / chips — never a second Flag disc.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Sequence
 
-from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
+from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA, ROLE_PROTOTYPE
 
 if TYPE_CHECKING:
     import tkinter as tk
@@ -23,6 +28,9 @@ STATUS_SWATCH = {
     PROVENANCE_BACKUP: "#1A7F37",  # on machine / green
     PROVENANCE_EXTRA: "#B58900",  # status unknown / yellow (never a role)
 }
+
+# Fixed override priority: prototype first, then stable alphabetical order.
+_OVERRIDE_PRIORITY_FIRST = (ROLE_PROTOTYPE,)
 
 
 def status_swatch(prov: Optional[str]) -> str:
@@ -40,39 +48,67 @@ def role_dot(_badge: Optional[str] = None) -> str:
     return DOT_LARGE
 
 
-def flag_text(prov: Optional[str], role_ids: Sequence[str] | None = None) -> str:
-    """Flag-column text: status disc + one disc per unique role (alongside).
+def pick_override_role(
+    role_ids: Sequence[str] | None,
+    override_role_ids: Sequence[str] | None = None,
+) -> Optional[str]:
+    """Return the role id that should replace status, or ``None``.
 
-    Roles are a set — duplicate ids never produce extra chips. Status is always
-    present as the first disc; role discs are extras, not a replacement.
+    Only roles listed in ``override_role_ids`` qualify. Among matches:
+    prototype first, then stable sorted order. Same-colour / duplicate role
+    ids are already collapsed by ``normalize_roles_list``.
     """
     from gcode_index.folder_tree_map import normalize_roles_list
 
+    override = {
+        str(x).strip()
+        for x in (override_role_ids or ())
+        if x is not None and str(x).strip()
+    }
+    if not override:
+        return None
     roles = normalize_roles_list(list(role_ids or []))
-    parts = [DOT_LARGE]  # status
-    parts.extend(DOT_LARGE for _ in roles)
-    return "".join(parts)
+    candidates = [r for r in roles if r in override]
+    if not candidates:
+        return None
+    for preferred in _OVERRIDE_PRIORITY_FIRST:
+        if preferred in candidates:
+            return preferred
+    return sorted(candidates)[0]
+
+
+def flag_text(
+    prov: Optional[str],
+    role_ids: Sequence[str] | None = None,
+    *,
+    override_role_ids: Sequence[str] | None = None,
+) -> str:
+    """Flag-column text: always exactly one disc (status or overriding role).
+
+    Meeting several green (or yellow) rules still yields one disc of that
+    colour. Non-override roles never add discs here.
+    """
+    # Always one glyph — colour comes from ``flag_tag`` / Treeview foreground.
+    _ = (prov, role_ids, override_role_ids)  # API kept for callers
+    return DOT_LARGE
 
 
 def flag_tag(
     prov: Optional[str],
     role_ids: Sequence[str] | None = None,
     *,
-    role_overshadow_status: bool = False,
+    override_role_ids: Sequence[str] | None = None,
 ) -> str:
     """Treeview tag name for row/flag colour.
 
-    Default: **status** wins (green backup / yellow extra). When
-    ``role_overshadow_status`` is True and roles exist, the first role id
-    colours the row instead.
+    Default: **status** (green backup / yellow extra). When a matching role
+    has override enabled (see ``override_role_ids``), that role colours the
+    row instead — one disc, one colour.
     """
-    from gcode_index.folder_tree_map import normalize_roles_list
-
+    chosen = pick_override_role(role_ids, override_role_ids)
+    if chosen:
+        return f"flag_{chosen}"
     status = (prov or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP
-    if role_overshadow_status:
-        roles = normalize_roles_list(list(role_ids or []))
-        if roles:
-            return f"flag_{roles[0]}"
     return f"flag_{status}"
 
 

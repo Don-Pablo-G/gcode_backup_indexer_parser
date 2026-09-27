@@ -64,21 +64,25 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 ### Status + folder roles
 
-**Status** (ran on machine?) comes from scan roots only — never from folder aliases:
+**Status** (ran on machine?) is stored from scan roots (`backup` / `extra`) — folder aliases never change that DB field:
 
 | Badge | Meaning | Source |
 |-------|---------|--------|
-| 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch roots |
-| 🟡 | Status unknown (`extra`) | Yellow extra roots |
+| 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch / trusted roots |
+| 🟡 | Status unknown (`extra`) | Any other subtree (yellow extras, etc.) |
+
+**Flag column = one disc.** Row font colour follows that disc. Meeting several green (or yellow) rules still yields **one** disc of that colour — never two discs of the same colour.
 
 **Role folderów…** / **Folder roles…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
 
-1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning). Seeded: **prototype** (blue), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
-2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases never change status. A folder may later receive **multiple** roles via the tree map.
+1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning, **can override main state colour**). Seeded: **prototype** (blue, override **on** by default), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
+2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases set roles only (they do not rewrite provenance). A folder may later receive **multiple** roles via the tree map.
+
+When a matching role has **can override main state colour** enabled: Flag drops green/yellow and shows that role’s disc; row colour = role colour. Priority if several overrides match: **prototype first**, then stable order. Non-override roles appear in the **Role** column and chips only — never a second Flag disc.
 
 **Mapuj drzewo…** / **Map tree…** (indexer) edits `folder_tree_map.yaml` next to the database: lazy folder tree from the backup + green/yellow roots. Per node: machine (optional), **multiple role tags**, exclude, or clear. ★ = explicit path rule, · = inherited. **Longest path prefix wins** over name-wide aliases (path tags **replace** the name-role union). **Right-click** a folder → *Alias name “…” everywhere* → machine or role (exact name; name-role aliases **accumulate**). Status cannot be changed from the menu. Reindex reapplies the saved rules.
 
-Results Flag column shows **status + role badge(s)**. Use separate **Status** and **Role** filters (role filter matches any tag). Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
+Use separate **Status** and **Role** filters (role filter matches any tag). Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
 
 ---
 

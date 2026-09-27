@@ -89,7 +89,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - Main backup programs get a **green** flag (ran on the machine / from backup).
    - Extra-folder programs get a **yellow** flag (not from backup / not confirmed run).  
    - Nested roots: the **deepest** configured root that contains a file owns it (child colour wins; no duplicate rows).  
-   - **Status** 🟢 on-machine / 🟡 not-run comes from scan roots only. **Folder roles** (`folder_colour_aliases.yaml`): editable roles (labels, picker/palette, meaning) + folder-name → role/exclude aliases; deepest path segment wins — never overrides status.  
+   - **Status** 🟢 on-machine / 🟡 unknown comes from scan roots. **Flag = one disc** (row colour follows it). **Folder roles** (`folder_colour_aliases.yaml`): editable roles + name → role/exclude aliases; deepest segment wins. Roles with **can override main state colour** (prototype on by default) replace the status disc; other roles stay in the **Role** column / chips only.  
    - **Map tree…** (`folder_tree_map.yaml`): path-specific machine + **multi-tag** roles + exclude; longest path prefix beats name aliases; reindex reapplies without reopening the tree.  
    - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.
 5. **Path remap (client)** under **Change…** if Extract/preview need a different drive letter than `scan_root` in the DB.

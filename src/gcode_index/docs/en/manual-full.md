@@ -17,7 +17,7 @@ With `can_index=yes` the GUI can:
 - Add **green** (on-machine) and **yellow** (extra) scan roots
 - Run **auto-index** on a schedule while the GUI stays open
 - Map odd folder names to machines and edit **local aliases**
-- Use advanced filters, presets, compare, scan report, duplicates
+- Use advanced filters, saved views, compare, scan report / index quality, duplicates
 - Optionally write Excel after a scan
 - Use Windows **autostart** / **tray** helpers
 
@@ -36,12 +36,12 @@ In the preview pane, use **In preview** to find text in the G-code body (next/pr
 
 ## Path remap (client)
 
-If the index was built on a server as **C:** and this PC sees the same share as **Z:**, open **Change…** and set **Path remap (client)**:
+If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Change…** → **Path remap (client)** and **Add…** one or more rules:
 
 - **Prefix in index** = `C:\…` (as stored in the DB / `scan_root`)
 - **Local prefix** = `Z:\…` (as on this PC)
 
-Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
 
 ## Folders
 
@@ -64,21 +64,25 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 ### Status + folder roles
 
-**Status** (ran on machine?) comes from scan roots only — never from folder aliases:
+**Status** (ran on machine?) is stored from scan roots (`backup` / `extra`) — folder aliases never change that DB field:
 
 | Badge | Meaning | Source |
 |-------|---------|--------|
-| 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch roots |
-| 🟡 | Status unknown (`extra`) | Yellow extra roots |
+| 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch / trusted roots |
+| 🟡 | Status unknown (`extra`) | Any other subtree (yellow extras, etc.) |
+
+**Flag column = one disc.** Row font colour follows that disc. Meeting several green (or yellow) rules still yields **one** disc of that colour — never two discs of the same colour.
 
 **Role folderów…** / **Folder roles…** (indexer) edits `folder_colour_aliases.yaml` next to the database:
 
-1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning). Seeded: **prototype** (blue), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
-2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases never change status. A folder may later receive **multiple** roles via the tree map.
+1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning, **can override main state colour**). Seeded: **prototype** (blue, override **on** by default), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
+2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases set roles only (they do not rewrite provenance). A folder may later receive **multiple** roles via the tree map.
+
+When a matching role has **can override main state colour** enabled: Flag drops green/yellow and shows that role’s disc; row colour = role colour. Priority if several overrides match: **prototype first**, then stable order. Non-override roles appear in the **Role** column and chips only — never a second Flag disc.
 
 **Mapuj drzewo…** / **Map tree…** (indexer) edits `folder_tree_map.yaml` next to the database: lazy folder tree from the backup + green/yellow roots. Per node: machine (optional), **multiple role tags**, exclude, or clear. ★ = explicit path rule, · = inherited. **Longest path prefix wins** over name-wide aliases (path tags **replace** the name-role union). **Right-click** a folder → *Alias name “…” everywhere* → machine or role (exact name; name-role aliases **accumulate**). Status cannot be changed from the menu. Reindex reapplies the saved rules.
 
-Results Flag column shows **status + role badge(s)**. Use separate **Status** and **Role** filters (role filter matches any tag). Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
+Use separate **Status** and **Role** filters (role filter matches any tag). Exact Duplicates flag **role** (and status) conflicts. **Re-scan** after upgrading so `role` is filled.
 
 ---
 
@@ -88,7 +92,7 @@ Results Flag column shows **status + role badge(s)**. Use separate **Status** an
 2. **Map tree…** — lazy path tree for machine + recipient + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins). Right-click a folder → name alias everywhere (machine / role / recipient).
 3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
 4. **Folder roles…** — role catalogue (swatch, meaning) and name → role aliases.
-5. **Recipients…** — recipient/customer catalogue; one odbiorca per program (like machine).
+5. **Recipients…** — recipient/customer catalogue; one odbiorca per program (like machine). Folder-name aliases also match header paren comments `(…)` when path/folder left odbiorca empty (**Odbiorca from header** toggle; reindex to backfill).
 
 ### Loose `.nc` machine assignment
 
@@ -99,11 +103,8 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 ## Run index / scan
 
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
-2. Click green **Run index / scan** / **Indeksuj / skanuj**.
-3. Options (second toolbar row under **Indeksuj**):
-   - **Incremental** — skip unchanged files (size + mtime); reuse previous rows
-   - **Also write Excel** — export workbook next to the DB after scan
-   - **Watch folders** — see below
+2. Click green **Run scan** / **Uruchom skan**. Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
+3. Deep setup is under **Mapping…**, **Scan & watch…** (incremental / Excel / O9 / watch / tray), and **Reports…**.
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
 
 ### Auto-index
@@ -149,11 +150,13 @@ The GUI is **single-instance**: launching again (including while it sits in the 
 Same find bar as the floor client, plus:
 
 - **Include unassigned** / **Uwzględniaj nieprzypisane** (default **ON**) — when a machine multi-select is active, keep **MACHINE UNKNOWN** / `unmapped:…` rows in the results. Turning OFF shows a confirm warning. Saved as `[scan] include_unknown` in `gcode-index.ini`. Floor clients and locked installs force this **ON** (control disabled).
-- **More filters** — source type, control, flag (green/yellow), programmer, presets, **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
+- **More filters** — source type, control, flag (green/yellow), role, odbiorca, programmer, **views** (named filter sets in `views.yaml` next to the DB), **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
 - Click any **results column header** to sort ascending/descending
 - **Compare…** — unified diff of exactly two selected rows
+- **Index quality…** — UNKNOWN machines, missing odbiorca, `system_programs` (O9000–O9099), colour conflicts; click a row to filter results
 - **Duplicates…** — exact groups use **program-body** SHA-256 (`program_sha256`: normalized extract text with `%` frame + LF newlines), so glued dump slices can match loose `.nc` / `.nc.copy` with the same body. Members show **colour badges**; groups with ≥2 colours for the same body are flagged as **colour conflicts** (**Konflikt kolorów**) with a filter to show only those. Near-duplicates: same program # + similar size, different body hash. Whole-file `content_sha256` is unchanged for extract integrity. **Re-scan** after upgrade to fill `program_sha256` on older rows.
 - **Open folder** / **Copy path** on the source file
+- Right-click → **Extract to…** — pick a folder (recent destinations remembered in the ini)
 
 **Wydobądź / Extract** writes program bodies to the extract folder (or a path you choose). Sources are never modified. Extract checks whole-file SHA-256 (`content_sha256`) + size from scan time.
 

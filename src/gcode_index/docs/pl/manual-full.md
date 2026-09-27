@@ -17,7 +17,7 @@ Przy `can_index=yes` GUI może:
 - Dodawać katalogi **zielone** (z maszyny) i **żółte** (dodatkowe)
 - Uruchamiać **auto-indeks** według harmonogramu, gdy GUI jest otwarte
 - Mapować dziwne nazwy folderów na maszyny i edytować **lokalne aliasy**
-- Korzystać z filtrów zaawansowanych, presetów, porównania, raportu skanu, duplikatów
+- Korzystać z filtrów zaawansowanych, widoków, porównania, raportu / jakości skanu, duplikatów
 - Opcjonalnie zapisać Excel po skanie
 - Używać Windows **autostart** / **zasobnik**
 
@@ -36,12 +36,12 @@ W panelu podglądu użyj **W podglądzie**, żeby znaleźć tekst w treści G-co
 
 ## Mapowanie ścieżek (klient)
 
-Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:**, ustaw w **Zmień…** sekcję **Mapowanie ścieżek (klient)**:
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), w **Zmień…** → **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
 
 - **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
-Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
 
 ## Foldery
 
@@ -64,21 +64,25 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 ### Status + role folderów
 
-**Status** (czy był na maszynie?) pochodzi tylko z korzeni skanu — nigdy z aliasów folderów:
+**Status** (czy był na maszynie?) zapisuje się z korzeni skanu (`backup` / `extra`) — aliasy folderów nie zmieniają tego pola w bazie:
 
 | Odznaka | Znaczenie | Źródło |
 |---------|-----------|--------|
-| 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch |
-| 🟡 | Status nieznany (`extra`) | Żółte foldery dodatkowe |
+| 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch / zaufane korzenie |
+| 🟡 | Status nieznany (`extra`) | Inne poddrzewa (żółte dodatki itd.) |
+
+**Kolumna Flaga = jeden krążek.** Kolor czcionki wiersza podąża za tym krążkiem. Kilka reguł tego samego koloru i tak daje **jeden** krążek — nigdy dwóch krążków w tym samym kolorze.
 
 **Role folderów…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy:
 
-1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie). Startowo: **prototyp** (niebieski), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku.
-2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy nigdy nie zmieniają statusu. Wiele ról na folderze ustawisz w mapie drzewa.
+1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie, **może zastąpić kolor statusu**). Startowo: **prototyp** (niebieski, nadpisanie **włączone**), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku.
+2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy ustawiają tylko role (nie nadpisują provenance). Wiele ról na folderze ustawisz w mapie drzewa.
+
+Gdy pasująca rola ma włączone **może zastąpić kolor statusu**: Flaga gubi zielony/żółty i pokazuje krążek tej roli; kolor wiersza = kolor roli. Priorytet przy kilku nadpisaniach: **najpierw prototyp**, potem stała kolejność. Role bez nadpisania tylko w kolumnie **Rola** / chipach — nigdy drugi krążek w Fladze.
 
 **Mapuj drzewo…** (indeksator) edytuje `folder_tree_map.yaml` obok bazy: leniwe drzewo z kopii + zielonych/żółtych korzeni. Per węzeł: maszyna (opcjonalnie), **wiele ról**, wyklucz lub wyczyść. ★ = reguła jawna, · = dziedziczona. **Najdłuższy prefiks ścieżki wygrywa** nad aliasami nazw (tagi ścieżki **zastępują** unię ról z nazw). **Prawy klik** na folder → *Alias nazwy „…” wszędzie* → maszyna albo rola (dokładna nazwa; role z aliasów nazw się kumulują). Statusu z menu nie zmienisz. Reindeks stosuje zapisane reguły.
 
-Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
+Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty oznaczają konflikty ról (i statusu). Po aktualizacji **przeskanuj**, żeby wypełnić `role`.
 
 ---
 
@@ -88,15 +92,15 @@ Kolumna Flaga pokazuje **status + odznaki ról**. Osobne filtry **Status** i **R
 2. **Mapuj drzewo…** — leniwe drzewo ścieżek: maszyna + odbiorca + wiele ról + wyklucz (`folder_tree_map.yaml`; najgłębsza ścieżka wygrywa). Prawy klik na folder → alias nazwy wszędzie (maszyna / rola / odbiorca).
 3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
 4. **Role folderów…** — katalog ról (barwa, znaczenie) oraz aliasy nazw → rola.
-5. **Odbiorcy…** — katalog odbiorców / klientów; jeden odbiorca na program (jak maszyna).
+5. **Odbiorcy…** — katalog odbiorców / klientów; jeden odbiorca na program (jak maszyna). Aliasy nazw folderów działają też na komentarze w nagłówku programu (`(…)`) gdy ścieżka/folder nie ustawiły odbiorcy (przełącznik **Odbiorca z nagłówka**; reindeks uzupełnia).
 
 ---
 
 ## Indeksuj / skanuj
 
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
-2. Zielony **Indeksuj / skanuj**.
-3. Opcje: **Przyrostowo**, **Zapisz też Excel**, **Obserwuj foldery**.
+2. Zielony **Uruchom skan**.
+3. Głębsze ustawienia: **Mapowanie…**, **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja / zasobnik), **Raporty…**.
 4. Pasek postępu + **Raport skanu** po zakończeniu.
 
 ### Auto-indeks
@@ -134,7 +138,10 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 Jak na kliencie hali, plus:
 
 - **Uwzględniaj nieprzypisane** / **Include unassigned** (domyślnie **ON**) — przy aktywnym filtrze maszyn zostawia w wynikach **MACHINE UNKNOWN** / `unmapped:…`. Wyłączenie pokazuje ostrzeżenie. Zapis: `[scan] include_unknown` w `gcode-index.ini`. Na kliencie hali i przy blokadzie zawsze **ON** (kontrolka wyłączona).
-- **Więcej filtrów**, **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; odznaki kolorów przy członkach; **Konflikt kolorów**, gdy to samo ciało ma ≥2 kolory — filtr „Tylko konflikt kolorów”; po aktualizacji **przeskanuj** ponownie). Wydobycie sprawdza SHA całego pliku (`content_sha256`) + rozmiar ze skanu.
+- **Więcej filtrów** — typ źródła, sterowanie, status, rola, odbiorca, programista, **widoki** (`views.yaml` obok bazy), rozmiar / data pliku
+- **Jakość indeksu…** — UNKNOWN, brak odbiorcy, programy systemowe (O9000–O9099), konflikty kolorów; klik → filtr wyników
+- **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; odznaki kolorów przy członkach; **Konflikt kolorów**, gdy to samo ciało ma ≥2 kolory — filtr „Tylko konflikt kolorów”; po aktualizacji **przeskanuj** ponownie)
+- Prawy przycisk → **Wydobądź do…** — wybór folderu (ostatnie foldery w ini). Wydobycie sprawdza SHA całego pliku (`content_sha256`) + rozmiar ze skanu.
 
 ---
 

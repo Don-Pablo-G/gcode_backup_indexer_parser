@@ -6,7 +6,8 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 # Default widths match the GUI headings (pixels).
 DEFAULT_COLUMN_WIDTHS: dict[str, int] = {
-    "flag": 88,
+    "flag": 48,
+    "role": 120,
     "src": 64,
     "program": 90,
     "part": 130,

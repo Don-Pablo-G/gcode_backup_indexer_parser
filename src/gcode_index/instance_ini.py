@@ -65,8 +65,6 @@ class InstanceConfig:
     odbiorca_from_header: bool = True
     # Auto-tag O9000–O9099 program numbers with role system_programs
     o9_system_programs_role: bool = True
-    # When True, role/function colours colour the results row instead of status
-    role_colours_overshadow_status: bool = False
     search_auto_refresh: bool = False  # re-query when DB mtime changes
     search_auto_refresh_s: int = 20  # poll interval for DB mtime (seconds)
     geometry: str = "1320x820"
@@ -308,10 +306,6 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.o9_system_programs_role = _truthy(
             parser.get("scan", "o9_system_programs_role", fallback="yes"), default=True
         )
-        cfg.role_colours_overshadow_status = _truthy(
-            parser.get("scan", "role_colours_overshadow_status", fallback="no"),
-            default=False,
-        )
         cfg.watch_folders = _truthy(
             parser.get("scan", "watch_folders", fallback="no"), default=False
         )
@@ -523,12 +517,6 @@ def save_instance_ini(
         o9_system_programs_role=bool(
             kwargs.get("o9_system_programs_role", base.o9_system_programs_role)
         ),
-        role_colours_overshadow_status=bool(
-            kwargs.get(
-                "role_colours_overshadow_status",
-                base.role_colours_overshadow_status,
-            )
-        ),
         search_auto_refresh=bool(
             kwargs.get("search_auto_refresh", base.search_auto_refresh)
         ),
@@ -685,9 +673,9 @@ odbiorca_from_header = {yn(data.odbiorca_from_header)}
 ; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
 ; old broad O9… tags outside that range. Does not change status / machine / odbiorca.
 o9_system_programs_role = {yn(data.o9_system_programs_role)}
-; yes/no — when yes, function/role colours overshadow green/yellow for the
-; results-row / primary flag colour. Default no: status (backup/extra) always wins.
-role_colours_overshadow_status = {yn(data.role_colours_overshadow_status)}
+; Flag colour: one disc = status (green/yellow), or a role with
+; can_override_main_state_colour in folder_colour_aliases.yaml (prototype
+; defaults on). The old role_colours_overshadow_status key is ignored.
 ; yes/no — auto-refresh search results when the DB file changes (mtime)
 ; Useful on floor clients sharing a network DB — no need to retype search.
 search_auto_refresh = {yn(data.search_auto_refresh)}
