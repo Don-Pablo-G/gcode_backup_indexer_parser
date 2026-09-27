@@ -146,6 +146,7 @@ from gcode_index.path_util import (
     source_exists_on_disk,
 )
 from gcode_index.path_remap import PathRemap, normalize_remaps
+from gcode_index.role_explain import format_flag_tooltip
 from gcode_index.instance_ini import (
     InstanceConfig,
     default_instance_ini_path,
@@ -388,6 +389,9 @@ class IndexerApp(tk.Tk):
         self._schedule_amount_debounce_id: Optional[str] = None
         self._result_rows: list = []
         self._missing_source_count: int = 0
+        self._flag_tip_after_id: Optional[str] = None
+        self._flag_tip_win: Optional[tk.Toplevel] = None
+        self._flag_tip_row: Optional[str] = None
         self._sort_col: Optional[str] = None
         self._sort_reverse: bool = False
         self._heading_labels: dict[str, str] = {}
@@ -3090,6 +3094,12 @@ class IndexerApp(tk.Tk):
         self.tree.bind("<B1-Motion>", self._on_tree_col_drag, add="+")
         self.tree.bind("<ButtonRelease-1>", self._on_tree_col_release, add="+")
         self.tree.bind("<Configure>", self._on_tree_configure_fill, add="+")
+        # Flag-column hover tip (Work results only)
+        self.tree.bind("<Motion>", self._on_tree_flag_motion, add="+")
+        self.tree.bind("<Leave>", self._on_tree_flag_leave, add="+")
+        self.tree.bind("<MouseWheel>", self._hide_flag_tip, add="+")
+        self.tree.bind("<Button-4>", self._hide_flag_tip, add="+")
+        self.tree.bind("<Button-5>", self._hide_flag_tip, add="+")
         if sys.platform == "darwin":
             self.tree.bind("<Button-2>", self._on_tree_context)
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
@@ -5813,7 +5823,164 @@ class IndexerApp(tk.Tk):
         self._result_rows = list(rows)
         self._redraw_tree()
 
+    def _hide_flag_tip(self, _event=None) -> None:
+        """Cancel delayed tip and destroy any open Flag tooltip window."""
+        after_id = getattr(self, "_flag_tip_after_id", None)
+        if after_id is not None:
+            try:
+                self.after_cancel(after_id)
+            except tk.TclError:
+                pass
+            self._flag_tip_after_id = None
+        win = getattr(self, "_flag_tip_win", None)
+        if win is not None:
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+            self._flag_tip_win = None
+        self._flag_tip_row = None
+
+    def _on_tree_flag_leave(self, _event=None) -> None:
+        self._hide_flag_tip()
+
+    def _on_tree_flag_motion(self, event) -> None:
+        """Schedule Flag-column tip after a short dwell; hide otherwise."""
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return
+        # Column-separator drag — don't fight resize
+        if getattr(self, "_col_resize", None):
+            self._hide_flag_tip()
+            return
+        try:
+            region = tree.identify_region(event.x, event.y)
+            row_id = tree.identify_row(event.y)
+            col_spec = tree.identify_column(event.x)
+        except tk.TclError:
+            self._hide_flag_tip()
+            return
+        if region != "cell" or not row_id or not col_spec:
+            self._hide_flag_tip()
+            return
+        try:
+            idx = int(str(col_spec)[1:])
+        except ValueError:
+            self._hide_flag_tip()
+            return
+        col_id = display_index_to_id(self._displaycolumns_list(), idx)
+        if col_id != "flag":
+            self._hide_flag_tip()
+            return
+        # Same Flag cell — keep existing tip / pending after
+        if (
+            getattr(self, "_flag_tip_row", None) == row_id
+            and (
+                getattr(self, "_flag_tip_win", None) is not None
+                or getattr(self, "_flag_tip_after_id", None) is not None
+            )
+        ):
+            return
+        self._hide_flag_tip()
+        self._flag_tip_row = row_id
+        try:
+            self._flag_tip_after_id = self.after(
+                500, lambda r=row_id, x=event.x_root, y=event.y_root: self._show_flag_tip(r, x, y)
+            )
+        except tk.TclError:
+            self._flag_tip_after_id = None
+
+    def _live_tree_map(self) -> FolderTreeMap:
+        target = self.target_var.get().strip()
+        if not target:
+            return FolderTreeMap()
+        try:
+            return load_folder_tree_map(tree_map_path_for_target(target))
+        except Exception:
+            return FolderTreeMap()
+
+    def _show_flag_tip(self, row_id: str, x_root: int, y_root: int) -> None:
+        self._flag_tip_after_id = None
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return
+        try:
+            idx = int(row_id)
+        except ValueError:
+            return
+        rows = getattr(self, "_result_rows", None) or []
+        if idx < 0 or idx >= len(rows):
+            return
+        row = rows[idx]
+        keys = row.keys() if hasattr(row, "keys") else ()
+        prov = ""
+        if "provenance" in keys:
+            prov = str(row["provenance"] or PROVENANCE_BACKUP)
+        role = None
+        if "role" in keys and row["role"]:
+            role = str(row["role"]).strip() or None
+        source_path = str(row["source_path"] or "") if "source_path" in keys else ""
+        scan_root = None
+        if "scan_root" in keys and row["scan_root"]:
+            scan_root = str(row["scan_root"])
+        program_number = ""
+        if "program_number" in keys and row["program_number"]:
+            program_number = str(row["program_number"])
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        try:
+            o9_on = bool(self.o9_system_programs_role_var.get())
+        except Exception:
+            o9_on = True
+        text = format_flag_tooltip(
+            provenance=prov or PROVENANCE_BACKUP,
+            source_path=source_path,
+            scan_root=scan_root,
+            program_number=program_number,
+            role_csv=role,
+            catalog=catalog,
+            colour_map=catalog.alias_map(),
+            tree_map=self._live_tree_map(),
+            o9_enabled=o9_on,
+            lang=getattr(self, "_lang", "pl"),
+        )
+        self._hide_flag_tip()
+        self._flag_tip_row = row_id
+        try:
+            win = tk.Toplevel(self)
+            win.wm_overrideredirect(True)
+            try:
+                win.attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            lbl = tk.Label(
+                win,
+                text=text,
+                justify=tk.LEFT,
+                relief=tk.SOLID,
+                borderwidth=1,
+                background="#ffffe0",
+                foreground="#1a1a1a",
+                padx=8,
+                pady=6,
+                wraplength=400,
+                font=("Segoe UI", 9) if sys.platform == "win32" else None,
+            )
+            lbl.pack()
+            # Place near pointer; clamp to screen
+            win.update_idletasks()
+            tw = win.winfo_reqwidth()
+            th = win.winfo_reqheight()
+            sw = win.winfo_screenwidth()
+            sh = win.winfo_screenheight()
+            px = min(max(0, int(x_root) + 12), max(0, sw - tw - 4))
+            py = min(max(0, int(y_root) + 12), max(0, sh - th - 4))
+            win.geometry(f"+{px}+{py}")
+            self._flag_tip_win = win
+        except tk.TclError:
+            self._flag_tip_win = None
+
     def _redraw_tree(self) -> None:
+        self._hide_flag_tip()
         self.tree.delete(*self.tree.get_children())
         badge_missing = self._("badge_missing")
         badge_ok = self._("badge_ok")

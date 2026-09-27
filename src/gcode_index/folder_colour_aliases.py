@@ -708,15 +708,23 @@ class FolderColourAliasMap:
     def __len__(self) -> int:
         return len(self._rules)
 
-    def match_segment(self, folder_raw: str) -> Optional[str]:
+    def match_segment_rule(self, folder_raw: str) -> Optional[FolderColourRule]:
+        """Winning alias rule for ``folder_raw`` (exact key, else fuzzy).
+
+        Same match order as ``match_segment`` / scan. Use this when the tip or
+        UI needs the alias spelling and exact-vs-fuzzy, not only the role id.
+        """
         key = normalize_folder_name(folder_raw)
         if not key:
             return None
         exact = self._by_key.get(key)
         if exact is not None:
-            return exact.colour
-        fuzzy = self._lookup_fuzzy(key)
-        return fuzzy.colour if fuzzy is not None else None
+            return exact
+        return self._lookup_fuzzy(key)
+
+    def match_segment(self, folder_raw: str) -> Optional[str]:
+        rule = self.match_segment_rule(folder_raw)
+        return rule.colour if rule is not None else None
 
     def _lookup_fuzzy(self, key: str) -> Optional[FolderColourRule]:
         best: Optional[FolderColourRule] = None
