@@ -1867,6 +1867,9 @@ class IndexerApp(tk.Tk):
             return
         before = getattr(self, "_actions_frame", None)
         pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
+        if self._folders_expanded and not self._is_simple():
+            pack_opts["fill"] = tk.BOTH
+            pack_opts["expand"] = True
         # Pack above index actions when they share a parent.
         try:
             if (
@@ -1883,7 +1886,9 @@ class IndexerApp(tk.Tk):
         else:
             self._folders_expanded_frame.pack_forget()
             self._update_folders_summary()
-            self._folders_summary_frame.pack(**pack_opts)
+            summary_opts = {k: v for k, v in pack_opts.items() if k != "expand"}
+            summary_opts["fill"] = tk.X
+            self._folders_summary_frame.pack(**summary_opts)
         self._sync_praca_path_from_summary()
         if persist:
             self._schedule_filter_ini_save()
@@ -2273,7 +2278,7 @@ class IndexerApp(tk.Tk):
         self._folders_expanded_frame = ttk.LabelFrame(
             parent,
             text=(
-                self._("folders_step_simple") if simple else self._("folders")
+                self._("folders_step_simple") if simple else self._("folders_step")
             ),
             padding=8,
             style="Primary.TLabelframe",
@@ -2281,7 +2286,7 @@ class IndexerApp(tk.Tk):
         paths = self._folders_expanded_frame
         if simple:
             # Floor client: no backup/DB path pickers — open DB via the primary button.
-            # Optional extract folder only.
+            # Optional extract folder only. Path remap stays here (no Mapowanie…).
             ttk.Label(
                 paths,
                 text=self._("extract_folder"),
@@ -2300,6 +2305,7 @@ class IndexerApp(tk.Tk):
             ).grid(row=1, column=1, sticky=tk.W, padx=4, pady=(0, 2))
             done_row_idx = self._add_path_remap_fields(paths, 2)
         else:
+            # Indexer Indeks: paths + extras only. Path remap lives in Mapowanie….
             ttk.Label(
                 paths,
                 text=self._("backup_folder"),
@@ -2341,16 +2347,21 @@ class IndexerApp(tk.Tk):
                 style="Muted.TLabel",
             ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(0, 2))
 
-            # Additional folders (green catch + yellow extras) — indexer only
+            # Additional folders (green catch + yellow extras) — taller list
             extra = ttk.LabelFrame(
                 paths,
                 text=self._("extra_folders"),
                 padding=6,
             )
-            extra.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
+            extra.grid(
+                row=4, column=0, columnspan=3, sticky=tk.NSEW, pady=(8, 0)
+            )
+            paths.rowconfigure(4, weight=1)
             extra_row = ttk.Frame(extra)
-            extra_row.pack(fill=tk.X)
-            self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
+            extra_row.pack(fill=tk.BOTH, expand=True)
+            self.extra_list = tk.Listbox(
+                extra_row, height=7, selectmode=tk.EXTENDED
+            )
             extra_sb = ttk.Scrollbar(
                 extra_row, orient=tk.VERTICAL, command=self.extra_list.yview
             )
@@ -2380,7 +2391,7 @@ class IndexerApp(tk.Tk):
                 side=tk.LEFT, padx=8
             )
             self._fill_extra_list(self._hidden_root_specs)
-            done_row_idx = self._add_path_remap_fields(paths, 5)
+            done_row_idx = 5
 
         if simple and hasattr(self, "extra_list"):
             delattr(self, "extra_list")
@@ -2402,7 +2413,8 @@ class IndexerApp(tk.Tk):
         # Initial folders visibility
         if self._folders_expanded or not self._folders_ready():
             self._folders_expanded = True
-            self._folders_expanded_frame.pack(fill=tk.X, **pad)
+            fill = tk.BOTH if not simple else tk.X
+            self._folders_expanded_frame.pack(fill=fill, expand=not simple, **pad)
         else:
             self._folders_summary_frame.pack(fill=tk.X, **pad)
 
@@ -2430,35 +2442,24 @@ class IndexerApp(tk.Tk):
 
 
     def _build_full_index_actions(self, parent, pad: dict) -> None:
-        """Indexer Indeks tab: thin run bar + doorways into settings windows.
+        """Indexer Indeks tab: scan-order flow + doorways into settings windows.
 
-        Deep setup (mapping, scan/watch options, reports) lives in dialogs A/B/C.
-        No checkboxes on this bar — only run controls, doorways, and a muted
-        schedule/watch status line.
+        Visual order teaches the workflow: (1) folders above → (2) config
+        doorways as needed → (3) run scan on the right. Deep setup lives in
+        dialogs A/B/C. No checkboxes on this bar.
         """
         actions = ttk.Frame(parent)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
 
-        # Row 1 — run / pack
-        row_scan = ttk.Frame(actions)
-        row_scan.pack(fill=tk.X)
-        self.scan_btn = self._make_primary_button(
-            row_scan, self._("run_scan"), self._start_scan
-        )
-        self.scan_btn.pack(side=tk.LEFT)
-        ttk.Button(
-            row_scan, text=self._("open_db"), command=self._pick_existing_db
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Button(
-            row_scan,
-            text=self._("prepare_indexer"),
-            command=self._open_prepare_indexer,
-        ).pack(side=tk.LEFT, padx=8)
-
-        # Row 2 — three doorways (full captions must fit)
+        # Step 2 — doorways (config as needed)
         row_doors = ttk.Frame(actions)
-        row_doors.pack(fill=tk.X, pady=(6, 0))
+        row_doors.pack(fill=tk.X)
+        ttk.Label(
+            row_doors,
+            text=self._("indeks_step_config"),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(
             row_doors,
             text=self._("indeks_door_mapping"),
@@ -2474,6 +2475,27 @@ class IndexerApp(tk.Tk):
             text=self._("indeks_door_reports"),
             command=self._open_indeks_reports_window,
         ).pack(side=tk.LEFT, padx=8)
+
+        # Step 3 — secondary pack actions left; primary Run scan on the right
+        row_scan = ttk.Frame(actions)
+        row_scan.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(
+            row_scan,
+            text=self._("indeks_step_run"),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(
+            row_scan, text=self._("open_db"), command=self._pick_existing_db
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            row_scan,
+            text=self._("prepare_indexer"),
+            command=self._open_prepare_indexer,
+        ).pack(side=tk.LEFT, padx=8)
+        self.scan_btn = self._make_primary_button(
+            row_scan, self._("run_scan"), self._start_scan
+        )
+        self.scan_btn.pack(side=tk.RIGHT)
 
         # Muted status line: schedule · watch (edit inside window B)
         status_row = ttk.Frame(actions)
@@ -2537,7 +2559,7 @@ class IndexerApp(tk.Tk):
             ttk.Button(body, text=self._(label_key), command=cmd).pack(
                 fill=tk.X, pady=2
             )
-        # Path remap editor (same multi-rule list as folders expander)
+        # Path remap editor (Indexer home for multi-rule list; floor keeps Zmień…)
         remap_host = ttk.Frame(body)
         remap_host.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
         remap_host.columnconfigure(0, weight=1)
@@ -3639,8 +3661,13 @@ class IndexerApp(tk.Tk):
 
     def _scan_root_specs(self) -> list[ScanRootSpec]:
         if hasattr(self, "extra_list"):
+            n = self.extra_list.size()
+            hidden = list(self._hidden_root_specs)
+            # Disc labels share one glyph; trust in-memory specs when sizes match.
+            if len(hidden) == n:
+                return hidden
             specs: list[ScanRootSpec] = []
-            for i in range(self.extra_list.size()):
+            for i in range(n):
                 parsed = parse_root_label(self.extra_list.get(i))
                 if parsed is not None:
                     specs.append(parsed)
@@ -3653,7 +3680,7 @@ class IndexerApp(tk.Tk):
         if not hasattr(self, "extra_list"):
             return
         self.extra_list.delete(0, tk.END)
-        for spec in specs:
+        for i, spec in enumerate(specs):
             self.extra_list.insert(
                 tk.END,
                 format_root_label(
@@ -3662,6 +3689,12 @@ class IndexerApp(tk.Tk):
                     yellow_tag=self._("tag_yellow"),
                 ),
             )
+            try:
+                self.extra_list.itemconfig(
+                    i, foreground=status_swatch(spec.provenance)
+                )
+            except tk.TclError:
+                pass
 
     def _load_extra_roots_into_list(self) -> None:
         target = self.target_var.get().strip()
@@ -3734,11 +3767,13 @@ class IndexerApp(tk.Tk):
     def _remove_extra_roots(self) -> None:
         if not hasattr(self, "extra_list"):
             return
-        sel = list(self.extra_list.curselection())
+        sel = set(self.extra_list.curselection())
         if not sel:
             return
-        for i in reversed(sel):
-            self.extra_list.delete(i)
+        specs = [
+            s for i, s in enumerate(self._scan_root_specs()) if i not in sel
+        ]
+        self._fill_extra_list(specs)
         self._persist_extra_roots()
         self._sync_folder_watch()
 

@@ -26,7 +26,7 @@ Indexer layout uses two primary navigation segments (large bar at the top):
 | Tab | Contents |
 |-----|----------|
 | **Work / Praca** | Search / filters / **results table** \| **full-height preview on the right** — clean retrieve surface. One-line path summary + **Folders…** to open Index. Primary CTA: **Extract**. |
-| **Index / Indeks** | Backup/DB/extract folders, green/yellow extras, path remap, **Index/scan**, Map, Machines & aliases, incremental, watch, schedule, history, autostart/tray, report/duplicates/Excel |
+| **Index / Indeks** | Backup/DB/extract folders, green/yellow extras (Flag discs), **Run scan** on the right, doorways **Mapping…** / **Scan & watch…** / **Reports…** |
 
 Floor clients (`can_index=no`) stay on a single retrieve surface — no Praca/Indeks tabs.
 
@@ -36,12 +36,14 @@ In the preview pane, use **In preview** to find text in the G-code body (next/pr
 
 ## Path remap (client)
 
-If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Change…** → **Path remap (client)** and **Add…** one or more rules:
+If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Mapping…** and under **Path remap (client)** **Add…** one or more rules:
 
 - **Prefix in index** = `C:\…` (as stored in the DB / `scan_root`)
 - **Local prefix** = `Z:\…` (as on this PC)
 
 Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+
+On floor clients (`can_index=no`) path remap stays under **Change…** (no **Mapping…** doorway).
 
 ## Folders
 
@@ -102,10 +104,12 @@ When indexing individual `.nc` / `.nc.copy` files, the scanner walks parent fold
 
 ## Run index / scan
 
+Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / extract + extras) → **2 · Setup** (Mapping / Scan & watch / Reports as needed) → **3 · Scan** with **Run scan** on the right.
+
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
-2. Click green **Run scan** / **Uruchom skan**. Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
-3. Deep setup is under **Mapping…**, **Scan & watch…** (incremental / Excel / O9 / watch / tray), and **Reports…**.
-4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…** on the same row).
+2. Click green **Run scan** / **Uruchom skan** (right side). Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
+3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / O9 / watch / tray), and **Reports…**.
+4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**).
 
 ### Auto-index
 

@@ -92,11 +92,11 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Status** 🟢 on-machine / 🟡 unknown comes from scan roots. **Flag = one disc** (row colour follows it). **Folder roles** (`folder_colour_aliases.yaml`): editable roles + name → role/exclude aliases; deepest segment wins. Roles with **can override main state colour** (prototype on by default) replace the status disc; other roles stay in the **Role** column / chips only.  
    - **Map tree…** (`folder_tree_map.yaml`): path-specific machine + **multi-tag** roles + exclude; longest path prefix beats name aliases; reindex reapplies without reopening the tree.  
    - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.
-5. **Path remap (client)** under **Change…** if Extract/preview need a different drive letter than `scan_root` in the DB.
+5. **Path remap (client)** under **Mapping…** (Indexer) or **Change…** (floor client) if Extract/preview need a different drive letter than `scan_root` in the DB.
 6. Click **Folder names…** (optional but recommended) — the **name-binding hub**. Frequency list with **chips** (machine / function / recipient). Right-click a row → create from this name or add an alias to an existing entry (label/alias prefilled). Catalogue dialogs stay for maintenance. Writes `aliases.local.yaml` / exact `folder_colour_aliases` / `odbiorcy.yaml`.
    - First scan prompts when unmatched date/machine folders remain.
    - **Machines & aliases…** opens a **machine list**: select a machine to edit its folder aliases (and label / control / layout). **Add machine** / **Remove machine** manage shop-local machines. Bundled spellings are read-only; add a local spelling to customize. Bundled `aliases.yaml` stays read-only.
-7. Click **Run index / scan** (optional Excel export; optional **Incremental**; optional **Auto-index** schedule with live countdown).
+7. Click **Run index / scan** on the right of the Indeks bar (optional Excel export; optional **Incremental**; optional **Auto-index** schedule with live countdown).
    **Watch folders** — method **Auto** (OS events on local disks, stamp-poll on UNC/network) or **Poll only**. One PC holds `gcode_index.lock`.
    **Scan history…** lists recent runs from `scan_history.json` (added/updated/removed/unchanged).
    Windows: **Start at Windows logon**, **Close to tray** / **Minimize to tray**.

@@ -44,8 +44,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "Zielony = traktuj jak z maszyny (luźne .nc zanim znikną z backupu). "
             "Żółty = dodatkowy folder (nie z kopii)."
         ),
-        "tag_green": "[G]",
-        "tag_yellow": "[Y]",
+        # Flag disc glyph (colour via Listbox foreground — same as Flag column)
+        "tag_green": "⬤",
+        "tag_yellow": "⬤",
+        "indeks_step_config": "2 · Ustawienia (gdy potrzeba)",
+        "indeks_step_run": "3 · Skan",
         "schedule": "Auto-indeks",
         "schedule_off": "Wyłączony",
         "schedule_unit_seconds": "sekundy",
@@ -669,8 +672,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "Green = treat as on-machine (loose .nc before backup misses them). "
             "Yellow = extra folder (not from backup)."
         ),
-        "tag_green": "[G]",
-        "tag_yellow": "[Y]",
+        # Flag disc glyph (colour via Listbox foreground — same as Flag column)
+        "tag_green": "⬤",
+        "tag_yellow": "⬤",
+        "indeks_step_config": "2 · Setup (as needed)",
+        "indeks_step_run": "3 · Scan",
         "schedule": "Auto-index",
         "schedule_off": "Off",
         "schedule_unit_seconds": "seconds",

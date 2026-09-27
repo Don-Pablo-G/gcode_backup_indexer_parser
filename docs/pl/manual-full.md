@@ -26,7 +26,7 @@ Układ indeksatora ma dwa główne segmenty nawigacji (duży pasek u góry):
 | Zakładka | Zawartość |
 |----------|-----------|
 | **Praca** | Szukanie / filtry / **tabela wyników** \| **pełny podgląd po prawej** — czysta powierzchnia pracy. Jedna linia ścieżek + **Foldery…** do Indeksu. Główne CTA: **Wydobądź**. |
-| **Indeks** | Foldery kopii/bazy/wydobycia, zielone/żółte, mapowanie ścieżek, **Indeksuj/skanuj**, mapa, maszyny i aliasy, przyrostowo, obserwacja, harmonogram, historia, autostart/zasobnik, raport/duplikaty/Excel |
+| **Indeks** | Foldery kopii/bazy/wydobycia, zielone/żółte (krążki jak Flaga), **Uruchom skan** (po prawej), drzwi **Mapowanie…** / **Skan i obserwacja…** / **Raporty…** |
 
 Klient hali (`can_index=no`) zostaje na jednej powierzchni wyszukiwania — bez zakładek Praca/Indeks.
 
@@ -36,12 +36,14 @@ W panelu podglądu użyj **W podglądzie**, żeby znaleźć tekst w treści G-co
 
 ## Mapowanie ścieżek (klient)
 
-Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), w **Zmień…** → **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), otwórz **Mapowanie…** i w sekcji **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
 
 - **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
 Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+
+Na kliencie hali (`can_index=no`) mapowanie ścieżek jest nadal w **Zmień…** (brak drzwi **Mapowanie…**).
 
 ## Foldery
 
@@ -98,9 +100,11 @@ Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty o
 
 ## Indeksuj / skanuj
 
+Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie + dodatkowe) → **2 · Ustawienia** (Mapowanie / Skan i obserwacja / Raporty, gdy potrzeba) → **3 · Skan** z **Uruchom skan** po prawej.
+
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
-2. Zielony **Uruchom skan**.
-3. Głębsze ustawienia: **Mapowanie…**, **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja / zasobnik), **Raporty…**.
+2. Zielony **Uruchom skan** (po prawej).
+3. Głębsze ustawienia: **Mapowanie…** (w tym mapowanie ścieżek), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja / zasobnik), **Raporty…**.
 4. Pasek postępu + **Raport skanu** po zakończeniu.
 
 ### Auto-indeks
@@ -138,6 +142,7 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 Jak na kliencie hali, plus:
 
 - **Uwzględniaj nieprzypisane** / **Include unassigned** (domyślnie **ON**) — przy aktywnym filtrze maszyn zostawia w wynikach **MACHINE UNKNOWN** / `unmapped:…`. Wyłączenie pokazuje ostrzeżenie. Zapis: `[scan] include_unknown` w `gcode-index.ini`. Na kliencie hali i przy blokadzie zawsze **ON** (kontrolka wyłączona).
+- **Tylko zielone** / **Only green** — tylko wiersze z zielonym krążkiem Flag (kopia/zaufany); ukrywa żółte i nadpisanie prototypem. AND z innymi filtrami. Zapis: `[filters] only_green` (domyślnie wyłączone).
 - **Więcej filtrów** — typ źródła, sterowanie, status, rola, odbiorca, programista, **widoki** (`views.yaml` obok bazy), rozmiar / data pliku
 - **Jakość indeksu…** — UNKNOWN, brak odbiorcy, programy systemowe (O9000–O9099), konflikty kolorów; klik → filtr wyników
 - **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; odznaki kolorów przy członkach; **Konflikt kolorów**, gdy to samo ciało ma ≥2 kolory — filtr „Tylko konflikt kolorów”; po aktualizacji **przeskanuj** ponownie)
