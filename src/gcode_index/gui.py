@@ -2558,16 +2558,16 @@ class IndexerApp(tk.Tk):
         self.indeks_status_var.set(" · ".join(bits) if bits else "")
 
     def _open_indeks_mapping_window(self) -> None:
-        """Window A — Mapowanie: aliases, tree, roles, odbiorcy, path remap."""
+        """Window A — Mapowanie: teach names, catalogues (machines/roles/odbiorcy), path remap."""
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_mapping_title"))
         dlg.transient(self)
         shell = install_dialog_shell(
             dlg,
-            min_width=520,
-            min_height=400,
-            width=560,
-            height=480,
+            min_width=540,
+            min_height=460,
+            width=580,
+            height=560,
             scrollable=True,
         )
         body, foot = shell.body, shell.footer
@@ -2578,21 +2578,48 @@ class IndexerApp(tk.Tk):
             wraplength=500,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 10))
+        teach = ttk.LabelFrame(
+            body, text=self._("indeks_win_mapping_teach_group"), padding=8
+        )
+        teach.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(
+            teach,
+            text=self._("indeks_win_mapping_teach_hint"),
+            style="Muted.TLabel",
+            wraplength=480,
+        ).pack(anchor=tk.W, pady=(0, 4))
         for label_key, cmd in (
             ("map_folders", self._open_folder_map),
             ("map_tree", self._open_folder_tree_map),
+        ):
+            ttk.Button(teach, text=self._(label_key), command=cmd).pack(
+                fill=tk.X, pady=2
+            )
+        cats = ttk.LabelFrame(
+            body, text=self._("indeks_win_mapping_catalogues_group"), padding=8
+        )
+        cats.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(
+            cats,
+            text=self._("indeks_win_mapping_catalogues_hint"),
+            style="Muted.TLabel",
+            wraplength=480,
+        ).pack(anchor=tk.W, pady=(0, 4))
+        for label_key, cmd in (
             ("aliases", self._open_alias_editor),
             ("folder_colours", self._open_folder_colour_editor),
             ("odbiorcy", self._open_odbiorca_editor),
         ):
-            ttk.Button(body, text=self._(label_key), command=cmd).pack(
+            ttk.Button(cats, text=self._(label_key), command=cmd).pack(
                 fill=tk.X, pady=2
             )
         # Path remap editor (Indexer home for multi-rule list; floor keeps Zmień…)
-        remap_host = ttk.Frame(body)
-        remap_host.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
-        remap_host.columnconfigure(0, weight=1)
-        self._add_path_remap_fields(remap_host, 0)
+        remap = ttk.LabelFrame(
+            body, text=self._("path_remap"), padding=8
+        )
+        remap.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
+        remap.columnconfigure(0, weight=1)
+        self._add_path_remap_fields(remap, 0)
         ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
@@ -9572,7 +9599,12 @@ class _NameHubOdbiorcaForm(tk.Toplevel):
 
 
 class FolderColourAliasDialog(tk.Toplevel):
-    """Manage folder roles + folder-name → role/exclude aliases."""
+    """Manage folder roles + per-role (and exclude) folder-name aliases.
+
+    Machine-style layout: select a role on the left, edit meta + nested
+    **Aliasy folderów** on the right. Exclude aliases live in a footer strip
+    under the role list (not a second tab).
+    """
 
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
@@ -9581,10 +9613,10 @@ class FolderColourAliasDialog(tk.Toplevel):
         self.grab_set()
         shell = install_dialog_shell(
             self,
-            min_width=740,
+            min_width=780,
             min_height=520,
-            width=820,
-            height=560,
+            width=900,
+            height=600,
             scrollable=False,
         )
         self.saved = False
@@ -9594,72 +9626,106 @@ class FolderColourAliasDialog(tk.Toplevel):
         # Guard: programmatic selection_set must not re-enter <<ListboxSelect>>
         self._selecting_colour = False
         self._selected_colour_id: Optional[str] = None
+        # Indices into catalog.rules for the currently shown role / exclude lists
+        self._role_alias_rule_idxs: list[int] = []
+        self._exclude_rule_idxs: list[int] = []
 
         ttk.Label(
             shell.body,
             text=_tr(master, "folder_colours_intro"),
-            wraplength=740,
+            wraplength=860,
         ).pack(fill=tk.X, pady=(0, 6))
 
-        nb = ttk.Notebook(shell.body)
-        nb.pack(fill=tk.BOTH, expand=True, pady=4)
-        self._tab_colours = ttk.Frame(nb, padding=6)
-        self._tab_aliases = ttk.Frame(nb, padding=6)
-        nb.add(self._tab_colours, text=_tr(master, "folder_colours_tab_colours"))
-        nb.add(self._tab_aliases, text=_tr(master, "folder_colours_tab_aliases"))
-        self._build_colours_tab()
-        self._build_aliases_tab()
-
-        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
-            side=tk.RIGHT
-        )
-        ttk.Button(
-            shell.footer, text=_tr(master, "cancel"), command=self.destroy
-        ).pack(side=tk.RIGHT, padx=6)
-        self._refresh_colour_list()
-        self._refresh_alias_list()
-        self._sync_alias_colour_choices()
-
-    # --- colours tab ---------------------------------------------------------
-
-    def _build_colours_tab(self) -> None:
-        body = self._tab_colours
-        body.rowconfigure(1, weight=1)
-        body.columnconfigure(1, weight=1)
-
         explain = ttk.LabelFrame(
-            body, text=_tr(self.master, "filter_status"), padding=6
+            shell.body, text=_tr(master, "filter_status"), padding=6
         )
-        explain.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        explain.pack(fill=tk.X, pady=(0, 8))
         pack_status_legend(
             explain,
-            on_machine_text=_tr(self.master, "status_on_machine"),
-            not_run_text=_tr(self.master, "status_unknown"),
-            explain_text=_tr(self.master, "folder_colour_status_explain"),
-            wraplength=720,
+            on_machine_text=_tr(master, "status_on_machine"),
+            not_run_text=_tr(master, "status_unknown"),
+            explain_text=_tr(master, "folder_colour_status_explain"),
+            wraplength=840,
         ).pack(fill=tk.X)
 
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        # --- Left: roles + exclude strip --------------------------------------
         left = ttk.Frame(body)
-        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
-        left.rowconfigure(0, weight=1)
-        self._colour_list = tk.Listbox(left, exportselection=False, width=28)
-        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._colour_list.yview)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.rowconfigure(0, weight=3)
+        left.rowconfigure(2, weight=1)
+        left.columnconfigure(0, weight=1)
+
+        roles_box = ttk.LabelFrame(
+            left, text=_tr(master, "folder_colours_roles_list"), padding=6
+        )
+        roles_box.grid(row=0, column=0, sticky="nsew")
+        roles_box.rowconfigure(0, weight=1)
+        roles_box.columnconfigure(0, weight=1)
+        roles_pane = ttk.Frame(roles_box)
+        roles_pane.grid(row=0, column=0, sticky="nsew")
+        roles_pane.rowconfigure(0, weight=1)
+        roles_pane.columnconfigure(0, weight=1)
+        self._colour_list = tk.Listbox(roles_pane, exportselection=False, width=28)
+        sb = ttk.Scrollbar(
+            roles_pane, orient=tk.VERTICAL, command=self._colour_list.yview
+        )
         self._colour_list.configure(yscrollcommand=sb.set)
         self._colour_list.grid(row=0, column=0, sticky="nsew")
         sb.grid(row=0, column=1, sticky="ns")
         self._colour_list.bind("<<ListboxSelect>>", self._on_colour_select)
-        cbtns = ttk.Frame(left)
-        cbtns.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        ttk.Button(cbtns, text=_tr(self.master, "folder_colour_add"), command=self._add_colour).pack(
-            side=tk.LEFT
-        )
+        cbtns = ttk.Frame(roles_box)
+        cbtns.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(
-            cbtns, text=_tr(self.master, "folder_colour_remove"), command=self._remove_colour
+            cbtns, text=_tr(master, "folder_colour_add"), command=self._add_colour
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            cbtns,
+            text=_tr(master, "folder_colour_remove"),
+            command=self._remove_colour,
         ).pack(side=tk.LEFT, padx=6)
 
-        right = ttk.LabelFrame(body, text=_tr(self.master, "folder_colour_edit"), padding=6)
-        right.grid(row=1, column=1, sticky="nsew")
+        excl = ttk.LabelFrame(
+            left, text=_tr(master, "folder_colours_exclude_title"), padding=6
+        )
+        excl.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+        excl.rowconfigure(0, weight=1)
+        excl.columnconfigure(0, weight=1)
+        excl_pane = ttk.Frame(excl)
+        excl_pane.grid(row=0, column=0, sticky="nsew")
+        excl_pane.rowconfigure(0, weight=1)
+        excl_pane.columnconfigure(0, weight=1)
+        self._exclude_list = tk.Listbox(excl_pane, exportselection=False, height=4)
+        excl_sb = ttk.Scrollbar(
+            excl_pane, orient=tk.VERTICAL, command=self._exclude_list.yview
+        )
+        self._exclude_list.configure(yscrollcommand=excl_sb.set)
+        self._exclude_list.grid(row=0, column=0, sticky="nsew")
+        excl_sb.grid(row=0, column=1, sticky="ns")
+        excl_btns = ttk.Frame(excl)
+        excl_btns.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Button(
+            excl_btns, text=_tr(master, "alias_add"), command=self._add_exclude_alias
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            excl_btns,
+            text=_tr(master, "alias_remove"),
+            command=self._remove_exclude_alias,
+        ).pack(side=tk.LEFT, padx=6)
+
+        # --- Right: role meta + nested aliases --------------------------------
+        right = ttk.LabelFrame(
+            body, text=_tr(master, "folder_colour_edit"), padding=6
+        )
+        right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(1, weight=1)
+        right.rowconfigure(9, weight=1)
+
         self._cid_var = tk.StringVar()
         self._label_pl_var = tk.StringVar()
         self._label_en_var = tk.StringVar()
@@ -9675,15 +9741,14 @@ class FolderColourAliasDialog(tk.Toplevel):
             ("folder_colour_label_en", self._label_en_var),
         ]
         for i, (key, var) in enumerate(rows):
-            ttk.Label(right, text=_tr(self.master, key)).grid(row=i, column=0, sticky=tk.W)
+            ttk.Label(right, text=_tr(master, key)).grid(row=i, column=0, sticky=tk.W)
             state = "readonly" if key == "folder_colour_id" else "normal"
             ttk.Entry(right, textvariable=var, state=state).grid(
                 row=i, column=1, sticky=tk.EW, padx=4, pady=2
             )
 
-        # Colour: primary = clickable swatch + presets; hex is optional readout
         colour_row = 3
-        ttk.Label(right, text=_tr(self.master, "folder_colour_swatch")).grid(
+        ttk.Label(right, text=_tr(master, "folder_colour_swatch")).grid(
             row=colour_row, column=0, sticky=tk.NW, pady=(6, 0)
         )
         colour_box = ttk.Frame(right)
@@ -9695,7 +9760,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             after_set=lambda: self._persist_swatch_if_editing(),
         )
 
-        ttk.Label(right, text=_tr(self.master, "folder_colour_badge")).grid(
+        ttk.Label(right, text=_tr(master, "folder_colour_badge")).grid(
             row=4, column=0, sticky=tk.W
         )
         ttk.Entry(right, textvariable=self._badge_var).grid(
@@ -9704,37 +9769,82 @@ class FolderColourAliasDialog(tk.Toplevel):
 
         ttk.Checkbutton(
             right,
-            text=_tr(self.master, "folder_colour_can_override"),
+            text=_tr(master, "folder_colour_can_override"),
             variable=self._override_var,
             command=lambda: self._persist_swatch_if_editing(),
         ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(4, 2))
 
-        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_pl")).grid(
+        ttk.Label(right, text=_tr(master, "folder_colour_meaning_pl")).grid(
             row=6, column=0, sticky=tk.NW
         )
-        self._meaning_pl = tk.Text(right, height=3, width=40, wrap=tk.WORD)
+        self._meaning_pl = tk.Text(right, height=2, width=40, wrap=tk.WORD)
         self._meaning_pl.grid(row=6, column=1, sticky=tk.EW, padx=4, pady=2)
-        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_en")).grid(
+        ttk.Label(right, text=_tr(master, "folder_colour_meaning_en")).grid(
             row=7, column=0, sticky=tk.NW
         )
-        self._meaning_en = tk.Text(right, height=3, width=40, wrap=tk.WORD)
+        self._meaning_en = tk.Text(right, height=2, width=40, wrap=tk.WORD)
         self._meaning_en.grid(row=7, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(
-            right, text=_tr(self.master, "folder_colour_update"), command=self._apply_colour_fields
+            right,
+            text=_tr(master, "folder_colour_update"),
+            command=self._apply_colour_fields,
         ).grid(row=8, column=1, sticky=tk.E, pady=(8, 0))
+
+        alias_frame = ttk.LabelFrame(
+            right, text=_tr(master, "alias_folder_aliases"), padding=4
+        )
+        alias_frame.grid(row=9, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        alias_frame.rowconfigure(0, weight=1)
+        alias_frame.columnconfigure(0, weight=1)
+        alias_pane = ttk.Frame(alias_frame)
+        alias_pane.grid(row=0, column=0, sticky="nsew")
+        alias_pane.rowconfigure(0, weight=1)
+        alias_pane.columnconfigure(0, weight=1)
+        self._alias_list = tk.Listbox(alias_pane, exportselection=False)
+        alias_sb = ttk.Scrollbar(
+            alias_pane, orient=tk.VERTICAL, command=self._alias_list.yview
+        )
+        self._alias_list.configure(yscrollcommand=alias_sb.set)
+        self._alias_list.grid(row=0, column=0, sticky="nsew")
+        alias_sb.grid(row=0, column=1, sticky="ns")
+        alias_btns = ttk.Frame(alias_frame)
+        alias_btns.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Button(
+            alias_btns, text=_tr(master, "alias_add"), command=self._add_role_alias
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            alias_btns,
+            text=_tr(master, "alias_remove"),
+            command=self._remove_role_alias,
+        ).pack(side=tk.LEFT, padx=6)
+
+        ttk.Label(
+            shell.footer,
+            text=_tr(master, "folder_colours_saves_to", path=self._save_path.name),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT)
+        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(
+            shell.footer, text=_tr(master, "cancel"), command=self.destroy
+        ).pack(side=tk.RIGHT, padx=6)
+
+        self._refresh_colour_list()
+        self._refresh_exclude_list()
+        if self._catalog.colours:
+            self._fill_colour_detail(self._catalog.colours[0])
+            self._refresh_role_alias_list()
 
     def _set_swatch_colour(self, hex_colour: str) -> None:
         self._swatch_var.set(normalize_hex_colour(hex_colour))
         self._persist_swatch_if_editing()
 
     def _persist_swatch_if_editing(self) -> None:
-        # Persist into the in-memory catalogue immediately so a later Save
-        # (or row switch) cannot drop a colour pick that never hit Apply.
         if self._cid_var.get().strip():
             self._apply_colour_fields(silent=True)
 
     def _colour_row_label(self, c: ColourDef) -> str:
-        # Disc takes Listbox item foreground (swatch); avoid emoji glyphs.
         return f"{DOT}  {c.label(self._lang)}  ({c.id})"
 
     def _refresh_colour_list(self, *, select_id: Optional[str] = None) -> None:
@@ -9778,8 +9888,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         """Write detail pane into the catalogue for ``cid``.
 
         Returns True when the Listbox display string (label/swatch) may have
-        changed. Does **not** touch Listbox selection — callers that switch
-        rows must keep the clicked index (same class of bug as Maszyny).
+        changed. Does **not** touch Listbox selection.
         """
         idx = None
         for i, c in enumerate(self._catalog.colours):
@@ -9840,9 +9949,6 @@ class FolderColourAliasDialog(tk.Toplevel):
             return
         prev_id = self._selected_colour_id or self._cid_var.get().strip()
         display_changed = False
-        # Detail pane still shows *prev* — flush it before switching.
-        # Critical: do NOT call _apply_colour_fields here; that reloaded the
-        # list and re-selected ``prev``, pinning the highlight on the old row.
         if prev_id:
             display_changed = self._flush_colour_fields(prev_id)
         if display_changed:
@@ -9850,27 +9956,23 @@ class FolderColourAliasDialog(tk.Toplevel):
             self._refresh_colour_list(select_id=new_c.id)
             filled = self._catalog.get(new_c.id) or new_c
             self._fill_colour_detail(filled)
-            self._sync_alias_colour_choices()
+            self._refresh_role_alias_list()
             return
         self._selected_colour_id = new_c.id
         self._fill_colour_detail(new_c)
+        self._refresh_role_alias_list()
 
     def _apply_colour_fields(self, silent: bool = False) -> None:
         cid = self._cid_var.get().strip() or (self._selected_colour_id or "")
         if not cid:
-            if not silent:
-                return
             return
         display_changed = self._flush_colour_fields(cid)
         merged = self._catalog.get(cid)
         if merged is not None:
             self._swatch_var.set(merged.swatch)
             self._selected_colour_id = cid
-        # Explicit Apply always refreshes the left list; silent flush only when
-        # the display string may have changed (label/swatch).
         if display_changed or not silent:
             self._refresh_colour_list(select_id=cid)
-            self._sync_alias_colour_choices()
 
     def _add_colour(self) -> None:
         base = "custom"
@@ -9898,7 +10000,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._selected_colour_id = cid
         self._refresh_colour_list(select_id=cid)
         self._fill_colour_detail(new)
-        self._sync_alias_colour_choices()
+        self._refresh_role_alias_list()
 
     def _remove_colour(self) -> None:
         sel = self._colour_list.curselection()
@@ -9934,148 +10036,114 @@ class FolderColourAliasDialog(tk.Toplevel):
             self._override_var.set(False)
             self._meaning_pl.delete("1.0", tk.END)
             self._meaning_en.delete("1.0", tk.END)
-        self._refresh_alias_list()
-        self._sync_alias_colour_choices()
+        self._refresh_role_alias_list()
+        self._refresh_exclude_list()
 
-    # --- aliases tab ---------------------------------------------------------
+    # --- nested aliases for selected role ------------------------------------
 
-    def _build_aliases_tab(self) -> None:
-        body = self._tab_aliases
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(0, weight=1)
-        list_frame = ttk.Frame(body)
-        list_frame.grid(row=0, column=0, sticky="nsew")
-        list_frame.rowconfigure(0, weight=1)
-        list_frame.columnconfigure(0, weight=1)
-        self._alias_list = tk.Listbox(list_frame, exportselection=False)
-        sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._alias_list.yview)
-        self._alias_list.configure(yscrollcommand=sb.set)
-        self._alias_list.grid(row=0, column=0, sticky="nsew")
-        sb.grid(row=0, column=1, sticky="ns")
-        self._alias_list.bind("<<ListboxSelect>>", self._on_alias_select)
-
-        edit = ttk.Frame(body)
-        edit.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        edit.columnconfigure(1, weight=1)
-        ttk.Label(edit, text=_tr(self.master, "folder_colour_alias")).grid(
-            row=0, column=0, sticky=tk.W
-        )
-        self._alias_var = tk.StringVar()
-        ttk.Entry(edit, textvariable=self._alias_var).grid(
-            row=0, column=1, sticky=tk.EW, padx=4, pady=2
-        )
-        ttk.Label(edit, text=_tr(self.master, "folder_colour_value")).grid(
-            row=1, column=0, sticky=tk.W
-        )
-        self._alias_colour_var = tk.StringVar()
-        self._alias_colour_combo = ttk.Combobox(
-            edit, textvariable=self._alias_colour_var, state="readonly", width=40
-        )
-        self._alias_colour_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
-        abtns = ttk.Frame(body)
-        abtns.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        ttk.Button(
-            abtns, text=_tr(self.master, "folder_colour_add"), command=self._add_alias
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            abtns, text=_tr(self.master, "folder_colour_update"), command=self._update_alias
-        ).pack(side=tk.LEFT, padx=6)
-        ttk.Button(
-            abtns, text=_tr(self.master, "folder_colour_remove"), command=self._remove_alias
-        ).pack(side=tk.LEFT, padx=6)
-
-    def _alias_colour_choices(self) -> list[tuple[str, str]]:
-        """Return (label, colour_id_or_exclude) pairs."""
-        out = [(c.label(self._lang) + f" ({c.id})", c.id) for c in self._catalog.colours]
-        out.append((_tr(self.master, "flag_exclude"), COLOUR_EXCLUDE))
-        return out
-
-    def _sync_alias_colour_choices(self) -> None:
-        pairs = self._alias_colour_choices()
-        self._alias_colour_labels = [p[0] for p in pairs]
-        self._alias_colour_ids = [p[1] for p in pairs]
-        self._alias_colour_combo["values"] = self._alias_colour_labels
-        if not self._alias_colour_var.get() and self._alias_colour_labels:
-            # default to red/personal seed if present
-            for lab, cid in pairs:
-                if cid == ROLE_PERSONAL:
-                    self._alias_colour_var.set(lab)
-                    break
-            else:
-                self._alias_colour_var.set(self._alias_colour_labels[0])
-
-    def _label_for_colour_id(self, colour: str) -> str:
-        if colour == COLOUR_EXCLUDE:
-            return _tr(self.master, "flag_exclude")
-        for lab, cid in self._alias_colour_choices():
-            if cid == colour:
-                return lab
-        return colour
-
-    def _colour_id_from_alias_label(self, label: str) -> str:
-        for lab, cid in self._alias_colour_choices():
-            if lab == label:
-                return cid
-        low = (label or "").casefold()
-        if any(x in low for x in ("exclude", "pomiń", "pomin", "skip", "nie indeks")):
-            return COLOUR_EXCLUDE
-        return normalize_colour_id(label, known_ids=self._catalog.colour_ids)
-
-    def _format_alias_row(self, rule: FolderColourRule) -> str:
-        return f"{rule.alias}  →  {self._label_for_colour_id(rule.colour)}"
-
-    def _refresh_alias_list(self) -> None:
+    def _refresh_role_alias_list(self) -> None:
         self._alias_list.delete(0, tk.END)
-        for rule in self._catalog.rules:
-            self._alias_list.insert(tk.END, self._format_alias_row(rule))
-
-    def _on_alias_select(self, _evt=None) -> None:
-        sel = self._alias_list.curselection()
-        if not sel:
+        self._role_alias_rule_idxs = []
+        cid = self._selected_colour_id
+        if not cid:
             return
-        rule = self._catalog.rules[int(sel[0])]
-        self._alias_var.set(rule.alias)
-        self._alias_colour_var.set(self._label_for_colour_id(rule.colour))
+        for i, rule in enumerate(self._catalog.rules):
+            if rule.colour == cid:
+                self._alias_list.insert(tk.END, rule.alias)
+                self._role_alias_rule_idxs.append(i)
 
-    def _add_alias(self) -> None:
-        alias = self._alias_var.get().strip()
-        if not alias:
+    def _add_role_alias(self) -> None:
+        cid = self._selected_colour_id
+        if not cid:
+            messagebox.showinfo(
+                _tr(self.master, "alias_add_title"),
+                _tr(self.master, "folder_colour_select_role"),
+                parent=self,
+            )
             return
-        colour = self._colour_id_from_alias_label(self._alias_colour_var.get())
-        rule = FolderColourRule(alias=alias, colour=colour)
+        self._apply_colour_fields(silent=True)
+        name = simpledialog.askstring(
+            _tr(self.master, "alias_add_title"),
+            _tr(self.master, "alias_add_prompt"),
+            parent=self,
+        )
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            return
+        rule = FolderColourRule(alias=name, colour=cid)
         rules = [r for r in self._catalog.rules if r.key != rule.key]
         rules.append(rule)
         self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
-        self._refresh_alias_list()
+        self._refresh_role_alias_list()
+        self._refresh_exclude_list()
 
-    def _update_alias(self) -> None:
-        sel = self._alias_list.curselection()
-        alias = self._alias_var.get().strip()
-        if not alias:
-            return
-        colour = self._colour_id_from_alias_label(self._alias_colour_var.get())
-        rule = FolderColourRule(alias=alias, colour=colour)
-        rules = list(self._catalog.rules)
-        if sel:
-            idx = int(sel[0])
-            rules = [r for i, r in enumerate(rules) if i != idx and r.key != rule.key]
-            rules.insert(min(idx, len(rules)), rule)
-        else:
-            rules = [r for r in rules if r.key != rule.key]
-            rules.append(rule)
-        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
-        self._refresh_alias_list()
-
-    def _remove_alias(self) -> None:
+    def _remove_role_alias(self) -> None:
         sel = self._alias_list.curselection()
         if not sel:
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_select_alias"),
+                parent=self,
+            )
             return
-        idx = int(sel[0])
+        local_idx = int(sel[0])
+        if local_idx < 0 or local_idx >= len(self._role_alias_rule_idxs):
+            return
+        rule_idx = self._role_alias_rule_idxs[local_idx]
         rules = list(self._catalog.rules)
-        del rules[idx]
+        del rules[rule_idx]
         self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
-        self._refresh_alias_list()
-        self._alias_var.set("")
+        self._refresh_role_alias_list()
+        self._refresh_exclude_list()
+
+    # --- exclude strip -------------------------------------------------------
+
+    def _refresh_exclude_list(self) -> None:
+        self._exclude_list.delete(0, tk.END)
+        self._exclude_rule_idxs = []
+        for i, rule in enumerate(self._catalog.rules):
+            if rule.colour == COLOUR_EXCLUDE:
+                self._exclude_list.insert(tk.END, rule.alias)
+                self._exclude_rule_idxs.append(i)
+
+    def _add_exclude_alias(self) -> None:
+        name = simpledialog.askstring(
+            _tr(self.master, "alias_add_title"),
+            _tr(self.master, "alias_add_prompt"),
+            parent=self,
+        )
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            return
+        rule = FolderColourRule(alias=name, colour=COLOUR_EXCLUDE)
+        rules = [r for r in self._catalog.rules if r.key != rule.key]
+        rules.append(rule)
+        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
+        self._refresh_exclude_list()
+        self._refresh_role_alias_list()
+
+    def _remove_exclude_alias(self) -> None:
+        sel = self._exclude_list.curselection()
+        if not sel:
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_select_alias"),
+                parent=self,
+            )
+            return
+        local_idx = int(sel[0])
+        if local_idx < 0 or local_idx >= len(self._exclude_rule_idxs):
+            return
+        rule_idx = self._exclude_rule_idxs[local_idx]
+        rules = list(self._catalog.rules)
+        del rules[rule_idx]
+        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
+        self._refresh_exclude_list()
+        self._refresh_role_alias_list()
 
     def _save(self) -> None:
         self._apply_colour_fields()
@@ -10090,7 +10158,7 @@ class FolderColourAliasDialog(tk.Toplevel):
 
 
 class OdbiorcaCatalogDialog(tk.Toplevel):
-    """Edit odbiorca (recipient) catalogue saved as odbiorcy.yaml."""
+    """Edit odbiorca catalogue + per-recipient folder aliases (odbiorcy.yaml)."""
 
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
@@ -10099,39 +10167,48 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
         self.grab_set()
         shell = install_dialog_shell(
             self,
-            min_width=520,
-            min_height=360,
-            width=640,
-            height=420,
+            min_width=780,
+            min_height=480,
+            width=900,
+            height=560,
             scrollable=False,
         )
         self.saved = False
         self._save_path = Path(save_path)
         self.catalog = load_odbiorca_catalog(self._save_path)
         self._lang = getattr(master, "_lang", None) or "pl"
+        self._selecting = False
+        self._selected_oid: Optional[str] = None
+        self._alias_rule_idxs: list[int] = []
 
         ttk.Label(
             shell.body,
             text=_tr(master, "odbiorcy_intro"),
-            wraplength=600,
+            wraplength=860,
         ).pack(fill=tk.X, pady=(0, 6))
 
         body = ttk.Frame(shell.body)
         body.pack(fill=tk.BOTH, expand=True, pady=4)
-        body.columnconfigure(1, weight=1)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=2)
         body.rowconfigure(0, weight=1)
 
-        left = ttk.Frame(body)
+        left = ttk.LabelFrame(body, text=_tr(master, "odbiorcy_list"), padding=6)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         left.rowconfigure(0, weight=1)
-        self._list = tk.Listbox(left, exportselection=False, width=28)
-        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._list.yview)
+        left.columnconfigure(0, weight=1)
+        list_pane = ttk.Frame(left)
+        list_pane.grid(row=0, column=0, sticky="nsew")
+        list_pane.rowconfigure(0, weight=1)
+        list_pane.columnconfigure(0, weight=1)
+        self._list = tk.Listbox(list_pane, exportselection=False, width=28)
+        sb = ttk.Scrollbar(list_pane, orient=tk.VERTICAL, command=self._list.yview)
         self._list.configure(yscrollcommand=sb.set)
         self._list.grid(row=0, column=0, sticky="nsew")
         sb.grid(row=0, column=1, sticky="ns")
         self._list.bind("<<ListboxSelect>>", self._on_select)
         lbtns = ttk.Frame(left)
-        lbtns.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+        lbtns.grid(row=1, column=0, sticky=tk.EW, pady=(6, 0))
         ttk.Button(lbtns, text=_tr(master, "odbiorca_add"), command=self._add).pack(
             side=tk.LEFT
         )
@@ -10142,10 +10219,13 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
         right = ttk.LabelFrame(body, text=_tr(master, "odbiorca_edit"), padding=6)
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(1, weight=1)
+        right.rowconfigure(4, weight=1)
         self._id_var = tk.StringVar()
         self._label_pl_var = tk.StringVar()
         self._label_en_var = tk.StringVar()
-        ttk.Label(right, text=_tr(master, "odbiorca_id")).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(right, text=_tr(master, "odbiorca_id")).grid(
+            row=0, column=0, sticky=tk.W
+        )
         ttk.Entry(right, textvariable=self._id_var).grid(
             row=0, column=1, sticky=tk.EW, padx=4, pady=2
         )
@@ -10165,36 +10245,102 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
             right, text=_tr(master, "folder_colour_update"), command=self._apply
         ).grid(row=3, column=1, sticky=tk.E, pady=(8, 0))
 
+        alias_frame = ttk.LabelFrame(
+            right, text=_tr(master, "alias_folder_aliases"), padding=4
+        )
+        alias_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        alias_frame.rowconfigure(0, weight=1)
+        alias_frame.columnconfigure(0, weight=1)
+        alias_pane = ttk.Frame(alias_frame)
+        alias_pane.grid(row=0, column=0, sticky="nsew")
+        alias_pane.rowconfigure(0, weight=1)
+        alias_pane.columnconfigure(0, weight=1)
+        self._alias_list = tk.Listbox(alias_pane, exportselection=False)
+        alias_sb = ttk.Scrollbar(
+            alias_pane, orient=tk.VERTICAL, command=self._alias_list.yview
+        )
+        self._alias_list.configure(yscrollcommand=alias_sb.set)
+        self._alias_list.grid(row=0, column=0, sticky="nsew")
+        alias_sb.grid(row=0, column=1, sticky="ns")
+        alias_btns = ttk.Frame(alias_frame)
+        alias_btns.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Button(
+            alias_btns, text=_tr(master, "alias_add"), command=self._add_alias
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            alias_btns, text=_tr(master, "alias_remove"), command=self._remove_alias
+        ).pack(side=tk.LEFT, padx=6)
+
+        ttk.Label(
+            shell.footer,
+            text=_tr(master, "odbiorcy_saves_to", path=self._save_path.name),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT)
         ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
             side=tk.RIGHT
         )
         ttk.Button(
             shell.footer, text=_tr(master, "cancel"), command=self.destroy
         ).pack(side=tk.RIGHT, padx=6)
-        self._refresh()
+        self._reload_list()
 
     def _row_label(self, o: OdbiorcaDef) -> str:
         return f"{o.label(self._lang)}  ({o.id})"
 
-    def _refresh(self) -> None:
+    def _reload_list(self, *, select_oid: Optional[str] = None) -> None:
+        keep = select_oid if select_oid is not None else self._selected_oid
         self._list.delete(0, tk.END)
-        for o in self.catalog.odbiorcy:
+        select_idx: Optional[int] = None
+        for i, o in enumerate(self.catalog.odbiorcy):
             self._list.insert(tk.END, self._row_label(o))
+            if keep and o.id == keep:
+                select_idx = i
+        self._selecting = True
+        try:
+            self._list.selection_clear(0, tk.END)
+            if select_idx is not None:
+                self._list.selection_set(select_idx)
+                self._list.activate(select_idx)
+                self._list.see(select_idx)
+                self._selected_oid = self.catalog.odbiorcy[select_idx].id
+                self._fill_detail(self.catalog.odbiorcy[select_idx])
+            elif self.catalog.odbiorcy:
+                self._list.selection_set(0)
+                self._list.activate(0)
+                self._selected_oid = self.catalog.odbiorcy[0].id
+                self._fill_detail(self.catalog.odbiorcy[0])
+            else:
+                self._selected_oid = None
+                self._clear_detail()
+        finally:
+            self._selecting = False
+        self._refresh_alias_list()
 
-    def _on_select(self, _evt=None) -> None:
-        sel = self._list.curselection()
-        if not sel:
-            return
-        o = self.catalog.odbiorcy[int(sel[0])]
+    def _clear_detail(self) -> None:
+        self._id_var.set("")
+        self._label_pl_var.set("")
+        self._label_en_var.set("")
+        self._alias_list.delete(0, tk.END)
+        self._alias_rule_idxs = []
+
+    def _fill_detail(self, o: OdbiorcaDef) -> None:
         self._id_var.set(o.id)
         self._label_pl_var.set(o.label_pl)
         self._label_en_var.set(o.label_en)
+        self._refresh_alias_list()
 
-    def _apply(self) -> None:
-        sel = self._list.curselection()
-        if not sel:
-            return
-        idx = int(sel[0])
+    def _flush_fields(self, oid: str) -> Optional[str]:
+        """Write detail pane into catalogue for ``oid``.
+
+        Returns the (possibly renamed) id, or None if validation failed.
+        """
+        idx = None
+        for i, o in enumerate(self.catalog.odbiorcy):
+            if o.id == oid:
+                idx = i
+                break
+        if idx is None:
+            return None
         old = self.catalog.odbiorcy[idx]
         new_id = normalize_odbiorca_id(self._id_var.get())
         if not new_id:
@@ -10203,7 +10349,16 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
                 _tr(self.master, "odbiorca_id_required"),
                 parent=self,
             )
-            return
+            return None
+        # Reject collision with another row
+        for j, o in enumerate(self.catalog.odbiorcy):
+            if j != idx and o.id == new_id:
+                messagebox.showwarning(
+                    _tr(self.master, "odbiorcy"),
+                    _tr(self.master, "odbiorca_id_exists", id=new_id),
+                    parent=self,
+                )
+                return None
         updated = OdbiorcaDef(
             id=new_id,
             label_pl=self._label_pl_var.get(),
@@ -10211,7 +10366,6 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
         )
         items = list(self.catalog.odbiorcy)
         items[idx] = updated
-        # If id changed, rewrite rules pointing at old id
         rules = list(self.catalog.rules)
         if old.id != updated.id:
             from gcode_index.odbiorca_aliases import OdbiorcaRule
@@ -10223,10 +10377,53 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
                 for r in rules
             ]
         self.catalog = OdbiorcaCatalog(odbiorcy=items, rules=rules)
-        self._refresh()
-        self._list.selection_set(idx)
+        return updated.id
+
+    def _on_select(self, _evt=None) -> None:
+        if self._selecting:
+            return
+        sel = self._list.curselection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.catalog.odbiorcy):
+            return
+        new_o = self.catalog.odbiorcy[idx]
+        if new_o.id == self._selected_oid:
+            return
+        prev = self._selected_oid
+        new_id_after_flush: Optional[str] = None
+        if prev:
+            new_id_after_flush = self._flush_fields(prev)
+            if new_id_after_flush is None:
+                # Validation failed — re-pin previous selection
+                self._reload_list(select_oid=prev)
+                return
+            # List labels may have changed; find the clicked row by id again
+            clicked_id = new_o.id
+            if prev != new_id_after_flush and clicked_id == prev:
+                clicked_id = new_id_after_flush
+            self._selected_oid = clicked_id
+            self._reload_list(select_oid=clicked_id)
+            return
+        self._selected_oid = new_o.id
+        self._fill_detail(new_o)
+
+    def _apply(self) -> None:
+        oid = self._selected_oid or self._id_var.get().strip()
+        if not oid:
+            return
+        new_id = self._flush_fields(oid)
+        if new_id is None:
+            return
+        self._selected_oid = new_id
+        self._reload_list(select_oid=new_id)
 
     def _add(self) -> None:
+        if self._selected_oid:
+            flushed = self._flush_fields(self._selected_oid)
+            if flushed is None:
+                return
         base = "odbiorca"
         n = 1
         ids = {o.id for o in self.catalog.odbiorcy}
@@ -10242,26 +10439,90 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
             odbiorcy=list(self.catalog.odbiorcy) + [new],
             rules=list(self.catalog.rules),
         )
-        self._refresh()
-        self._list.selection_set(tk.END)
-        self._on_select()
+        self._selected_oid = oid
+        self._reload_list(select_oid=oid)
 
     def _remove(self) -> None:
-        sel = self._list.curselection()
-        if not sel:
+        oid = self._selected_oid
+        if not oid:
             return
-        idx = int(sel[0])
-        oid = self.catalog.odbiorcy[idx].id
-        items = [o for i, o in enumerate(self.catalog.odbiorcy) if i != idx]
+        items = [o for o in self.catalog.odbiorcy if o.id != oid]
         rules = [r for r in self.catalog.rules if r.odbiorca_id != oid]
         self.catalog = OdbiorcaCatalog(odbiorcy=items, rules=rules)
-        self._refresh()
-        self._id_var.set("")
-        self._label_pl_var.set("")
-        self._label_en_var.set("")
+        self._selected_oid = items[0].id if items else None
+        self._reload_list(select_oid=self._selected_oid)
+
+    def _refresh_alias_list(self) -> None:
+        self._alias_list.delete(0, tk.END)
+        self._alias_rule_idxs = []
+        oid = self._selected_oid
+        if not oid:
+            return
+        for i, rule in enumerate(self.catalog.rules):
+            if rule.odbiorca_id == oid:
+                self._alias_list.insert(tk.END, rule.alias)
+                self._alias_rule_idxs.append(i)
+
+    def _add_alias(self) -> None:
+        oid = self._selected_oid
+        if not oid:
+            messagebox.showinfo(
+                _tr(self.master, "alias_add_title"),
+                _tr(self.master, "odbiorca_select_first"),
+                parent=self,
+            )
+            return
+        flushed = self._flush_fields(oid)
+        if flushed is None:
+            return
+        oid = flushed
+        self._selected_oid = oid
+        name = simpledialog.askstring(
+            _tr(self.master, "alias_add_title"),
+            _tr(self.master, "alias_add_prompt"),
+            parent=self,
+        )
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            return
+        from gcode_index.odbiorca_aliases import OdbiorcaRule
+
+        rule = OdbiorcaRule(alias=name, odbiorca_id=oid, exact=True)
+        rules = [r for r in self.catalog.rules if r.key != rule.key]
+        rules.append(rule)
+        self.catalog = OdbiorcaCatalog(
+            odbiorcy=list(self.catalog.odbiorcy), rules=rules
+        )
+        self._reload_list(select_oid=oid)
+
+    def _remove_alias(self) -> None:
+        sel = self._alias_list.curselection()
+        if not sel:
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_select_alias"),
+                parent=self,
+            )
+            return
+        local_idx = int(sel[0])
+        if local_idx < 0 or local_idx >= len(self._alias_rule_idxs):
+            return
+        rule_idx = self._alias_rule_idxs[local_idx]
+        rules = list(self.catalog.rules)
+        del rules[rule_idx]
+        self.catalog = OdbiorcaCatalog(
+            odbiorcy=list(self.catalog.odbiorcy), rules=rules
+        )
+        self._refresh_alias_list()
 
     def _save(self) -> None:
-        self._apply()
+        if self._selected_oid:
+            flushed = self._flush_fields(self._selected_oid)
+            if flushed is None:
+                return
+            self._selected_oid = flushed
         try:
             save_odbiorca_catalog(self._save_path, self.catalog)
         except OSError as exc:
@@ -10269,7 +10530,6 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
             return
         self.saved = True
         self.destroy()
-
 
 
 class AliasEditorDialog(tk.Toplevel):
