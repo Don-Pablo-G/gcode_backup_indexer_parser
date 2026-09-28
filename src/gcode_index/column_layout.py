@@ -11,7 +11,6 @@ DEFAULT_COLUMN_WIDTHS: dict[str, int] = {
     "src": 64,
     "program": 90,
     "part": 130,
-    "programmer": 56,
     "machine": 110,
     "odbiorca": 110,
     "date": 100,

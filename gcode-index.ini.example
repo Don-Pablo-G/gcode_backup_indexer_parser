@@ -160,8 +160,6 @@ control =
 status =
 ; Role catalogue id (production / wip / fixture / …) or blank
 role =
-; Programmer flag (LP1 / MS1) or blank
-programmer =
 ; Odbiorca id, __missing__ = no recipient, or blank = all
 odbiorca =
 ; yes/no — Work “Only green” / “Tylko zielone”: Flag disc green only

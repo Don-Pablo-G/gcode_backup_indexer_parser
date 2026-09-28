@@ -227,7 +227,6 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
         filter_control="haas",
         filter_status="backup",
         filter_role="wip",
-        filter_programmer="LP1",
         filter_odbiorca="acme_sp",
         filter_only_green=True,
         sort_col="date",

@@ -28,9 +28,8 @@ def test_i18n_polish_default():
     assert DEFAULT_LANG == "pl"
     assert "Indeksator" in t("pl", "app_title")
     assert "G-code" in t("en", "app_title")
-    assert "(LP1)" in t("pl", "hint")
-    assert "(MS1)" in t("pl", "hint")
-    assert "(LP1)" in t("en", "hint")
+    assert "Tylko najnowsze" in t("pl", "hint")
+    assert "Newest only" in t("en", "hint")
     assert t("pl", "extract_selected").startswith("Wydobądź")
     assert "Ekstrahuj" not in t("pl", "extract_selected")
     assert "Ekstrahuj" not in t("pl", "ctx_extract")
@@ -142,4 +141,3 @@ def test_incremental_reuses_unchanged_pgm(tmp_path: Path):
     third = scan_backup_tree(bak, am, cache=cache)
     assert any(fs.status == "indexed" for fs in third.files_seen if "DUMP.PGM" in (fs.source_path or ""))
     assert any(i.program_number == "09999" for i in third.instances)
-    assert any(i.programmer == "LP1" for i in third.instances)

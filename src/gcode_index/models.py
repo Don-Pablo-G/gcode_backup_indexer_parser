@@ -128,8 +128,6 @@ class ProgramInstance:
     # Recipient / customer (odbiorca) — one id; name aliases + optional path override.
     odbiorca_id: Optional[str] = None
     scan_root: Optional[str] = None
-    # Next-line comment (LP1) / (MS1); null if absent or non-matching
-    programmer: Optional[str] = None
 
 
 @dataclass

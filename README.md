@@ -111,15 +111,14 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)
    - **Control** (`haas`, `fanuc`, `sinumerik`)
    - **Flag** — all / green (backup) / yellow (extra)
-   - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)
    - **Newest only** — one row per program + machine (latest backup date)
    - **Only green** / **Tylko zielone** — keep rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override blue (`only_green` in ini; AND with other filters; also in named views)
    - **View** — **Save current…** / **Load** / **Delete** named filter sets (`views.yaml` next to the DB; legacy `filter_presets.yaml` still loads)
    - Click any **results column header** to sort asc/desc (also on floor clients)
-   - **More filters** (indexer + floor): inline ▾/▴ panel — source/control/status/role/odbiorca/programmer, views, size from/to (`10k` / `1.5M`), file date ranges
+   - **More filters** (indexer + floor): inline ▾/▴ panel — source/control/status/role/odbiorca, views, size from/to (`10k` / `1.5M`), file date ranges
    - Results legend: status green/yellow + **Overrides** chips only (roles with status-colour override)
    - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)
-   Search matches program #, part #, path, machine names, FANUC folder paths, and programmer.
+   Search matches program #, part #, path, machine names, and FANUC folder paths.
    Program-number search is **O / zero-padding aware**: `O03232`, `03232`, and `3232` find the same program.
    Empty text + filters still works.
 9. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser (defaults into the **extract folder**).

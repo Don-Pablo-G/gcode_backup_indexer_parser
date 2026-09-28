@@ -102,7 +102,6 @@ def test_filter_presets_roundtrip(tmp_path: Path):
         source_type="loose_nc",
         control="haas",
         provenance="green — backup (ran)",
-        programmer="PG1",
         odbiorca="Acme",
         newest_only=True,
     )

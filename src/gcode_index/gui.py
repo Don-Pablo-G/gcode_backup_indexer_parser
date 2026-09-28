@@ -277,7 +277,6 @@ RESULT_COLUMNS: tuple[str, ...] = (
     "src",
     "program",
     "part",
-    "programmer",
     "machine",
     "odbiorca",
     "date",
@@ -346,7 +345,6 @@ class IndexerApp(tk.Tk):
         self.provenance_var = tk.StringVar(value=ALL)
         self.role_var = tk.StringVar(value=ALL)
         self.odbiorca_var = tk.StringVar(value=ALL)
-        self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
         self.only_green_var = tk.BooleanVar(value=False)
         self.include_unknown_var = tk.BooleanVar(value=True)
@@ -484,7 +482,6 @@ class IndexerApp(tk.Tk):
             self.provenance_var,
             self.role_var,
             self.odbiorca_var,
-            self.programmer_var,
             self.newest_only_var,
             self.only_green_var,
         ):
@@ -639,9 +636,6 @@ class IndexerApp(tk.Tk):
                 self.role_var.set(c.label(self._lang) if c else role_id)
             else:
                 self.role_var.set(self._all_token())
-            self.programmer_var.set(
-                cfg.filter_programmer or self._all_token()
-            )
             # Odbiorca — restore id / __missing__ as display label
             odb = (cfg.filter_odbiorca or "").strip()
             if hasattr(self, "odbiorca_var"):
@@ -772,7 +766,6 @@ class IndexerApp(tk.Tk):
             filter_control=self._combo_filter_for_ini(self.control_var.get()),
             filter_status=self._status_filter_value() or "",
             filter_role=self._role_filter_value() or "",
-            filter_programmer=self._combo_filter_for_ini(self.programmer_var.get()),
             filter_odbiorca=self._odbiorca_filter_for_ini(),
             filter_only_green=bool(self.only_green_var.get()),
             sort_col=self._sort_col or "",
@@ -1483,7 +1476,6 @@ class IndexerApp(tk.Tk):
             "control": self.control_var.get(),
             "provenance": self.provenance_var.get(),
             "role": self.role_var.get(),
-            "programmer": self.programmer_var.get(),
             "odbiorca": self._odbiorca_filter_for_ini()
             if hasattr(self, "odbiorca_var")
             else "",
@@ -1711,10 +1703,6 @@ class IndexerApp(tk.Tk):
                 if ctl in ALL_TOKENS:
                     ctl = self._all_token()
                 self.control_var.set(ctl)
-                prog = preserved.get("programmer") or self._all_token()
-                if prog in ALL_TOKENS:
-                    prog = self._all_token()
-                self.programmer_var.set(prog)
                 if hasattr(self, "odbiorca_var"):
                     odb_raw = str(preserved.get("odbiorca") or "")
                     if not odb_raw or self._is_all_token(odb_raw):
@@ -2215,8 +2203,6 @@ class IndexerApp(tk.Tk):
             self.source_type_var.set(self._all_token())
         if self._is_all_token(self.control_var.get()):
             self.control_var.set(self._all_token())
-        if self._is_all_token(self.programmer_var.get()):
-            self.programmer_var.set(self._all_token())
         if self._is_all_token(self.provenance_var.get()) or not self.provenance_var.get():
             self.provenance_var.set(self._all_token())
         if not self.status_var.get():
@@ -3002,18 +2988,6 @@ class IndexerApp(tk.Tk):
         )
         self.odbiorca_combo.grid(row=1, column=9, sticky=tk.W, padx=4, pady=2)
 
-        ttk.Label(adv, text=self._("programmer")).grid(
-            row=1, column=10, sticky=tk.W, padx=(12, 0), pady=2
-        )
-        self.programmer_combo = ttk.Combobox(
-            adv,
-            textvariable=self.programmer_var,
-            values=[self._all_token()],
-            state="readonly",
-            width=14,
-        )
-        self.programmer_combo.grid(row=1, column=11, sticky=tk.W, padx=4, pady=2)
-
         # Row B — Views
         ttk.Label(
             adv, text=self._("more_filters_views"), style="Muted.TLabel"
@@ -3114,7 +3088,6 @@ class IndexerApp(tk.Tk):
             "src": self._("col_src"),
             "program": self._("col_program"),
             "part": self._("col_part"),
-            "programmer": self._("col_programmer"),
             "machine": self._("col_machine"),
             "odbiorca": self._("col_odbiorca"),
             "date": self._("col_date"),
@@ -5282,7 +5255,6 @@ class IndexerApp(tk.Tk):
             "machines": list(seed),
             "source_types": [],
             "control_families": [],
-            "programmers": [],
         }
         if db_path is not None and db_path.is_file():
             try:
@@ -5305,11 +5277,6 @@ class IndexerApp(tk.Tk):
             self.type_combo["values"] = [self._all_token(), *vals["source_types"]]
         if hasattr(self, "control_combo"):
             self.control_combo["values"] = [self._all_token(), *vals["control_families"]]
-        if hasattr(self, "programmer_combo"):
-            self.programmer_combo["values"] = [
-                self._all_token(),
-                *vals.get("programmers", []),
-            ]
         if hasattr(self, "odbiorca_combo"):
             labels = self._odbiorca_filter_labels(db_ids=vals.get("odbiorcy") or [])
             cur = self.odbiorca_var.get()
@@ -5370,7 +5337,6 @@ class IndexerApp(tk.Tk):
             source_type=self.source_type_var.get().strip() or ALL,
             control=self.control_var.get().strip() or ALL,
             provenance=self.provenance_var.get().strip() or ALL,
-            programmer=self.programmer_var.get().strip() or ALL,
             role=self.role_var.get().strip() or ALL,
             odbiorca=(
                 (self.odbiorca_var.get().strip() or ALL)
@@ -5394,7 +5360,6 @@ class IndexerApp(tk.Tk):
             self.source_type_var.set(preset.source_type or ALL)
             self.control_var.set(preset.control or ALL)
             self.provenance_var.set(preset.provenance or ALL)
-            self.programmer_var.set(preset.programmer or ALL)
             role_raw = getattr(preset, "role", "") or ALL
             self.role_var.set(role_raw if role_raw else ALL)
             if hasattr(self, "odbiorca_var"):
@@ -5513,7 +5478,6 @@ class IndexerApp(tk.Tk):
                 self.role_var.set(self._all_token())
             if hasattr(self, "odbiorca_var"):
                 self.odbiorca_var.set(self._all_token())
-            self.programmer_var.set(self._all_token())
             self.newest_only_var.set(False)
             self.only_green_var.set(False)
             self._sort_col = None
@@ -5660,11 +5624,6 @@ class IndexerApp(tk.Tk):
         provenance = self._status_filter_value()
         role = self._role_filter_value()
         odbiorca = self._odbiorca_filter_value()
-        programmer = self.programmer_var.get().strip()
-        if self._is_all_token(programmer):
-            programmer_filter = None
-        else:
-            programmer_filter = programmer
 
         try:
             conn = open_db(db_path)
@@ -5684,7 +5643,6 @@ class IndexerApp(tk.Tk):
                     provenance=provenance,
                     role=role,
                     odbiorca=odbiorca,
-                    programmer=programmer_filter,
                     newest_only=bool(self.newest_only_var.get()),
                     include_unknown=self._effective_include_unknown(),
                     limit=BROWSE_LIMIT,
@@ -5748,8 +5706,6 @@ class IndexerApp(tk.Tk):
             bits.append(f"status={provenance}")
         if role:
             bits.append(f"role={role}")
-        if programmer_filter:
-            bits.append(f"programmer={programmer_filter}")
         if self.newest_only_var.get():
             bits.append(self._("status_newest_only"))
         if self.only_green_var.get():
@@ -6173,9 +6129,6 @@ class IndexerApp(tk.Tk):
             size_val = ""
             if "source_size" in keys:
                 size_val = format_display_size(r["source_size"])
-            prog_flag = ""
-            if "programmer" in keys and r["programmer"]:
-                prog_flag = str(r["programmer"])
             prov = ""
             if "provenance" in keys:
                 prov = str(r["provenance"] or PROVENANCE_BACKUP)
@@ -6211,7 +6164,6 @@ class IndexerApp(tk.Tk):
                     src_badge,
                     r["program_number"] or "",
                     r["part_number"] or "",
-                    prog_flag,
                     machine,
                     odbiorca_lab,
                     date,

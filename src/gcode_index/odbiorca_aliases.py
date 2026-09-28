@@ -321,7 +321,7 @@ MIN_HEADER_ODBIORCA_NEEDLE = MIN_PREFIX_ALIAS_LEN
 HEADER_ODBIORCA_SCAN_LINES = 40
 
 _ALL_PARENS = re.compile(r"\(([^)]*)\)")
-# Same O-word lead-in locators use for program identity / programmer flag.
+# Same O-word lead-in locators use for program identity.
 _O_NUMBER_LINE = re.compile(r"^O(\d+)", re.IGNORECASE)
 
 

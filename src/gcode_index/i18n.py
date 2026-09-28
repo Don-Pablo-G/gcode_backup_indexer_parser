@@ -291,7 +291,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_unknown": "Status nieznany",
         "col_status": "Status",
         "col_role": "Rola",
-        "programmer": "Programista",
         "compare": "Porównaj…",
         "open_folder": "Otwórz folder",
         "copy_path": "Kopiuj ścieżkę",
@@ -303,7 +302,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "hint": (
             "Status (zielony = na maszynie; żółty = status nieznany). "
             "Rola z aliasów folderów — osobno od statusu (żółty ≠ przyrząd). "
-            "Programista = następna linia (LP1)/(MS1) gdy obecna. "
             "Tylko najnowsze = jedna pozycja na program+maszynę. "
             "Ctrl/Shift+klik = wielokrotny wybór do wydobycia. "
             "Podgląd pokazuje treść zaznaczonego programu. "
@@ -325,7 +323,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_src": "Źródło",
         "col_program": "Nr programu",
         "col_part": "Nr części",
-        "col_programmer": "Prog.",
         "col_machine": "Maszyna",
         "col_date": "Data",
         "col_size": "Rozmiar",
@@ -952,7 +949,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_unknown": "Status unknown",
         "col_status": "Status",
         "col_role": "Role",
-        "programmer": "Programmer",
         "compare": "Compare…",
         "open_folder": "Open folder",
         "copy_path": "Copy path",
@@ -964,7 +960,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "hint": (
             "Status (green = on machine; yellow = status unknown). "
             "Role from folder aliases — separate from status (yellow ≠ fixture). "
-            "Programmer = next-line (LP1)/(MS1) when present. "
             "Newest only keeps the latest date per program+machine. "
             "Ctrl/Shift+click rows to multi-select for batch extract. "
             "Preview shows the selected program body. "
@@ -986,7 +981,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_src": "Source",
         "col_program": "Program #",
         "col_part": "Part number",
-        "col_programmer": "Prog.",
         "col_machine": "Machine",
         "col_date": "Date",
         "col_size": "Size",

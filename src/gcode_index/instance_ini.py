@@ -92,7 +92,6 @@ class InstanceConfig:
     filter_control: str = ""
     filter_status: str = ""  # backup|extra|"" 
     filter_role: str = ""  # role id or ""
-    filter_programmer: str = ""
     filter_odbiorca: str = ""  # odbiorca id | __missing__ | ""
     # Work GUI: show only rows whose Flag disc is green (backup/trusted;
     # hides yellow and overriding function colours such as prototype).
@@ -412,9 +411,6 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.filter_role = _filter_all_to_empty(
             parser.get("filters", "role", fallback="")
         )
-        cfg.filter_programmer = _filter_all_to_empty(
-            parser.get("filters", "programmer", fallback="")
-        )
         cfg.filter_odbiorca = _filter_all_to_empty(
             parser.get("filters", "odbiorca", fallback="")
         )
@@ -589,9 +585,6 @@ def save_instance_ini(
         ),
         filter_role=_filter_all_to_empty(
             str(kwargs.get("filter_role", base.filter_role) or "")
-        ),
-        filter_programmer=_filter_all_to_empty(
-            str(kwargs.get("filter_programmer", base.filter_programmer) or "")
         ),
         filter_odbiorca=_filter_all_to_empty(
             str(kwargs.get("filter_odbiorca", base.filter_odbiorca) or "")
@@ -776,8 +769,6 @@ control = {data.filter_control}
 status = {data.filter_status}
 ; Role catalogue id (prototype / personal / system_programs / fixture / …) or blank = all
 role = {data.filter_role}
-; Programmer flag (LP1 / MS1) or blank = all
-programmer = {data.filter_programmer}
 ; Odbiorca id, __missing__ = no recipient, or blank = all
 odbiorca = {data.filter_odbiorca}
 ; yes/no — Work “Only green” / “Tylko zielone”: keep rows whose Flag disc is

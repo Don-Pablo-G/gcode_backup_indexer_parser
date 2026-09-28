@@ -32,7 +32,6 @@ class FilterPreset:
     source_type: str = "(all)"
     control: str = "(all)"
     provenance: str = "(all)"
-    programmer: str = "(all)"
     role: str = "(all)"
     odbiorca: str = "(all)"
     newest_only: bool = False
@@ -64,7 +63,6 @@ class FilterPreset:
             source_type=str(data.get("source_type") or "(all)"),
             control=str(data.get("control") or "(all)"),
             provenance=str(data.get("provenance") or "(all)"),
-            programmer=str(data.get("programmer") or "(all)"),
             role=str(data.get("role") or "(all)"),
             odbiorca=str(data.get("odbiorca") or "(all)"),
             newest_only=bool(data.get("newest_only") or False),
@@ -86,7 +84,6 @@ def _clean_preset(pr: FilterPreset) -> FilterPreset:
         source_type=pr.source_type or "(all)",
         control=pr.control or "(all)",
         provenance=pr.provenance or "(all)",
-        programmer=pr.programmer or "(all)",
         role=getattr(pr, "role", "") or "(all)",
         odbiorca=getattr(pr, "odbiorca", "") or "(all)",
         newest_only=bool(pr.newest_only),
