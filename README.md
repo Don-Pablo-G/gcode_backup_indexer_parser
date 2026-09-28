@@ -12,7 +12,8 @@ Index CNC machine **backup folder trees** into a portable **SQLite** catalog of 
 |----------|----------|
 | [Operator manual](docs/en/manual-simple.md) | Floor client (`can_index=no`) — search & extract |
 | [Indexer manual](docs/en/manual-full.md) | Indexer PC (`can_index=yes`) — build & maintain the database |
-| Polish manuals | [docs/pl/](docs/pl/) |
+| → [Day-to-day database hygiene](docs/en/manual-full.md#day-to-day-database-hygiene) | Incremental vs Full, Watch/schedule, pack beside DB, Haas unzip, weekly quality |
+| Polish manuals | [docs/pl/](docs/pl/) · [Higiena bazy](docs/pl/manual-full.md#higiena-bazy-na-co-dzień) |
 
 In the GUI: **Help / Pomoc** opens the same manuals (operator vs indexer text matches this PC’s `can_index`). Legacy filenames still say `manual-simple` / `manual-full`; there is **no** Prosty/Pełny mode switch.
 

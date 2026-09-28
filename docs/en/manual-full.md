@@ -173,6 +173,84 @@ Same find bar as the floor client, plus:
 
 **Scan history…** (indexer only) lists the last index runs from `scan_history.json` next to the database: when, duration, programs, files **added / updated / removed / unchanged**. Survives DB rebuilds — useful when diagnosing network spikes during incremental scans.
 
+---
+
+## Day-to-day database hygiene
+
+Practical routine to **build and keep** the index healthy. Each successful scan walks the configured trees (read-only), assigns machine / roles / odbiorca / Flag status, then **deletes and rewrites** `gcode_index.sqlite` in the database folder. There is **no** separate VACUUM step — size tracks program count, not scan history. History lives in capped `scan_history.json` (~40 runs).
+
+### Incremental vs Full
+
+| Use **Incremental** (default; leave checked) | Use **Full** (uncheck Incremental) |
+|----------------------------------------------|------------------------------------|
+| Day-to-day new backups / new folders under known roots | After machine map or machine-alias edits that should reassign **old** files |
+| Watch / schedule (always force incremental) | After **removing** function-colour aliases (clear stale roles) |
+| Fast catch-up when most files are unchanged | After turning **O9 → system programs** off (or cleaning legacy O9 tags) |
+| First scan after adding a root (new files miss cache anyway) | After a major tree reorganisation you do not trust cache for |
+| | Once after upgrading if you need fresh `program_sha256` / duplicate hygiene on old rows |
+
+**Incremental** still walks the whole tree, but **reuses** parsed rows when **size + mtime** match the previous DB; only new/changed files are fully parsed. **Full** re-parses every indexable file and rebuilds machine inference from today’s maps/aliases.
+
+Rule of thumb: **Incremental keeps the catalog current with the disk. Full rebuilds assignments from today’s maps for every file.**
+
+### Daily (indexer PC)
+
+1. Keep **one** indexer owning the share (`gcode_index.lock` / Watch). Floor PCs stay `can_index=no`.
+2. Prefer **Watch** and/or a modest **Auto-index** schedule so new dumps enter the DB without babysitting (both run incremental).
+3. Before expecting Haas NGC rows: confirm UMC / ST-20Y zips were **unzipped** under the date/machine folder (scanner ignores `.zip`).
+4. Glance at the Indeks status line (last schedule / watch) and any **missing source** count after a search.
+
+### Weekly (or after a busy backup week)
+
+1. **Reports → Index quality…** / **Jakość indeksu…** — click through MACHINE UNKNOWN, missing odbiorca, colour conflicts.
+2. Spot-check **Scan history…** / **Historia skanów…** — added / updated / removed should look sane (spikes → network or path issues).
+3. If UNKNOWN climbed: fix maps/aliases in **Mapping…** / **Mapowanie…**, then one **full** rescan.
+4. Optionally trim old files in the **extract** folder (leave the DB pack alone).
+
+### After config / YAML changes
+
+| Change | Next action |
+|--------|-------------|
+| New files only / new subfolder under an existing root | Incremental (Watch / schedule / manual) |
+| Machine folders map or machine aliases for **already indexed** paths | Full rescan |
+| Removed function-colour rules (or want roles rebuilt clean) | Full rescan |
+| Added colour / tree / O9 rules that still match paths | Incremental usually enough |
+| Odbiorcy catalogue / header toggle | Incremental usually enough (odbiorca re-applied on post-pass; header fills only if still empty) |
+| New green/yellow root | Add root → scan (incremental OK for discovery) |
+| Moved pack to another PC / share | Confirm whole folder copied; **Prepare indexer…** / **Przygotuj indeksator…** on the listening PC; remap paths |
+
+### Pack beside the DB (copy the whole folder)
+
+Treat the **database folder** as one kit. Share the **whole folder**, not sqlite alone.
+
+| File | Why |
+|------|-----|
+| `gcode_index.sqlite` | Program rows (status, roles, paths, hashes) |
+| `folder_colour_aliases.yaml` | **Mandatory** for truthful Flag colours on every client |
+| `folder_tree_map.yaml` | Map-tree overrides; Flag tip path reasons |
+| `aliases.local.yaml`, `machine_folders.yaml` | Machine teaching for the next scan |
+| `odbiorcy.yaml` | Recipient catalogue |
+| `extra_scan_roots.yaml` | Green/yellow roots |
+| `indexer_settings.yaml` | Shop scan/watch/schedule **defaults** (never forces `can_index`) |
+
+Optional: `scan_history.json`, `ui_settings.yaml`, `views.yaml`, `gcode_index.xlsx`.
+
+**Per PC (not in the pack):** `gcode-index.ini` next to the exe — `can_index`, absolute paths, path remap, language, floor locks.
+
+### What not to do
+
+- Do **not** copy only `gcode_index.sqlite` to floor PCs and expect correct Flag colours.
+- Do **not** put `can_index=yes` in the shared pack or promote every PC to indexer.
+- Do **not** run Watch on two indexer PCs against the same DB.
+- Do **not** expect the scanner to open Haas `.zip` files — unzip first.
+- Do **not** edit backup originals to “fix” the index; extract writes elsewhere; sources stay read-only.
+- Do **not** assume Incremental reassigns machines after map edits — use Full.
+- Do **not** delete sidecars “to clean disk”; that breaks Flag / next-scan teaching. Prefer cleaning **extract** output instead.
+- Do **not** rely on vacuum/compact rituals — the app already rewrites sqlite each scan.
+- Do **not** leave extract path blank on a shared DB folder if operators dump many extracts there — use a separate extract folder.
+
+Deleted/moved sources drop on the **next** scan; until then the row shows a **missing source** badge.
+
 ## Operator lock (floor deploy)
 
 Shop PCs should stay retrieve-only. Either:

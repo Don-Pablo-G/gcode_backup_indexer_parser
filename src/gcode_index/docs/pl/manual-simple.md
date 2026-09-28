@@ -101,6 +101,12 @@ Bez odświeżania kliknij ponownie **Szukaj** (albo zmień filtr) po zakończeni
 
 Gdy jest `operator.lock` / `can_index.lock` obok ini lub exe, albo `settings_locked=yes` w ini, PC zostaje w trybie odczytu nawet po edycji `can_index=yes`. **Nie ma** przełącznika Prosty/Pełny — zdolność to tylko `can_index` + blokada.
 
+## Higiena pakietu (hala)
+
+Otwieraj **współdzielony folder bazy**, nie sam plik sqlite. Trzymaj `folder_colour_aliases.yaml` (i najlepiej `folder_tree_map.yaml`) obok `gcode_index.sqlite`. `gcode-index.ini` tego PC zostaje lokalne — nigdy nie wkładaj `can_index` do pakietu współdzielonego. Preferuj osobny folder **wydobycia**, żeby Wydobądź nie zaśmiecało pakietu.
+
+Codzienne utrzymanie indeksu (Obserwuj / Przyrostowy vs Pełny / cotygodniowa jakość) jest na PC indeksatora — zobacz **Higiena bazy na co dzień** w instrukcji indeksatora.
+
 ## Wskazówki
 
 - Ustawienia tego komputera są w `gcode-index.ini` obok pliku exe.

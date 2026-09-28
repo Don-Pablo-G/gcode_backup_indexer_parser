@@ -12,7 +12,8 @@ Indeksuje **drzewa kopii zapasowych** maszyn CNC do przenośnego katalogu **SQLi
 |----------|----------|
 | [Instrukcja operatora](docs/pl/manual-simple.md) | Klient hali (`can_index=no`) — szukanie i wydobycie |
 | [Instrukcja indeksatora](docs/pl/manual-full.md) | PC indeksatora (`can_index=yes`) — budowa i utrzymanie bazy |
-| Same manuals in English | [docs/en/](docs/en/) |
+| → [Higiena bazy na co dzień](docs/pl/manual-full.md#higiena-bazy-na-co-dzień) | Przyrostowy vs Pełny, Obserwuj/harmonogram, pakiet obok bazy, rozpakowanie Haas, cotygodniowa jakość |
+| Same manuals in English | [docs/en/](docs/en/) · [Database hygiene](docs/en/manual-full.md#day-to-day-database-hygiene) |
 
 W aplikacji GUI: menu **Pomoc** otwiera te same instrukcje (operator vs indeksator wg `can_index` tej instalacji). Nazwy plików `manual-simple` / `manual-full` są legacy — **nie ma** przełącznika Prosty/Pełny.
 

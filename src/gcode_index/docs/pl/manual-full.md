@@ -156,6 +156,84 @@ Jak na kliencie hali, plus:
 
 **Historia skanów…** (tylko indeksator) — ostatnie przebiegi z `scan_history.json` obok bazy: kiedy, czas, programy, pliki **dodane / zmienione / usunięte / bez zmian**. Przydatne przy diagnostyce skoków sieci.
 
+---
+
+## Higiena bazy na co dzień
+
+Praktyczna rutyna, żeby **budować i utrzymywać** zdrowy indeks. Każdy udany skan przechodzi skonfigurowane drzewa (tylko odczyt), przypisuje maszynę / role / odbiorcę / status Flagi, potem **usuwa i zapisuje od nowa** `gcode_index.sqlite` w folderze bazy. **Nie ma** osobnego kroku VACUUM — rozmiar podąża za liczbą programów, nie za historią skanów. Historia jest w ograniczonym `scan_history.json` (~40 przebiegów).
+
+### Przyrostowy vs Pełny
+
+| Używaj **Przyrostowo** (domyślnie; zostaw zaznaczone) | Używaj **Pełny** (odznacz Przyrostowo) |
+|------------------------------------------------------|----------------------------------------|
+| Codzienne nowe kopie / nowe foldery pod znanymi korzeniami | Po edycji mapy maszyn lub aliasów maszyn, które mają przeassignować **stare** pliki |
+| Obserwuj / harmonogram (zawsze wymuszają przyrostowy) | Po **usunięciu** aliasów kolorów funkcji (wyczyść stare role) |
+| Szybkie dogonienie, gdy większość plików bez zmian | Po wyłączeniu **O9 → programy systemowe** (albo czyszczeniu starych tagów O9) |
+| Pierwszy skan po dodaniu korzenia (nowe pliki i tak nie trafią w cache) | Po dużej reorganizacji drzewa, której cache nie ufasz |
+| | Raz po aktualizacji, gdy potrzebujesz świeżego `program_sha256` / higieny duplikatów na starych wierszach |
+
+**Przyrostowy** nadal obchodzi całe drzewo, ale **reuse’uje** sparsowane wiersze, gdy **rozmiar + mtime** zgadzają się z poprzednią bazą; pełnie parsowane są tylko nowe/zmienione pliki. **Pełny** ponownie parsuje każdy indeksowalny plik i przebudowuje inferencję maszyn z dzisiejszych map/aliasów.
+
+Zasada: **Przyrostowy utrzymuje katalog na bieżąco z dyskiem. Pełny przebudowuje przypisania z dzisiejszych map dla każdego pliku.**
+
+### Codziennie (PC indeksatora)
+
+1. Trzymaj **jeden** indeksator na udziale (`gcode_index.lock` / Obserwuj). Komputery hali: `can_index=no`.
+2. Preferuj **Obserwuj foldery** i/lub skromny **Auto-indeks**, żeby nowe dumpy wchodziły do bazy bez pilnowania (oba biegną przyrostowo).
+3. Zanim oczekujesz wierszy Haas NGC: potwierdź, że ZIP-y UMC / ST-20Y zostały **rozpakowane** pod folderem daty/maszyny (skaner **ignoruje** `.zip`).
+4. Zerknij na pasek statusu Indeksu (ostatni harmonogram / obserwacja) i ewentualną liczbę **brakujących źródeł** po wyszukiwaniu.
+
+### Co tydzień (lub po intensywnym tygodniu kopii)
+
+1. **Raporty → Jakość indeksu…** — przejdź MACHINE UNKNOWN, brak odbiorcy, konflikty kolorów.
+2. Zerknij na **Historia skanów…** — dodane / zmienione / usunięte powinny wyglądać rozsądnie (skoki → sieć lub ścieżki).
+3. Gdy UNKNOWN rośnie: popraw mapy/aliasy w **Mapowanie…**, potem jeden skan **pełny**.
+4. Opcjonalnie wyczyść stare pliki w folderze **wydobycia** (pakietu bazy nie ruszaj).
+
+### Po zmianach konfiguracji / YAML
+
+| Zmiana | Następny krok |
+|--------|---------------|
+| Tylko nowe pliki / nowy podfolder pod istniejącym korzeniem | Przyrostowy (Obserwuj / harmonogram / ręcznie) |
+| Mapa folderów maszyn lub aliasy maszyn dla **już zindeksowanych** ścieżek | Pełny reskan |
+| Usunięte reguły kolorów funkcji (albo chcesz role od zera) | Pełny reskan |
+| Dodane reguły kolorów / drzewa / O9, które nadal pasują | Przyrostowy zwykle wystarczy |
+| Katalog odbiorców / przełącznik z nagłówka | Przyrostowy zwykle wystarczy (odbiorca na post-pass; z nagłówka tylko gdy nadal puste) |
+| Nowy korzeń zielony/żółty | Dodaj korzeń → skan (przyrostowy OK do odkrycia) |
+| Przeniesiony pakiet na inny PC / udział | Potwierdź skopiowanie całego folderu; **Przygotuj indeksator…** na PC nasłuchującym; remap ścieżek |
+
+### Pakiet obok bazy (kopiuj cały folder)
+
+Traktuj **folder bazy** jako jeden zestaw. Udostępniaj **cały folder**, nie sam sqlite.
+
+| Plik | Po co |
+|------|-------|
+| `gcode_index.sqlite` | Wiersze programów (status, role, ścieżki, hashe) |
+| `folder_colour_aliases.yaml` | **Obowiązkowy** dla prawdziwych kolorów Flagi na każdym kliencie |
+| `folder_tree_map.yaml` | Nadpisania Mapuj drzewo; powody ścieżek w tipie Flagi |
+| `aliases.local.yaml`, `machine_folders.yaml` | Nauka maszyn na następny skan |
+| `odbiorcy.yaml` | Katalog odbiorców |
+| `extra_scan_roots.yaml` | Korzenie zielone/żółte |
+| `indexer_settings.yaml` | Wspólne domyślne skanu / obserwacji / harmonogramu (**nie** wymusza `can_index`) |
+
+Opcjonalnie: `scan_history.json`, `ui_settings.yaml`, `views.yaml`, `gcode_index.xlsx`.
+
+**Per PC (nie w pakiecie):** `gcode-index.ini` obok exe — `can_index`, ścieżki bezwzględne, mapowanie ścieżek, język, blokady hali.
+
+### Czego nie robić
+
+- **Nie** kopiuj samego `gcode_index.sqlite` na PC hali i nie oczekuj poprawnych kolorów Flagi.
+- **Nie** wkładaj `can_index=yes` do współdzielonego pakietu ani nie promuj każdego PC do indeksatora.
+- **Nie** włączaj Obserwuj na dwóch PC indeksatorów przeciw tej samej bazie.
+- **Nie** oczekuj, że skaner otworzy Haas `.zip` — najpierw rozpakuj.
+- **Nie** edytuj oryginałów kopii, żeby „naprawić” indeks; wydobycie zapisuje gdzie indziej; źródła pozostają tylko do odczytu.
+- **Nie** zakładaj, że Przyrostowy przeassignuje maszyny po edycji map — użyj Pełnego.
+- **Nie** usuwaj plików pomocniczych „żeby zwolnić dysk”; to psuje Flagę / naukę na następny skan. Czyść raczej **wydobycie**.
+- **Nie** polegaj na rytuałach vacuum/compact — aplikacja i tak przepisuje sqlite przy każdym skanie.
+- **Nie** zostawiaj pustej ścieżki wydobycia na współdzielonym folderze bazy, jeśli operatorzy zrzucają tam wiele extractów — użyj osobnego folderu wydobycia.
+
+Usunięte/przeniesione źródła znikają przy **następnym** skanie; do tego czasu wiersz ma odznakę **brak źródła**.
+
 ## Blokada operatora
 
 Komputery na hali: `settings_locked = yes` w ini **albo** pusty plik `operator.lock` / `can_index.lock` obok ini. Wtedy `can_index` jest wymuszane na **no**.

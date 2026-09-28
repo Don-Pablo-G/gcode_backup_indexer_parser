@@ -101,6 +101,12 @@ Without auto-refresh, click **Search** again (or change a filter) after the inde
 
 If this PC has `operator.lock` / `can_index.lock` beside the ini or exe, or `settings_locked=yes` in the ini, it stays retrieve-only even if someone edits `can_index=yes`. There is **no** Prosty/Pełny (Simple/Full) mode switch — capability is only `can_index` + lock.
 
+## Pack hygiene (floor)
+
+Open the **shared database folder**, not a lone sqlite copy. Keep `folder_colour_aliases.yaml` (and preferably `folder_tree_map.yaml`) beside `gcode_index.sqlite`. Your PC’s `gcode-index.ini` stays local — never put `can_index` in the shared pack. Prefer a separate **extract** folder so Wydobądź output does not clutter the pack.
+
+Day-to-day index maintenance (Watch / Incremental vs Full / weekly quality check) lives on the indexer PC — see **Day-to-day database hygiene** in the Indexer manual.
+
 ## Tips
 
 - Empty search + filters still lists rows (useful with Newest only).
