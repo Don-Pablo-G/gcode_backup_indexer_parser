@@ -40,7 +40,7 @@ def test_preview_popup_columns_legend_and_lang_nav_lock(tmp_path: Path, monkeypa
     )
     monkeypatch.setenv("GCODE_INDEX_INI", str(ini))
 
-    from gcode_index.gui import IndexerApp, RESULT_COLUMNS
+    from gcode_index.gui import IndexerApp, RESULT_COLUMNS, RESULT_DATA_COLUMNS
 
     app = IndexerApp()
     try:
@@ -73,13 +73,19 @@ def test_preview_popup_columns_legend_and_lang_nav_lock(tmp_path: Path, monkeypa
         app._set_column_visible("path", True)
         assert "path" not in app._hidden_columns
 
-        # Columns do not use Tk stretch (we fill / adjacent-resize ourselves)
-        for col in RESULT_COLUMNS:
+        # Flag is Treeview #0 (image); data columns are RESULT_DATA_COLUMNS.
+        # Neither uses Tk stretch (we fill / adjacent-resize ourselves).
+        assert int(app.tree.column("#0", "stretch")) == 0
+        for col in RESULT_DATA_COLUMNS:
             assert int(app.tree.column(col, "stretch")) == 0
         app.update_idletasks()
         app._fill_tree_columns()
         visible = app._visible_result_columns()
-        total = sum(int(app.tree.column(c, "width")) for c in visible)
+        widths = []
+        if app._flag_column_visible():
+            widths.append(int(app.tree.column("#0", "width")))
+        widths.extend(int(app.tree.column(c, "width")) for c in visible)
+        total = sum(widths)
         usable = app._tree_usable_width()
         if usable > 0:
             assert total == usable
