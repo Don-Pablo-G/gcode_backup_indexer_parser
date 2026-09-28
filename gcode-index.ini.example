@@ -132,14 +132,14 @@ rules =
 ;     \\server\share => Z:\Share
 
 [desktop]
-; Windows logon autostart (indexer helper). yes/no
+; Windows logon autostart (all modes). yes/no — default off for new installs
 autostart = no
 ; How to register autostart: startup = Startup folder shortcut | task = Task Scheduler ONLOGON
 autostart_via = startup
-; Window X closes to tray (yes) or quits (no) — indexer / tray builds
-close_to_tray = yes
-; Minimize / iconify also hides to tray
-minimize_to_tray = yes
+; Window X closes to tray (yes) or quits (no) — default off; floor + indexer
+close_to_tray = no
+; Minimize / iconify also hides to tray — default off
+minimize_to_tray = no
 
 [filters]
 ; Last find-bar state — restored on every restart (no re-typing filters).

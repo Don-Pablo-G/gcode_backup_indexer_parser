@@ -108,7 +108,7 @@ Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie
 
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
 2. Zielony **Uruchom skan** (po prawej).
-3. Głębsze ustawienia: **Mapowanie…** (w tym mapowanie ścieżek), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja / zasobnik), **Raporty…**.
+3. Głębsze ustawienia: **Mapowanie…** (w tym mapowanie ścieżek), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja), **Raporty…**. Pulpit / zasobnik / język — w menu **Ustawienia**.
 4. Pasek postępu + **Raport skanu** po zakończeniu. Z raportu (lub **Raporty…**): **Nieprzypisane tokeny nagłówka…** — częste tokeny z komentarzy na linii O bez aliasu maszyny / funkcji / odbiorcy; prawy klik jak w **Nazwy folderów**. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi. Cache: `header_token_freq.json` obok bazy; **pełny skan** odświeża listę (nauczone znikają).
 
 ### Obserwacja folderów
@@ -140,9 +140,14 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 
 ### Autostart i zasobnik (Windows)
 
-- **Autostart przy logowaniu** (skrót albo Harmonogram zadań) — `[desktop]` w ini.
-- **Zamknij do zasobnika** / **Minimalizuj do zasobnika**.
+W menu głównym **Ustawienia** (wszystkie tryby — hala i indeksator):
+
+- **Autostart przy logowaniu** (skrót albo Harmonogram zadań) — `[desktop]` w ini. Domyślnie **wyłączone** na nowych instalacjach.
+- **Zamknij do zasobnika** / **Minimalizuj do zasobnika** — domyślnie **wyłączone**.
+- **Język** — `pl` / `en` (przeniesione z paska; ten sam klucz `[ui] language`).
 - Pasek tytułu, zasobnik systemowy i plik `.exe` używają tej samej ikony produktu (dołączonej do buildu).
+
+Istniejące wartości w ini zostają przy aktualizacji; tylko brakujące klucze biorą nowe domyślne „wyłączone”.
 - GUI jest **jednoinstancyjne** (w tym z zasobnika).
 
 ---

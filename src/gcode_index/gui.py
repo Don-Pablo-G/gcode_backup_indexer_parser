@@ -380,8 +380,8 @@ class IndexerApp(tk.Tk):
         self.indeks_status_var = tk.StringVar(value="")
         self.autostart_var = tk.BooleanVar(value=False)
         self.autostart_via_var = tk.StringVar(value="")
-        self.close_to_tray_var = tk.BooleanVar(value=True)
-        self.minimize_to_tray_var = tk.BooleanVar(value=True)
+        self.close_to_tray_var = tk.BooleanVar(value=False)
+        self.minimize_to_tray_var = tk.BooleanVar(value=False)
         self.preset_var = tk.StringVar(value="")
         self.preview_header_var = tk.StringVar(value="")
         self.preview_find_var = tk.StringVar(value="")
@@ -1223,11 +1223,7 @@ class IndexerApp(tk.Tk):
         )
 
     def _on_close(self) -> None:
-        if (
-            (not self._is_simple())
-            and bool(self.close_to_tray_var.get())
-            and tray_available()
-        ):
+        if bool(self.close_to_tray_var.get()) and tray_available():
             self._hide_to_tray()
             return
         self._quit_app()
@@ -1346,7 +1342,7 @@ class IndexerApp(tk.Tk):
         self._tray_hidden = False
 
     def _on_minimize_event(self, _event=None) -> None:
-        if self._iconify_guard or self._is_simple():
+        if self._iconify_guard:
             return
         if not bool(self.minimize_to_tray_var.get()) or not tray_available():
             return
@@ -2247,30 +2243,16 @@ class IndexerApp(tk.Tk):
         if not self.preview_header_var.get():
             self.preview_header_var.set(self._("preview_idle"))
 
-        # --- Top chrome: language / help (capability comes from gcode-index.ini) ---
+        # --- Top chrome: help (language lives under Settings) ---
         top = ttk.Frame(root)
         top.pack(fill=tk.X, **pad)
         settings = ttk.Frame(top)
         settings.pack(side=tk.RIGHT)
-        ttk.Label(settings, text=self._("language"), style="Muted.TLabel").pack(
-            side=tk.LEFT, padx=(0, 2)
-        )
-        lang_combo = ttk.Combobox(
-            settings,
-            textvariable=self.lang_var,
-            values=["pl", "en"],
-            state="readonly",
-            width=6,
-        )
-        lang_combo.pack(side=tk.LEFT)
-        lang_combo.bind(
-            "<<ComboboxSelected>>", lambda _e: self._set_language(self.lang_var.get())
-        )
         ttk.Button(
             settings,
             text=self._("menu_help"),
             command=lambda: self._open_manual("simple" if simple else "full"),
-        ).pack(side=tk.LEFT, padx=(12, 0))
+        ).pack(side=tk.LEFT)
 
         if simple:
             # Floor client (can_index=no): retrieve-only — no Praca/Indeks tabs.
@@ -2295,7 +2277,7 @@ class IndexerApp(tk.Tk):
             self._build_find_section(praca, pad, simple=False)
             self._build_results_preview(praca, pad, simple=False)
 
-            # Indeks: folders, remap, scan/watch/schedule/tray, progress
+            # Indeks: folders, remap, scan/watch, progress
             self._build_folders_section(indeks, pad, simple=False)
             self._build_full_index_actions(indeks, pad)
             self._build_progress_bar(indeks)
@@ -2649,16 +2631,16 @@ class IndexerApp(tk.Tk):
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
     def _open_indeks_scan_watch_window(self) -> None:
-        """Window B — Skan i obserwacja: schedule, watch, scan options, tray."""
+        """Window B — Skan i obserwacja: watch, scan options (tray lives in Settings)."""
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_scan_watch_title"))
         dlg.transient(self)
         shell = install_dialog_shell(
             dlg,
             min_width=560,
-            min_height=440,
+            min_height=400,
             width=600,
-            height=560,
+            height=500,
             scrollable=True,
         )
         body, foot = shell.body, shell.footer
@@ -2795,10 +2777,50 @@ class IndexerApp(tk.Tk):
             command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
 
-        # Desktop / tray / autostart
-        desk = ttk.LabelFrame(
-            body, text=self._("indeks_win_desktop"), padding=8
+        def _on_close() -> None:
+            self._refresh_indeks_status_line()
+            dlg.destroy()
+
+        ttk.Button(foot, text=self._("close"), command=_on_close).pack(side=tk.RIGHT)
+        dlg.bind("<Escape>", lambda _e: _on_close())
+        dlg.protocol("WM_DELETE_WINDOW", _on_close)
+
+    def _open_settings_window(self) -> None:
+        """App-wide Settings: language + desktop/tray/autostart (all modes)."""
+        dlg = tk.Toplevel(self)
+        dlg.title(self._("settings_title"))
+        dlg.transient(self)
+        shell = install_dialog_shell(
+            dlg,
+            min_width=420,
+            min_height=260,
+            width=480,
+            height=300,
+            scrollable=False,
         )
+        body, foot = shell.body, shell.footer
+
+        lang_box = ttk.LabelFrame(body, text=self._("language"), padding=8)
+        lang_box.pack(fill=tk.X, pady=(0, 8))
+        lang_row = ttk.Frame(lang_box)
+        lang_row.pack(fill=tk.X)
+        ttk.Label(lang_row, text=self._("language"), style="Muted.TLabel").pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        lang_combo = ttk.Combobox(
+            lang_row,
+            textvariable=self.lang_var,
+            values=["pl", "en"],
+            state="readonly",
+            width=6,
+        )
+        lang_combo.pack(side=tk.LEFT)
+        lang_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _e: self._set_language(self.lang_var.get()),
+        )
+
+        desk = ttk.LabelFrame(body, text=self._("indeks_win_desktop"), padding=8)
         desk.pack(fill=tk.X, pady=(0, 8))
         desk_row = ttk.Frame(desk)
         desk_row.pack(fill=tk.X)
@@ -2845,7 +2867,6 @@ class IndexerApp(tk.Tk):
             ).pack(anchor=tk.W)
 
         def _on_close() -> None:
-            self._refresh_indeks_status_line()
             dlg.destroy()
 
         ttk.Button(foot, text=self._("close"), command=_on_close).pack(side=tk.RIGHT)
@@ -3700,6 +3721,12 @@ class IndexerApp(tk.Tk):
             command=self._open_prepare_indexer,
         )
         menubar.add_cascade(label=self._("menu_tools"), menu=tools)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(
+            label=self._("settings_open"),
+            command=self._open_settings_window,
+        )
+        menubar.add_cascade(label=self._("menu_settings"), menu=settings_menu)
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(
             label=self._("help_manual_simple"),
