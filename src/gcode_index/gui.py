@@ -353,6 +353,8 @@ class IndexerApp(tk.Tk):
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
+        self.role_from_header_var = tk.BooleanVar(value=True)
+        self.machine_from_header_var = tk.BooleanVar(value=True)
         self.o9_system_programs_role_var = tk.BooleanVar(value=True)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
@@ -493,6 +495,8 @@ class IndexerApp(tk.Tk):
             self.incremental_var,
             self.newest_only_var,
             self.odbiorca_from_header_var,
+            self.role_from_header_var,
+            self.machine_from_header_var,
             self.o9_system_programs_role_var,
         ):
             var.trace_add("write", self._on_scan_option_changed)
@@ -528,6 +532,8 @@ class IndexerApp(tk.Tk):
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
+        self.role_from_header_var.set(bool(cfg.role_from_header))
+        self.machine_from_header_var.set(bool(cfg.machine_from_header))
         self.o9_system_programs_role_var.set(bool(cfg.o9_system_programs_role))
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
@@ -740,6 +746,8 @@ class IndexerApp(tk.Tk):
             watch_mode=self._watch_mode,
             also_excel=bool(self.excel_var.get()),
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+            role_from_header=bool(self.role_from_header_var.get()),
+            machine_from_header=bool(self.machine_from_header_var.get()),
             o9_system_programs_role=bool(self.o9_system_programs_role_var.get()),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
@@ -1486,6 +1494,8 @@ class IndexerApp(tk.Tk):
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
+            "role_from_header": bool(self.role_from_header_var.get()),
+            "machine_from_header": bool(self.machine_from_header_var.get()),
             "o9_system_programs_role": bool(self.o9_system_programs_role_var.get()),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
@@ -1752,6 +1762,14 @@ class IndexerApp(tk.Tk):
                 if "odbiorca_from_header" in preserved:
                     self.odbiorca_from_header_var.set(
                         bool(preserved.get("odbiorca_from_header"))
+                    )
+                if "role_from_header" in preserved:
+                    self.role_from_header_var.set(
+                        bool(preserved.get("role_from_header"))
+                    )
+                if "machine_from_header" in preserved:
+                    self.machine_from_header_var.set(
+                        bool(preserved.get("machine_from_header"))
                     )
                 if "o9_system_programs_role" in preserved:
                     self.o9_system_programs_role_var.set(
@@ -2661,6 +2679,18 @@ class IndexerApp(tk.Tk):
             opts,
             text=self._("odbiorca_from_header"),
             variable=self.odbiorca_from_header_var,
+            command=self._schedule_filter_ini_save,
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            opts,
+            text=self._("role_from_header"),
+            variable=self.role_from_header_var,
+            command=self._schedule_filter_ini_save,
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            opts,
+            text=self._("machine_from_header"),
+            variable=self.machine_from_header_var,
             command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
         ttk.Checkbutton(
@@ -4787,6 +4817,8 @@ class IndexerApp(tk.Tk):
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
                     odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+                    role_from_header=bool(self.role_from_header_var.get()),
+                    machine_from_header=bool(self.machine_from_header_var.get()),
                     o9_system_programs_role=bool(
                         self.o9_system_programs_role_var.get()
                     ),
@@ -4803,6 +4835,8 @@ class IndexerApp(tk.Tk):
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
                     odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+                    role_from_header=bool(self.role_from_header_var.get()),
+                    machine_from_header=bool(self.machine_from_header_var.get()),
                     o9_system_programs_role=bool(
                         self.o9_system_programs_role_var.get()
                     ),
@@ -4889,13 +4923,22 @@ class IndexerApp(tk.Tk):
                     path=n_odb_p,
                     header=n_odb_h,
                 )
+            n_role_h = int(getattr(result, "roles_from_header", 0) or 0)
+            role_h_note = (
+                self._("scan_note_role_header", n=n_role_h) if n_role_h else ""
+            )
+            n_mach_h = int(getattr(result, "machine_from_header", 0) or 0)
+            mach_h_note = (
+                self._("scan_note_machine_header", n=n_mach_h) if n_mach_h else ""
+            )
             n_o9 = int(getattr(result, "o9_system_programs", 0) or 0)
             o9_note = (
                 self._("scan_note_o9_system", n=n_o9) if n_o9 else ""
             )
             extra = (
                 f"{unk_note}{local_note}{flag_note}"
-                f"{cache_note}{mode_note}{auto_note}{odb_note}{o9_note}"
+                f"{cache_note}{mode_note}{auto_note}{odb_note}"
+                f"{role_h_note}{mach_h_note}{o9_note}"
             )
             msg = self._(
                 "scan_done_status",
@@ -6035,6 +6078,12 @@ class IndexerApp(tk.Tk):
             colour_map=catalog.alias_map(),
             tree_map=self._live_tree_map(),
             o9_enabled=o9_on,
+            role_from_header=bool(self.role_from_header_var.get()),
+            byte_start=(
+                int(row["byte_start"])
+                if "byte_start" in keys and row["byte_start"] is not None
+                else None
+            ),
             lang=getattr(self, "_lang", "pl"),
         )
         self._hide_flag_tip()

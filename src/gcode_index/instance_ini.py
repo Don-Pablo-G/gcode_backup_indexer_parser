@@ -63,6 +63,10 @@ class InstanceConfig:
     include_unknown: bool = True  # sticky: keep MACHINE UNKNOWN when filtering machines
     # Match odbiorca aliases against header-window paren comments when folder/path unset
     odbiorca_from_header: bool = True
+    # Match role folder-aliases in header comments (accumulate after path/tree)
+    role_from_header: bool = True
+    # Match machine folder-aliases in header when still MACHINE UNKNOWN
+    machine_from_header: bool = True
     # Auto-tag O9000–O9099 program numbers with role system_programs
     o9_system_programs_role: bool = True
     search_auto_refresh: bool = False  # re-query when DB mtime changes
@@ -308,6 +312,12 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.odbiorca_from_header = _truthy(
             parser.get("scan", "odbiorca_from_header", fallback="yes"), default=True
         )
+        cfg.role_from_header = _truthy(
+            parser.get("scan", "role_from_header", fallback="yes"), default=True
+        )
+        cfg.machine_from_header = _truthy(
+            parser.get("scan", "machine_from_header", fallback="yes"), default=True
+        )
         cfg.o9_system_programs_role = _truthy(
             parser.get("scan", "o9_system_programs_role", fallback="yes"), default=True
         )
@@ -528,6 +538,12 @@ def save_instance_ini(
         odbiorca_from_header=bool(
             kwargs.get("odbiorca_from_header", base.odbiorca_from_header)
         ),
+        role_from_header=bool(
+            kwargs.get("role_from_header", base.role_from_header)
+        ),
+        machine_from_header=bool(
+            kwargs.get("machine_from_header", base.machine_from_header)
+        ),
         o9_system_programs_role=bool(
             kwargs.get("o9_system_programs_role", base.o9_system_programs_role)
         ),
@@ -686,6 +702,12 @@ include_unknown = {yn(data.include_unknown)}
 ; yes/no — when folder/path left odbiorca empty, match aliases in header paren comments
 ; (O-header window only — not the full toolpath body). Reindex to backfill.
 odbiorca_from_header = {yn(data.odbiorca_from_header)}
+; yes/no — match role folder-aliases in header paren comments; accumulate into the
+; role set after name/path (before O9). Never changes status / machine / odbiorca.
+role_from_header = {yn(data.role_from_header)}
+; yes/no — when machine is still MACHINE UNKNOWN, match machine folder-aliases in
+; header paren comments. Folder map / name alias / tree machine always win.
+machine_from_header = {yn(data.machine_from_header)}
 ; yes/no — auto-add role system_programs when program_number is O9000–O9099
 ; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
 ; old broad O9… tags outside that range. Does not change status / machine / odbiorca.

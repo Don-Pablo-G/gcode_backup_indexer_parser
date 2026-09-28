@@ -82,7 +82,7 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 1. **Role** — dodaj / edytuj / usuń (`id`, etykiety PL+EN, wybór koloru / paleta, opcjonalny hex, odznaka, znaczenie, **może zastąpić kolor statusu**). Startowo: **prototyp** (niebieski, nadpisanie **włączone**), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku.
 2. **Aliasy folderów** — nazwa folderu → rola **albo wyklucz**. Najgłębszy segment wygrywa. Aliasy ustawiają tylko role (nie nadpisują provenance). Wiele ról na folderze ustawisz w mapie drzewa.
 
-Gdy pasująca rola ma włączone **może zastąpić kolor statusu**: Flaga gubi zielony/żółty i pokazuje krążek tej roli; kolor wiersza = kolor roli. Priorytet przy kilku nadpisaniach: **najpierw prototyp**, potem stała kolejność. Pozostałe (bez nadpisania) funkcje nadal widać jako **dodatkowe kolorowe krążki Flagi**, gdy ich barwa różni się od statusu. Kolumna tekstowa **Rola** jest opcjonalna (domyślnie ukryta; pokaż przez **Kolumny**); podpowiedź Flagi wymienia każdą funkcję z powodem alias / ścieżka / O9.
+Gdy pasująca rola ma włączone **może zastąpić kolor statusu**: Flaga gubi zielony/żółty i pokazuje krążek tej roli; kolor wiersza = kolor roli. Priorytet przy kilku nadpisaniach: **najpierw prototyp**, potem stała kolejność. Pozostałe (bez nadpisania) funkcje nadal widać jako **dodatkowe kolorowe krążki Flagi**, gdy ich barwa różni się od statusu. Kolumna tekstowa **Rola** jest opcjonalna (domyślnie ukryta; pokaż przez **Kolumny**); podpowiedź Flagi wymienia każdą funkcję z powodem alias / ścieżka / nagłówek / O9.
 
 **Mapuj drzewo…** (indeksator) edytuje `folder_tree_map.yaml` obok bazy: leniwe drzewo z kopii + zielonych/żółtych korzeni. Per węzeł: maszyna (opcjonalnie), **wiele ról**, wyklucz lub wyczyść. ★ = reguła jawna, · = dziedziczona. **Najdłuższy prefiks ścieżki wygrywa** nad aliasami nazw (tagi ścieżki **zastępują** unię ról z nazw). **Prawy klik** na folder → *Alias nazwy „…” wszędzie* → maszyna albo rola (dokładna nazwa; role z aliasów nazw się kumulują). Statusu z menu nie zmienisz. Reindeks stosuje zapisane reguły.
 
@@ -94,9 +94,11 @@ Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty o
 
 1. **Nazwy folderów…** — hub wiązania nazw: lista z kopii i dodatkowych korzeni (od najczęstszych), **chipy** maszyna / funkcja / odbiorca gdy przypisane. **Prawy klik** (lub podwójny) → nowy odbiorca/maszyna/funkcja z tą nazwą albo alias do istniejącego (etykieta i alias wstępnie z pisowni folderu). Katalogi Odbiorcy / Maszyny / Role służą do utrzymania list. Zapis: `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml`.
 2. **Mapuj drzewo…** — leniwe drzewo ścieżek: maszyna + odbiorca + wiele ról + wyklucz (`folder_tree_map.yaml`; najgłębsza ścieżka wygrywa). Prawy klik na folder → alias nazwy wszędzie (maszyna / rola / odbiorca).
-3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania.
-4. **Role folderów…** — katalog ról (barwa, znaczenie) oraz aliasy nazw → rola.
+3. **Maszyny i aliasy…** — lista maszyn; edycja aliasów folderów, etykiety, sterowania. Aliasy folderów działają też na nagłówek (`(…)`) przy włączonym **Maszyna z nagłówka**, gdy wiersz jest nadal MACHINE UNKNOWN.
+4. **Role folderów…** — katalog ról (barwa, znaczenie) oraz aliasy nazw → rola. Te aliasy działają też na komentarze w nagłówku (`(…)`) gdy włączone **Role z nagłówka** (kumulacja po ścieżce/drzewie; przed O9).
 5. **Odbiorcy…** — katalog odbiorców / klientów; jeden odbiorca na program (jak maszyna). Aliasy nazw folderów działają też na komentarze w nagłówku programu (`(…)`) gdy ścieżka/folder nie ustawiły odbiorcy (przełącznik **Odbiorca z nagłówka**; reindeks uzupełnia).
+
+Okno nagłówka (to samo dla odbiorcy / roli / maszyny): pierwsze **40** linii programu (albo od `byte_start` w sklejonym zrzucie); tylko komentarze w nawiasach; tylko aliasy (nie etykiety katalogu); min. długość igły 3. **Maszyna z nagłówka** uzupełnia tylko gdy wiersz jest nadal **MACHINE UNKNOWN** — mapa folderów / alias nazwy / maszyna z drzewa zawsze wygrywają. Status 🟢/🟡 nigdy nie pochodzi z nagłówka.
 
 ---
 
@@ -199,6 +201,7 @@ Zasada: **Przyrostowy utrzymuje katalog na bieżąco z dyskiem. Pełny przebudow
 | Usunięte reguły kolorów funkcji (albo chcesz role od zera) | Pełny reskan |
 | Dodane reguły kolorów / drzewa / O9, które nadal pasują | Przyrostowy zwykle wystarczy |
 | Katalog odbiorców / przełącznik z nagłówka | Przyrostowy zwykle wystarczy (odbiorca na post-pass; z nagłówka tylko gdy nadal puste) |
+| Przełączniki roli/maszyny z nagłówka lub nowe aliasy | Przyrostowy zwykle wystarczy przy **dodawaniu** (role się kumulują; maszyna tylko UNKNOWN → znana). **Pełny**, gdy wyłączono przełącznik lub usunięto aliasy i trzeba wyczyścić stare wartości z nagłówka |
 | Nowy korzeń zielony/żółty | Dodaj korzeń → skan (przyrostowy OK do odkrycia) |
 | Przeniesiony pakiet na inny PC / udział | Potwierdź skopiowanie całego folderu; **Przygotuj indeksator…** na PC nasłuchującym; remap ścieżek |
 

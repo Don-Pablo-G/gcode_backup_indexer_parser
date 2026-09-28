@@ -2,13 +2,14 @@
 
 Scan persists only the final role-id set on each instance. Hover tips rebuild
 truthful reasons from the live path + YAML (name aliases / Mapuj drzewo /
-O9000–O9099), mirroring scanner order: name union → tree-path replace → O9
-accumulate. No DB schema change.
+header paren comments / O9000–O9099), mirroring scanner order: name union →
+tree-path replace → header accumulate → O9 accumulate. No DB schema change.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Sequence
 
 from gcode_index.badge_style import DOT, pick_override_role
@@ -19,6 +20,7 @@ from gcode_index.folder_colour_aliases import (
     canonical_role_id,
 )
 from gcode_index.folder_tree_map import FolderTreeMap, roles_from_db
+from gcode_index.header_match import match_roles_from_header
 from gcode_index.i18n import t
 from gcode_index.models import (
     COLOUR_EXCLUDE,
@@ -32,6 +34,7 @@ from gcode_index.models import (
 REASON_ALIAS = "alias"
 REASON_ALIAS_FUZZY = "alias_fuzzy"
 REASON_PATH = "path"
+REASON_HEADER = "header"
 REASON_O9 = "o9"
 REASON_ALIAS_O9 = "alias_o9"
 REASON_ALIAS_FUZZY_O9 = "alias_fuzzy_o9"
@@ -130,12 +133,15 @@ def explain_row_roles(
     colour_map: Optional[FolderColourAliasMap] = None,
     tree_map: Optional[FolderTreeMap] = None,
     o9_enabled: bool = True,
+    role_from_header: bool = True,
+    byte_start: Optional[int] = None,
 ) -> list[RoleReason]:
     """Reconstruct per-role reasons for roles still present on the row.
 
     Mirrors scan: tree-map tags with a non-empty list **replace** name union;
-    O9 may still accumulate ``system_programs``. Roles on the row that no live
-    rule explains → ``unavailable`` (stale index vs YAML).
+    header role aliases accumulate; O9 may still accumulate ``system_programs``.
+    Roles on the row that no live rule explains → ``unavailable`` (stale index
+    vs YAML, or missing source file for a header-only role).
     """
     roles = roles_from_db(role_csv)
     if not roles:
@@ -156,6 +162,22 @@ def explain_row_roles(
         if path_replaced
         else _name_attributions(source_path or "", cmap)
     )
+
+    header_attr: dict[str, str] = {}
+    if role_from_header and cmap is not None and len(cmap) > 0:
+        root = (scan_root or "").strip()
+        rel = (source_path or "").strip()
+        if root and rel:
+            try:
+                fpath = Path(root) / rel
+            except Exception:
+                fpath = None
+            if fpath is not None and fpath.is_file():
+                header_attr = match_roles_from_header(
+                    fpath,
+                    cmap,
+                    byte_start=byte_start,
+                )
 
     o9_hit = bool(
         o9_enabled
@@ -215,6 +237,16 @@ def explain_row_roles(
             )
             continue
 
+        if rid in header_attr:
+            out.append(
+                RoleReason(
+                    role_id=rid,
+                    reason_kind=REASON_HEADER,
+                    detail=header_attr[rid],
+                )
+            )
+            continue
+
         out.append(
             RoleReason(role_id=rid, reason_kind=REASON_UNAVAILABLE, detail="")
         )
@@ -235,6 +267,8 @@ def format_reason_phrase(reason: RoleReason, lang: str = "pl") -> str:
             o9 = t(lang, "flag_tip_o9", number=reason.o9_number)
             return f"{phrase} + {o9}"
         return phrase
+    if kind == REASON_HEADER:
+        return t(lang, "flag_tip_header", spelling=reason.detail)
     if kind == REASON_O9:
         return t(lang, "flag_tip_o9", number=reason.o9_number or reason.detail)
     if kind == REASON_ALIAS_O9:
@@ -286,6 +320,8 @@ def format_flag_tooltip(
     colour_map: Optional[FolderColourAliasMap] = None,
     tree_map: Optional[FolderTreeMap] = None,
     o9_enabled: bool = True,
+    role_from_header: bool = True,
+    byte_start: Optional[int] = None,
     lang: str = "pl",
 ) -> str:
     """Full Flag-cell tip text (header + Funkcje list)."""
@@ -312,6 +348,8 @@ def format_flag_tooltip(
         colour_map=cmap,
         tree_map=tree_map,
         o9_enabled=o9_enabled,
+        role_from_header=role_from_header,
+        byte_start=byte_start,
     )
     for reason in reasons:
         label = catalog.label_for(reason.role_id, lang)

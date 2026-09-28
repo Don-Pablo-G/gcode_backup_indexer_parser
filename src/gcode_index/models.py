@@ -159,5 +159,9 @@ class ScanResult:
     odbiorca_from_folder: int = 0
     odbiorca_from_path: int = 0
     odbiorca_from_header: int = 0
+    # Rows that gained at least one role from header-window alias matches
+    roles_from_header: int = 0
+    # Rows whose machine was filled from header when still MACHINE UNKNOWN
+    machine_from_header: int = 0
     # Rows that received auto role system_programs from O9… program numbers
     o9_system_programs: int = 0

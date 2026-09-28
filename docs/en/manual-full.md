@@ -82,7 +82,7 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 1. **Roles** — add / edit / remove role entries (`id`, labels PL+EN, colour picker / palette, optional hex, badge, meaning, **can override main state colour**). Seeded: **prototype** (blue, override **on** by default), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file.
 2. **Folder aliases** — folder-name → role **or exclude**. Deepest matching path segment wins. Aliases set roles only (they do not rewrite provenance). A folder may later receive **multiple** roles via the tree map.
 
-When a matching role has **can override main state colour** enabled: Flag drops green/yellow and shows that role’s disc; row colour = role colour. Priority if several overrides match: **prototype first**, then stable order. Other (non-override) functions still appear as **additive coloured Flag discs** when their swatch differs from status. The **Role** text column is optional (hidden by default; show via **Columns**); Flag hover tip lists every function with alias / path / O9 reason.
+When a matching role has **can override main state colour** enabled: Flag drops green/yellow and shows that role’s disc; row colour = role colour. Priority if several overrides match: **prototype first**, then stable order. Other (non-override) functions still appear as **additive coloured Flag discs** when their swatch differs from status. The **Role** text column is optional (hidden by default; show via **Columns**); Flag hover tip lists every function with alias / path / header / O9 reason.
 
 **Mapuj drzewo…** / **Map tree…** (indexer) edits `folder_tree_map.yaml` next to the database: lazy folder tree from the backup + green/yellow roots. Per node: machine (optional), **multiple role tags**, exclude, or clear. ★ = explicit path rule, · = inherited. **Longest path prefix wins** over name-wide aliases (path tags **replace** the name-role union). **Right-click** a folder → *Alias name “…” everywhere* → machine or role (exact name; name-role aliases **accumulate**). Status cannot be changed from the menu. Reindex reapplies the saved rules.
 
@@ -94,9 +94,11 @@ Use separate **Status** and **Role** filters (role filter matches any tag). Exac
 
 1. **Folder names…** — name-binding hub: list from the backup and extra roots (most frequent first), **chips** for machine / function / recipient when bound. **Right-click** (or double-click) → new recipient/machine/function from this name or alias to an existing entry (label and alias prefilled from the folder spelling). Recipients / Machines / Roles catalogues stay for maintenance. Writes `aliases.local.yaml` / `folder_colour_aliases` / `odbiorcy.yaml`.
 2. **Map tree…** — lazy path tree for machine + recipient + multi-role tags + exclude (`folder_tree_map.yaml`; deepest path wins). Right-click a folder → name alias everywhere (machine / role / recipient).
-3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`.
-4. **Folder roles…** — role catalogue (swatch, meaning) and name → role aliases.
+3. **Machines & aliases…** — machine list on the left; select one to edit its **folder aliases**, label, control, and layout. **Add machine** / **Remove machine** manage shop-local machines. Bundled catalog spellings stay read-only (`[bundled]`); add a local spelling to customize. Saved as `aliases.local.yaml`. Those folder aliases also match header `(…)` when **Machine from header** is on and the row is still MACHINE UNKNOWN.
+4. **Folder roles…** — role catalogue (swatch, meaning) and name → role aliases. Those aliases also match header paren comments `(…)` when **Roles from header** is on (accumulate after path/tree; before O9).
 5. **Recipients…** — recipient/customer catalogue; one odbiorca per program (like machine). Folder-name aliases also match header paren comments `(…)` when path/folder left odbiorca empty (**Odbiorca from header** toggle; reindex to backfill).
+
+Header window (same for odbiorca / role / machine): first **40** lines of the program (or from glued `byte_start`); paren comments only; aliases only (not catalogue labels); min needle length 3. **Machine from header** fills only when the row is still **MACHINE UNKNOWN** — folder map / name alias / tree machine always win. Status 🟢/🟡 is never taken from the header.
 
 ### Loose `.nc` machine assignment
 
@@ -110,7 +112,7 @@ Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / ex
 
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
 2. Click green **Run scan** / **Uruchom skan** (right side). Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
-3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / O9 / watch / tray), and **Reports…**.
+3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch / tray), and **Reports…**.
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**).
 
 ### Auto-index
@@ -216,6 +218,7 @@ Rule of thumb: **Incremental keeps the catalog current with the disk. Full rebui
 | Removed function-colour rules (or want roles rebuilt clean) | Full rescan |
 | Added colour / tree / O9 rules that still match paths | Incremental usually enough |
 | Odbiorcy catalogue / header toggle | Incremental usually enough (odbiorca re-applied on post-pass; header fills only if still empty) |
+| Role / machine header toggles or new role/machine aliases | Incremental usually enough for **adds** (roles accumulate; machine only upgrades UNKNOWN → known). **Full** if you disabled a toggle or removed aliases and need to clear stale header-taught values |
 | New green/yellow root | Add root → scan (incremental OK for discovery) |
 | Moved pack to another PC / share | Confirm whole folder copied; **Prepare indexer…** / **Przygotuj indeksator…** on the listening PC; remap paths |
 
