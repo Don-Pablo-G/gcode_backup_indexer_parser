@@ -117,14 +117,15 @@ Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / ex
 
 ### Watch folders
 
-Tick **Watch folders** to watch the backup tree and extra (green/yellow) roots. When new or changed indexable files appear, the app waits a short debounce (3 s), then runs an **incremental** scan (no full rebuild). Stamp-poll stays at 5 s.
+Tick **Watch folders** to watch configured roots. By default the **main backup folder is excluded** from live Watch (listeners / stamp-poll) — only green/yellow extras are watched. Uncheck **Exclude backup folder** to watch the backup tree as well. When new or changed indexable files appear under watched roots, the app waits a short debounce (3 s), then runs an **incremental** scan (no full rebuild). Stamp-poll stays at 5 s.
 
 While Watch is on you also get:
 
+- **Exclude backup folder** (default **on**) — omit `[folders] backup` from Watch roots. Manual **Run scan**, Watch-triggered incremental, and optional **safety rescan** still scan backup + extras through the normal scan pipeline; only live FS watch / poll skips backup when this is on.
 - **Min. quiet between scans** (default **45 s**, floor 15 s) — after a Watch-triggered scan *starts*, further change signals coalesce: at most one follow-up scan when the quiet window ends. Busy dumps produce one scan per quiet window, not one per debounce burst.
-- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Successful scans reset the safety countdown.
+- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Successful scans reset the safety countdown. Safety still indexes the full scan set (including backup).
 
-Settings: `[scan] watch_coalesce_s`, `watch_safety`, `watch_safety_last_run` in `gcode-index.ini`. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
+Settings: `[scan] watch_exclude_backup` (default yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run` in `gcode-index.ini`. Missing `watch_exclude_backup` migrates to **yes**. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
 
 Floor clients (`can_index=no`) never see Watch. Automatic scans require Watch on (and take `gcode_index.lock`).
 

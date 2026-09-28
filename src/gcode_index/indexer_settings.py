@@ -36,6 +36,8 @@ class IndexerSettings:
     include_unknown: bool = True
     watch_folders: bool = False
     watch_mode: str = DEFAULT_WATCH_MODE
+    # Default yes: omit main backup from live Watch roots (extras still watched).
+    watch_exclude_backup: bool = True
     watch_coalesce_s: int = DEFAULT_WATCH_COALESCE_S
     watch_safety: str = SCHEDULE_OFF
     # Optional documented logical roots (UNC/share forms preferred when known)
@@ -136,6 +138,10 @@ def load_indexer_settings(path: Path | str | None) -> Optional[IndexerSettings]:
         watch_mode=normalize_watch_mode(
             str(data.get("watch_mode") or DEFAULT_WATCH_MODE)
         ),
+        # Missing key → yes (exclude backup from Watch), same as ini migrate.
+        watch_exclude_backup=_truthy(
+            data.get("watch_exclude_backup"), default=True
+        ),
         watch_coalesce_s=coalesce_s,
         watch_safety=safety,
         backup_hint=str(data.get("backup_hint") or "").strip(),
@@ -156,7 +162,8 @@ def save_indexer_settings(
             "Shop / indexer defaults for this database folder (data pack). "
             "Loaded when target points here. Does NOT set indexer capability "
             "(that stays in local gcode-index.ini next to the exe). "
-            "watch_coalesce_s = min quiet seconds; watch_safety = off|15m|1h|…"
+            "watch_coalesce_s = min quiet seconds; watch_safety = off|15m|1h|…; "
+            "watch_exclude_backup = yes omits main backup from live Watch roots"
         ),
         "incremental": bool(settings.incremental),
         "also_excel": bool(settings.also_excel),
@@ -164,6 +171,7 @@ def save_indexer_settings(
         "include_unknown": bool(settings.include_unknown),
         "watch_folders": bool(settings.watch_folders),
         "watch_mode": normalize_watch_mode(settings.watch_mode),
+        "watch_exclude_backup": bool(settings.watch_exclude_backup),
         "watch_coalesce_s": clamp_watch_coalesce_s(settings.watch_coalesce_s),
         "watch_safety": normalize_watch_safety(settings.watch_safety),
     }

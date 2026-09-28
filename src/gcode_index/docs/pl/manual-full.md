@@ -98,7 +98,7 @@ Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty o
 4. **Role i aliasy…** — ten sam wzorzec: wybierz rolę → meta + zagnieżdżone aliasy; **Wykluczenia nazw** pod listą. Te aliasy działają też na komentarze `(…)` **w linii O** gdy włączone **Role z nagłówka** (kumulacja po ścieżce/drzewie; przed O9).
 5. **Odbiorcy i aliasy…** — ten sam wzorzec: wybierz odbiorcę → etykiety + zagnieżdżone aliasy; jeden odbiorca na program (jak maszyna). Aliasy nazw działają też na komentarze `(…)` **w linii O** gdy ścieżka/folder nie ustawiły odbiorcy (przełącznik **Odbiorca z nagłówka**; reindeks uzupełnia).
 
-Dopasowanie nagłówka (to samo dla odbiorcy / roli / maszyny): komentarze w nawiasach **tylko w tej samej linii co numer programu** (`O#####`) — nie stare wieloliniowe okno nagłówka, nie kolejne linie, nie ciało programu. Sklejone zrzuty: seek do `byte_start`, potem linia O. Tylko aliasy (nie etykiety katalogu). **Ta sama reguła co nazwy folderów:** granice tokenów (dokładne pełne / dokładny token lub kolejne tokeny, potem fuzzy tylko w jednym tokenie: podciąg ≥4 / prefiks ≥3 z krótkim residuum — VF2≈VF2S, nie pat→pattyn); dłuższe / dokładne igły wygrywają. **Po aktualizacji zrób reindeks.** Flagi `exact` ról/odbiorców w YAML są ignorowane. **Maszyna z nagłówka** uzupełnia tylko gdy wiersz jest nadal **MACHINE UNKNOWN** — mapa folderów / alias nazwy / maszyna z drzewa zawsze wygrywają. Status 🟢/🟡 nigdy nie pochodzi z nagłówka.
+Dopasowanie nagłówka (to samo dla odbiorcy / roli / maszyny): komentarze w nawiasach **tylko w tej samej linii co numer programu** (`O#####`) — nie stare wieloliniowe okno nagłówka, nie kolejne linie, nie ciało programu. Sklejone zrzuty: seek do `byte_start`, potem linia O. Tylko aliasy (nie etykiety katalogu); min. długość igły 3. **Reguła:** granice tokenów (dokładne pełne / token lub kolejne tokeny, potem fuzzy tylko w jednym tokenie — podciąg ≥4 / prefiks ≥3 z krótkim residuum; VF2≈VF2S, nie pat→pattyn). **Po aktualizacji zrób reindeks.** **Maszyna z nagłówka** uzupełnia tylko gdy wiersz jest nadal **MACHINE UNKNOWN** — mapa folderów / alias nazwy / maszyna z drzewa zawsze wygrywają. Status 🟢/🟡 nigdy nie pochodzi z nagłówka.
 
 ---
 
@@ -113,14 +113,15 @@ Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie
 
 ### Obserwacja folderów
 
-Zaznacz **Obserwuj foldery** — po zmianach w kopii / zielonych/żółtych katalogach uruchamia się **przyrostowy** skan (debounce 3 s; stamp-poll 5 s).
+Zaznacz **Obserwuj foldery** — nasłuchuje skonfigurowanych korzeni. Domyślnie **główny folder kopii jest wykluczony** z live Watch (zdarzenia / stamp-poll) — obserwowane są tylko zielone/żółte. Odznacz **Wyklucz folder kopii**, aby także obserwować drzewo kopii. Po zmianach w obserwowanych katalogach uruchamia się **przyrostowy** skan (debounce 3 s; stamp-poll 5 s).
 
 Gdy obserwacja jest włączona:
 
+- **Wyklucz folder kopii** (domyślnie **wł.**) — pomija `[folders] backup` w korzeniach Watch. Ręczny **Uruchom skan**, skan po zmianie Watch oraz opcjonalny **skan bezpieczeństwa** nadal indeksują kopię + dodatkowe przez normalny pipeline; tylko live nasłuch / poll pomija kopię, gdy opcja jest włączona.
 - **Min. przerwa między skanami** (domyślnie **45 s**, min. 15 s) — po *starcie* skanu Watch kolejne sygnały zmian łączą się: co najwyżej jeden skan po wygaśnięciu przerwy.
-- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”.
+- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”. Bezpieczeństwo nadal skanuje pełny zestaw (w tym kopię).
 
-Klucze: `[scan] watch_coalesce_s`, `watch_safety`, `watch_safety_last_run`. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
+Klucze: `[scan] watch_exclude_backup` (domyślnie yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run`. Brakujący `watch_exclude_backup` → **yes**. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
 
 Klient hali (`can_index=no`) nie widzi Obserwuj. Automatyczne skany wymagają włączonej obserwacji (i biorą `gcode_index.lock`).
 

@@ -66,6 +66,9 @@ class InstanceConfig:
     incremental: bool = True
     watch_folders: bool = False
     watch_mode: str = DEFAULT_WATCH_MODE  # hybrid | poll
+    # When yes (default), omit [folders] backup from live Watch roots.
+    # Green/yellow extras still watched; manual/safety scans still cover backup.
+    watch_exclude_backup: bool = True
     # Min. quiet between Watch-triggered scans (seconds); coalesce pending changes.
     watch_coalesce_s: int = DEFAULT_WATCH_COALESCE_S
     # Optional forced incremental while Watch is on: off | 15m | 1h | …
@@ -340,6 +343,11 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.watch_mode = normalize_watch_mode(
             parser.get("scan", "watch_mode", fallback=DEFAULT_WATCH_MODE)
         )
+        # Missing key → yes (exclude backup from Watch). Explicit no keeps watching it.
+        cfg.watch_exclude_backup = _truthy(
+            parser.get("scan", "watch_exclude_backup", fallback="yes"),
+            default=True,
+        )
         cfg.search_auto_refresh = _truthy(
             parser.get("scan", "search_auto_refresh", fallback="no"), default=False
         )
@@ -574,6 +582,9 @@ def save_instance_ini(
         watch_mode=normalize_watch_mode(
             str(kwargs.get("watch_mode", base.watch_mode) or DEFAULT_WATCH_MODE)
         ),
+        watch_exclude_backup=bool(
+            kwargs.get("watch_exclude_backup", base.watch_exclude_backup)
+        ),
         watch_coalesce_s=clamp_watch_coalesce_s(
             kwargs.get("watch_coalesce_s", base.watch_coalesce_s)
         ),
@@ -733,13 +744,18 @@ schedule_last_run =
 [scan]
 ; yes/no — skip unchanged files when re-indexing (indexer)
 incremental = {yn(data.incremental)}
-; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
+; yes/no — watch folders and incremental-index on drop (indexer)
 watch_folders = {yn(data.watch_folders)}
 ; Watch method when watch_folders=yes (indexer):
 ;   hybrid = Auto — OS events on local disks, stamp-poll on network/UNC shares
 ;   poll   = stamp-poll everywhere (safe fallback)
 ; Accepted aliases: auto/hybryda → hybrid; safe/stamp → poll
 watch_mode = {data.watch_mode}
+; yes/no — omit [folders] backup from live Watch roots (default yes).
+; Green/yellow extras still watched. Manual / safety / incremental scans still
+; cover backup; only FS listeners and stamp-poll skip it when yes.
+; Missing key migrates to yes (excluded).
+watch_exclude_backup = {yn(data.watch_exclude_backup)}
 ; Min. quiet between Watch-triggered scans (seconds, floor 15, default 45).
 ; Changes during the quiet window coalesce into one follow-up scan.
 watch_coalesce_s = {data.watch_coalesce_s}

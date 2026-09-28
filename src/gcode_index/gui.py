@@ -226,6 +226,7 @@ from gcode_index.folder_watch import (
     WATCH_MODE_HYBRID,
     WATCH_MODE_POLL,
     FolderWatcher,
+    collect_watch_roots,
     normalize_watch_mode,
 )
 from gcode_index.scan_history import (
@@ -362,6 +363,7 @@ class IndexerApp(tk.Tk):
         self.include_unknown_var = tk.BooleanVar(value=True)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
+        self.watch_exclude_backup_var = tk.BooleanVar(value=True)
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
         self.role_from_header_var = tk.BooleanVar(value=True)
         self.machine_from_header_var = tk.BooleanVar(value=True)
@@ -547,6 +549,7 @@ class IndexerApp(tk.Tk):
         self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
+        self.watch_exclude_backup_var.set(bool(cfg.watch_exclude_backup))
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
         self.role_from_header_var.set(bool(cfg.role_from_header))
         self.machine_from_header_var.set(bool(cfg.machine_from_header))
@@ -761,6 +764,7 @@ class IndexerApp(tk.Tk):
             incremental=bool(self.incremental_var.get()),
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_exclude_backup=bool(self.watch_exclude_backup_var.get()),
             watch_coalesce_s=self._watch_coalesce_s,
             watch_safety=self._watch_safety,
             watch_safety_last_run=self._watch_safety_last_run or "",
@@ -1049,6 +1053,7 @@ class IndexerApp(tk.Tk):
             include_unknown=self._effective_include_unknown(),
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_exclude_backup=bool(self.watch_exclude_backup_var.get()),
             watch_coalesce_s=self._watch_coalesce_s,
             watch_safety=self._watch_safety,
             backup_hint=self.backup_var.get().strip(),
@@ -1098,6 +1103,7 @@ class IndexerApp(tk.Tk):
             self._set_watch_coalesce_s(settings.watch_coalesce_s, persist=False)
             self._set_watch_safety(settings.watch_safety, persist=False)
             self.watch_var.set(bool(settings.watch_folders))
+            self.watch_exclude_backup_var.set(bool(settings.watch_exclude_backup))
             self._watch_enabled = bool(settings.watch_folders) and not self._is_simple()
             self._set_watch_mode(settings.watch_mode, persist=False)
         finally:
@@ -1509,6 +1515,7 @@ class IndexerApp(tk.Tk):
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
+            "watch_exclude_backup": bool(self.watch_exclude_backup_var.get()),
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
             "role_from_header": bool(self.role_from_header_var.get()),
             "machine_from_header": bool(self.machine_from_header_var.get()),
@@ -1773,6 +1780,10 @@ class IndexerApp(tk.Tk):
                     self.include_unknown_var.set(bool(preserved.get("include_unknown")))
                 self.incremental_var.set(bool(preserved.get("incremental", True)))
                 self.watch_var.set(bool(preserved.get("watch", False)))
+                if "watch_exclude_backup" in preserved:
+                    self.watch_exclude_backup_var.set(
+                        bool(preserved.get("watch_exclude_backup"))
+                    )
                 if "odbiorca_from_header" in preserved:
                     self.odbiorca_from_header_var.set(
                         bool(preserved.get("odbiorca_from_header"))
@@ -2663,6 +2674,23 @@ class IndexerApp(tk.Tk):
         self._update_watch_status()
 
         self._watch_opts_widgets = []
+        exclude_row = ttk.Frame(watch_box)
+        exclude_row.pack(fill=tk.X, pady=(8, 0))
+        exclude_chk = ttk.Checkbutton(
+            exclude_row,
+            text=self._("watch_exclude_backup"),
+            variable=self.watch_exclude_backup_var,
+            command=self._on_watch_exclude_backup_toggled,
+        )
+        exclude_chk.pack(side=tk.LEFT)
+        exclude_hint = ttk.Label(
+            watch_box,
+            text=self._("watch_exclude_backup_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        )
+        exclude_hint.pack(anchor=tk.W, pady=(2, 0))
+
         coalesce_row = ttk.Frame(watch_box)
         coalesce_row.pack(fill=tk.X, pady=(8, 0))
         coalesce_lbl = ttk.Label(coalesce_row, text=self._("watch_coalesce"))
@@ -2720,6 +2748,8 @@ class IndexerApp(tk.Tk):
         )
         safety_hint.pack(anchor=tk.W, pady=(2, 0))
         self._watch_opts_widgets = [
+            exclude_chk,
+            exclude_hint,
             coalesce_lbl,
             coalesce_entry,
             coalesce_unit,
@@ -4420,14 +4450,12 @@ class IndexerApp(tk.Tk):
             self._refresh_watch_strip()
 
     def _watch_roots(self) -> list[Path]:
-        roots: list[Path] = []
-        backup = self.backup_var.get().strip()
-        if backup:
-            roots.append(Path(backup))
-        for spec in self._scan_root_specs():
-            if spec.path:
-                roots.append(Path(spec.path))
-        return roots
+        extras = [spec.path for spec in self._scan_root_specs() if spec.path]
+        return collect_watch_roots(
+            self.backup_var.get().strip(),
+            extras,
+            exclude_backup=bool(self.watch_exclude_backup_var.get()),
+        )
 
     def _update_watch_status(self, locked_by: Optional[str] = None) -> None:
         if not hasattr(self, "watch_status_var"):
@@ -4556,6 +4584,12 @@ class IndexerApp(tk.Tk):
             self._watch_rescan_pending = False
             self._watch_safety_pending = False
         self._refresh_indeks_status_line()
+
+    def _on_watch_exclude_backup_toggled(self) -> None:
+        self._save_instance_ini()
+        if not getattr(self, "_applying_indexer_settings", False):
+            self._persist_indexer_settings()
+        self._sync_folder_watch()
 
     def _stop_folder_watch(self, *, release: bool = False) -> None:
         if self._folder_watcher is not None:
@@ -7211,6 +7245,7 @@ class PrepareIndexerDialog(tk.Toplevel):
                 safety=pack.watch_safety,
                 watch=("yes" if pack.watch_folders else "no"),
                 mode=pack.watch_mode,
+                exclude=("yes" if pack.watch_exclude_backup else "no"),
             )
             ttk.Label(
                 body, text=summary, style="Muted.TLabel", wraplength=560

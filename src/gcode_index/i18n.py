@@ -62,6 +62,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_running": "Skan automatyczny…",
         "schedule_last": "Ostatni auto-indeks: {when}",
         "watch_folders": "Obserwuj foldery",
+        "watch_exclude_backup": "Wyklucz folder kopii",
+        "watch_exclude_backup_hint": (
+            "Nie nasłuchuj głównego folderu kopii — tylko zielone/żółte. "
+            "Skan ręczny i bezpieczeństwa nadal mogą obejmować kopię."
+        ),
         "watch_coalesce": "Min. przerwa między skanami:",
         "watch_coalesce_unit": "sekund",
         "watch_coalesce_hint": (
@@ -436,7 +441,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "prepare_indexer_apply": "Ustaw jako indeksator",
         "prepare_indexer_apply_pack": "Zastosuj domyślne ustawienia z pakietu (indexer_settings.yaml)",
         "prepare_indexer_no_pack": "Brak indexer_settings.yaml w folderze bazy — użyte zostaną bieżące przełączniki",
-        "prepare_indexer_pack_summary": "Pakiet: przerwa={coalesce} s, bezpieczeństwo={safety}, obserwacja={watch}, metoda={mode}",
+        "prepare_indexer_pack_summary": "Pakiet: przerwa={coalesce} s, bezpieczeństwo={safety}, obserwacja={watch}, metoda={mode}, wyklucz kopię={exclude}",
         "prepare_indexer_enable_watch": "Włącz obserwację folderów po zatwierdzeniu",
         "prepare_indexer_can_index_note": "Ta instalacja dostanie can_index=yes w lokalnym gcode-index.ini (obok exe). Pakiet danych nie wymusza can_index.",
         "prepare_indexer_floor_hint": "Komputery na hali: can_index=no oraz opcjonalnie pusty operator.lock (lub settings_locked=yes) obok ich ini — żeby nikt nie włączył indeksatora edycją pliku. Razem z bazą zawsze dawaj folder_colour_aliases.yaml (kolory Flagi).",
@@ -746,6 +751,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_running": "Automatic scan…",
         "schedule_last": "Last auto-index: {when}",
         "watch_folders": "Watch folders",
+        "watch_exclude_backup": "Exclude backup folder",
+        "watch_exclude_backup_hint": (
+            "Do not watch the main backup tree — only green/yellow extras. "
+            "Manual and safety scans can still cover backup."
+        ),
         "watch_coalesce": "Min. quiet between scans:",
         "watch_coalesce_unit": "seconds",
         "watch_coalesce_hint": (
@@ -1120,7 +1130,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "prepare_indexer_apply": "Make this the indexer",
         "prepare_indexer_apply_pack": "Apply pack defaults (indexer_settings.yaml)",
         "prepare_indexer_no_pack": "No indexer_settings.yaml in the database folder — current toggles will be kept",
-        "prepare_indexer_pack_summary": "Pack: quiet={coalesce} s, safety={safety}, watch={watch}, mode={mode}",
+        "prepare_indexer_pack_summary": "Pack: quiet={coalesce} s, safety={safety}, watch={watch}, mode={mode}, exclude backup={exclude}",
         "prepare_indexer_enable_watch": "Enable folder watch after confirm",
         "prepare_indexer_can_index_note": "This install gets can_index=yes in local gcode-index.ini (next to the exe). The data pack never forces can_index.",
         "prepare_indexer_floor_hint": "Floor PCs: can_index=no plus optional empty operator.lock (or settings_locked=yes) next to their ini — so nobody elevates to indexer by editing the file. Always ship folder_colour_aliases.yaml with the DB (Flag colours).",

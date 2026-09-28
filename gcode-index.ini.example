@@ -73,13 +73,18 @@ schedule_last_run =
 [scan]
 ; yes/no — skip unchanged files when re-indexing (size + mtime cache)
 incremental = yes
-; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
+; yes/no — watch folders and incremental-index on drop (indexer)
 watch_folders = no
 ; Watch method when watch_folders=yes (indexer only):
 ;   hybrid = Auto — OS events on local disks, stamp-poll on network/UNC (Z:\, \\server\share)
 ;   poll   = stamp-poll everywhere (safe fallback / previous behavior)
 ; Aliases: auto / hybryda → hybrid; safe / stamp → poll
 watch_mode = hybrid
+; yes/no — omit [folders] backup from live Watch roots (default yes).
+; Green/yellow extras still watched. Manual / safety / incremental scans still
+; cover backup; only FS listeners and stamp-poll skip it when yes.
+; Missing key migrates to yes (excluded).
+watch_exclude_backup = yes
 ; yes/no — also write gcode_index.xlsx after a successful scan (indexer)
 also_excel = no
 ; yes/no — default "newest only" (one row per program+machine) on startup

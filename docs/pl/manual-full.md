@@ -113,14 +113,15 @@ Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie
 
 ### Obserwacja folderów
 
-Zaznacz **Obserwuj foldery** — po zmianach w kopii / zielonych/żółtych katalogach uruchamia się **przyrostowy** skan (debounce 3 s; stamp-poll 5 s).
+Zaznacz **Obserwuj foldery** — nasłuchuje skonfigurowanych korzeni. Domyślnie **główny folder kopii jest wykluczony** z live Watch (zdarzenia / stamp-poll) — obserwowane są tylko zielone/żółte. Odznacz **Wyklucz folder kopii**, aby także obserwować drzewo kopii. Po zmianach w obserwowanych katalogach uruchamia się **przyrostowy** skan (debounce 3 s; stamp-poll 5 s).
 
 Gdy obserwacja jest włączona:
 
+- **Wyklucz folder kopii** (domyślnie **wł.**) — pomija `[folders] backup` w korzeniach Watch. Ręczny **Uruchom skan**, skan po zmianie Watch oraz opcjonalny **skan bezpieczeństwa** nadal indeksują kopię + dodatkowe przez normalny pipeline; tylko live nasłuch / poll pomija kopię, gdy opcja jest włączona.
 - **Min. przerwa między skanami** (domyślnie **45 s**, min. 15 s) — po *starcie* skanu Watch kolejne sygnały zmian łączą się: co najwyżej jeden skan po wygaśnięciu przerwy.
-- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”.
+- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”. Bezpieczeństwo nadal skanuje pełny zestaw (w tym kopię).
 
-Klucze: `[scan] watch_coalesce_s`, `watch_safety`, `watch_safety_last_run`. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
+Klucze: `[scan] watch_exclude_backup` (domyślnie yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run`. Brakujący `watch_exclude_backup` → **yes**. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
 
 Klient hali (`can_index=no`) nie widzi Obserwuj. Automatyczne skany wymagają włączonej obserwacji (i biorą `gcode_index.lock`).
 
