@@ -91,7 +91,7 @@ Right-click a result → **Extract to…** to pick a destination folder (recent 
 
 ## After the indexer updates the database
 
-When the indexer PC runs an **incremental** scan (Watch folders or scheduled auto-index), it rewrites `gcode_index.sqlite` on the shared path. Floor clients do **not** need to close the DB or clear the find bar:
+When the indexer PC runs an **incremental** scan (Watch folders or safety rescan), it rewrites `gcode_index.sqlite` on the shared path. Floor clients do **not** need to close the DB or clear the find bar:
 
 1. Tick **Auto-refresh results** / **Odświeżaj wyniki** (saved as `search_auto_refresh` in the ini; poll interval `search_auto_refresh_s`, default ~20 s).
 2. When the DB file’s mtime changes, the app **re-runs the current search** with the same text, machines, dates, and filters.

@@ -91,7 +91,7 @@ Prawy przycisk na wyniku → **Wydobądź do…** — wybierz folder docelowy (o
 
 ## Po aktualizacji bazy przez indeksator
 
-Gdy PC indeksatora robi skan **przyrostowy** (Obserwuj foldery lub auto-indeks), nadpisuje `gcode_index.sqlite` na udziale. Klient hali **nie** musi zamykać bazy ani czyścić paska szukania:
+Gdy PC indeksatora robi skan **przyrostowy** (Obserwuj foldery lub skan bezpieczeństwa), nadpisuje `gcode_index.sqlite` na udziale. Klient hali **nie** musi zamykać bazy ani czyścić paska szukania:
 
 1. Zaznacz **Odświeżaj wyniki** (zapis: `search_auto_refresh` w ini; interwał `search_auto_refresh_s`, domyślnie ~20 s).
 2. Gdy zmieni się mtime pliku bazy, aplikacja **ponawia bieżące wyszukiwanie** z tym samym tekstem, maszynami, datami i filtrami.

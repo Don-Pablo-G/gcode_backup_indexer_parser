@@ -27,8 +27,11 @@ def test_instance_ini_roundtrip(tmp_path: Path):
         language="pl",
         can_index=False,
         ui_mode="simple",
-        schedule="daily",
-        schedule_last_run="2026-09-25T00:00:00+00:00",
+        schedule="off",
+        schedule_last_run="",
+        watch_coalesce_s=45,
+        watch_safety="1d",
+        watch_safety_last_run="2026-09-25T00:00:00+00:00",
         incremental=True,
         also_excel=False,
         newest_only=True,
@@ -44,7 +47,9 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     assert r"D:\CNC\Catch" in text
     assert "extract = " in text
     assert r"D:\CNC\Extracted" in text
-    assert "schedule = 1d" in text
+    assert "watch_safety = 1d" in text
+    assert "watch_coalesce_s = 45" in text
+    assert "schedule = off" in text
 
     loaded = load_instance_ini(path)
     assert loaded.backup == r"D:\CNC\Backups"
@@ -56,7 +61,9 @@ def test_instance_ini_roundtrip(tmp_path: Path):
     assert loaded.language == "pl"
     assert loaded.can_index is False
     assert loaded.ui_mode == "simple"
-    assert loaded.schedule == "1d"
+    assert loaded.watch_safety == "1d"
+    assert loaded.watch_coalesce_s == 45
+    assert loaded.watch_safety_last_run.startswith("2026-09-25")
     assert loaded.newest_only is True
     assert loaded.also_excel is False
     assert loaded.geometry == "1400x900"
@@ -292,3 +299,66 @@ def test_only_green_filter_default_unchecked(tmp_path: Path):
     assert "only_green = no" in text
     loaded = load_instance_ini(path)
     assert loaded.filter_only_green is False
+
+
+def test_migrate_legacy_ui_schedule_to_watch_keys(tmp_path: Path):
+    path = tmp_path / "gcode-index.ini"
+    path.write_text(
+        """
+[capabilities]
+can_index = yes
+
+[folders]
+backup = /bak
+target = /db
+
+[ui]
+language = en
+mode = full
+schedule = 30s
+schedule_last_run = 2026-09-25T12:00:00+00:00
+
+[scan]
+watch_folders = yes
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.watch_coalesce_s == 30
+    assert cfg.watch_safety == "off"
+    assert cfg.watch_safety_last_run == ""
+
+    path.write_text(
+        """
+[capabilities]
+can_index = yes
+
+[ui]
+schedule = 15m
+schedule_last_run = 2026-09-25T12:00:00+00:00
+
+[scan]
+incremental = yes
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.watch_coalesce_s == 45
+    assert cfg.watch_safety == "15m"
+    assert cfg.watch_safety_last_run.startswith("2026-09-25")
+
+    # New keys win over legacy schedule
+    path.write_text(
+        """
+[ui]
+schedule = 15m
+
+[scan]
+watch_coalesce_s = 60
+watch_safety = off
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.watch_coalesce_s == 60
+    assert cfg.watch_safety == "off"

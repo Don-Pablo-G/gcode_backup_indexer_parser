@@ -21,7 +21,8 @@ def test_indexer_settings_roundtrip(tmp_path: Path):
         also_excel=True,
         newest_only=True,
         include_unknown=False,
-        schedule="15m",
+        watch_coalesce_s=45,
+        watch_safety="15m",
         watch_folders=True,
         watch_mode="poll",
         backup_hint=r"\\shop\cnc\backup",
@@ -32,7 +33,9 @@ def test_indexer_settings_roundtrip(tmp_path: Path):
     text = path.read_text(encoding="utf-8")
     assert "can_index:" not in text
     assert "ui_mode:" not in text
-    assert "schedule: 15m" in text or "schedule: '15m'" in text or 'schedule: "15m"' in text
+    assert "schedule:" not in text
+    assert "watch_safety: 15m" in text or "watch_safety: '15m'" in text or 'watch_safety: "15m"' in text
+    assert "watch_coalesce_s: 45" in text
     assert "watch_folders: true" in text
 
     loaded = load_indexer_settings(path)
@@ -41,7 +44,8 @@ def test_indexer_settings_roundtrip(tmp_path: Path):
     assert loaded.also_excel is True
     assert loaded.newest_only is True
     assert loaded.include_unknown is False
-    assert loaded.schedule == "15m"
+    assert loaded.watch_safety == "15m"
+    assert loaded.watch_coalesce_s == 45
     assert loaded.watch_folders is True
     assert loaded.watch_mode == "poll"
     assert loaded.backup_hint == r"\\shop\cnc\backup"
@@ -62,15 +66,33 @@ def test_ignores_can_index_in_file(tmp_path: Path):
     )
     loaded = load_indexer_settings(path)
     assert loaded is not None
-    assert loaded.schedule == "1h"
+    assert loaded.watch_safety == "1h"
+    assert loaded.watch_coalesce_s == 45
     assert loaded.watch_folders is True
-    # Round-trip must not write can_index
+    # Round-trip must not write can_index or legacy schedule
     out = tmp_path / "out.yaml"
     save_indexer_settings(out, loaded)
-    assert "can_index:" not in out.read_text(encoding="utf-8")
+    out_text = out.read_text(encoding="utf-8")
+    assert "can_index:" not in out_text
+    assert "schedule:" not in out_text
+    assert "watch_safety:" in out_text
 
 
 def test_path_for_target(tmp_path: Path):
     p = indexer_settings_path_for_target(tmp_path)
     assert p.name == INDEXER_SETTINGS_FILENAME
     assert p.parent == tmp_path
+
+
+def test_migrate_legacy_pack_schedule(tmp_path: Path):
+    path = tmp_path / INDEXER_SETTINGS_FILENAME
+    path.write_text("schedule: 30s\nwatch_folders: yes\n", encoding="utf-8")
+    loaded = load_indexer_settings(path)
+    assert loaded is not None
+    assert loaded.watch_coalesce_s == 30
+    assert loaded.watch_safety == "off"
+    path.write_text("schedule: 2h\nwatch_folders: no\n", encoding="utf-8")
+    loaded = load_indexer_settings(path)
+    assert loaded is not None
+    assert loaded.watch_coalesce_s == 45
+    assert loaded.watch_safety == "2h"

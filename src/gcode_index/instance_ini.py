@@ -32,7 +32,14 @@ from gcode_index.operator_lock import (
     is_settings_locked,
     settings_locked_from_ini_value,
 )
-from gcode_index.schedule import SCHEDULE_OFF, normalize_schedule
+from gcode_index.schedule import (
+    DEFAULT_WATCH_COALESCE_S,
+    SCHEDULE_OFF,
+    clamp_watch_coalesce_s,
+    migrate_legacy_schedule,
+    normalize_schedule,
+    normalize_watch_safety,
+)
 
 INSTANCE_INI_FILENAME = "gcode-index.ini"
 ENV_INI_PATH = "GCODE_INDEX_INI"
@@ -53,11 +60,17 @@ class InstanceConfig:
     ui_mode: str = "simple"  # legacy mirror of can_index (simple|full)
     can_index: bool = False  # primary capability: indexer PC vs floor client
     settings_locked: bool = False  # deploy lock: force retrieve-only / block dangerous flips
+    # Legacy [ui] schedule — kept for one-time migrate; runtime uses watch_* below.
     schedule: str = SCHEDULE_OFF
     schedule_last_run: str = ""
     incremental: bool = True
     watch_folders: bool = False
     watch_mode: str = DEFAULT_WATCH_MODE  # hybrid | poll
+    # Min. quiet between Watch-triggered scans (seconds); coalesce pending changes.
+    watch_coalesce_s: int = DEFAULT_WATCH_COALESCE_S
+    # Optional forced incremental while Watch is on: off | 15m | 1h | …
+    watch_safety: str = SCHEDULE_OFF
+    watch_safety_last_run: str = ""
     also_excel: bool = False
     newest_only: bool = False
     include_unknown: bool = True  # sticky: keep MACHINE UNKNOWN when filtering machines
@@ -344,6 +357,38 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         except ValueError:
             cfg.search_auto_refresh_s = 20
 
+    # Watch coalesce + safety: new keys, or one-time migrate from legacy [ui] schedule.
+    has_coalesce = parser.has_option("scan", "watch_coalesce_s") if parser.has_section("scan") else False
+    has_safety = parser.has_option("scan", "watch_safety") if parser.has_section("scan") else False
+    if has_coalesce or has_safety:
+        if has_coalesce:
+            cfg.watch_coalesce_s = clamp_watch_coalesce_s(
+                parser.get("scan", "watch_coalesce_s", fallback=str(DEFAULT_WATCH_COALESCE_S))
+            )
+        else:
+            cfg.watch_coalesce_s = DEFAULT_WATCH_COALESCE_S
+        if has_safety:
+            cfg.watch_safety = normalize_watch_safety(
+                parser.get("scan", "watch_safety", fallback=SCHEDULE_OFF)
+            )
+        else:
+            cfg.watch_safety = SCHEDULE_OFF
+        cfg.watch_safety_last_run = ""
+        if parser.has_section("scan"):
+            cfg.watch_safety_last_run = parser.get(
+                "scan", "watch_safety_last_run", fallback=""
+            ).strip()
+        if not cfg.watch_safety_last_run and cfg.watch_safety != SCHEDULE_OFF:
+            cfg.watch_safety_last_run = cfg.schedule_last_run
+    else:
+        coalesce_s, safety = migrate_legacy_schedule(cfg.schedule)
+        cfg.watch_coalesce_s = coalesce_s
+        cfg.watch_safety = safety
+        if safety != SCHEDULE_OFF and cfg.schedule_last_run:
+            cfg.watch_safety_last_run = cfg.schedule_last_run
+        else:
+            cfg.watch_safety_last_run = ""
+
     if parser.has_section("window"):
         geom = parser.get("window", "geometry", fallback=cfg.geometry).strip()
         if geom:
@@ -528,6 +573,15 @@ def save_instance_ini(
         watch_mode=normalize_watch_mode(
             str(kwargs.get("watch_mode", base.watch_mode) or DEFAULT_WATCH_MODE)
         ),
+        watch_coalesce_s=clamp_watch_coalesce_s(
+            kwargs.get("watch_coalesce_s", base.watch_coalesce_s)
+        ),
+        watch_safety=normalize_watch_safety(
+            str(kwargs.get("watch_safety", base.watch_safety) or SCHEDULE_OFF)
+        ),
+        watch_safety_last_run=str(
+            kwargs.get("watch_safety_last_run", base.watch_safety_last_run) or ""
+        ),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
         include_unknown=bool(kwargs.get("include_unknown", base.include_unknown)),
@@ -631,7 +685,7 @@ def save_instance_ini(
 
 [capabilities]
 ; Primary capability flag for this PC (not a runtime UI toggle).
-; yes = indexer: scan / map / watch / schedule / folder setup available
+; yes = indexer: scan / map / watch / folder setup available
 ; no  = floor client: search + preview + extract only (open DB / remap / extract folder)
 ; Legacy [ui] mode=simple|full still loads when this key is absent (simple→no, full→yes).
 can_index = {yn(data.can_index)}
@@ -669,11 +723,11 @@ language = {data.language}
 ; Legacy mirror of [capabilities] can_index (simple = no, full = yes).
 ; Prefer can_index above; this is kept so older tools still read the file.
 mode = {data.ui_mode}
-; Auto-index while the GUI stays open (indexer only): off | 30s | 15m | 2h | 1d
-; Legacy hourly/daily/weekly still load as 1h / 1d / 7d
-schedule = {data.schedule}
-; Last successful auto/manual index time (UTC ISO). Leave blank to force soon.
-schedule_last_run = {data.schedule_last_run}
+; Legacy Auto-index keys (pre-0.2.107). Runtime no longer uses them — Watch
+; coalesce + safety live under [scan]. Kept as off so old readers stay quiet.
+; On load, non-off values migrate once into watch_coalesce_s / watch_safety.
+schedule = off
+schedule_last_run = 
 
 [scan]
 ; yes/no — skip unchanged files when re-indexing (indexer)
@@ -685,6 +739,14 @@ watch_folders = {yn(data.watch_folders)}
 ;   poll   = stamp-poll everywhere (safe fallback)
 ; Accepted aliases: auto/hybryda → hybrid; safe/stamp → poll
 watch_mode = {data.watch_mode}
+; Min. quiet between Watch-triggered scans (seconds, floor 15, default 45).
+; Changes during the quiet window coalesce into one follow-up scan.
+watch_coalesce_s = {data.watch_coalesce_s}
+; Optional safety rescan while Watch is on: off | 15m | 1h | 1d
+; Forced incremental even if quiet (missed events / flaky UNC). Not the quiet timer.
+watch_safety = {data.watch_safety}
+; Last successful scan time used for safety countdown (UTC ISO). Blank = due soon.
+watch_safety_last_run = {data.watch_safety_last_run}
 ; yes/no — also write gcode_index.xlsx after a scan (indexer)
 also_excel = {yn(data.also_excel)}
 ; yes/no — default "newest only" filter on startup
@@ -806,8 +868,8 @@ preview_geometry = {data.preview_geometry}
 ;   extra_scan_roots.yaml      — mirror of green/yellow roots (INI is primary)
 ;   views.yaml                 — named find-bar views / presets (Save current…)
 ;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
-;   ui_settings.yaml           — schedule_last_run mirror (optional)
-;   indexer_settings.yaml      — shop scan/schedule/watch defaults (never can_index)
+;   ui_settings.yaml           — language / ui_mode mirror (optional)
+;   indexer_settings.yaml      — shop scan/watch/coalesce/safety defaults (never can_index)
 ;   scan_history.json          — scan run history
 ; Do NOT put can_index in the data pack — each PC opts in via local ini.
 ; Ustawienia wracają po restarcie — everything above + this ini is reloaded on start.

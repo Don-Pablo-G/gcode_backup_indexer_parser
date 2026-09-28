@@ -46,7 +46,7 @@ Entry points:
 
 ## Instance settings (``gcode-index.ini``)
 
-**Ustawienia wracają po restarcie.** The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening restores backup / database / extract / green & yellow scan roots / language / `can_index` / schedule / watch / desktop prefs / last find-bar filters / sort / layout — without re-setup.
+**Ustawienia wracają po restarcie.** The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening restores backup / database / extract / green & yellow scan roots / language / `can_index` / watch / quiet / safety / desktop prefs / last find-bar filters / sort / layout — without re-setup.
 
 - Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example) (every key commented, including `[filters]` / `[session]`)
 - Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
@@ -65,7 +65,7 @@ The GUI capability comes from **`gcode-index.ini`** next to the exe (not a runti
 
 | `can_index` | Who | What you see |
 |-------------|-----|----------------|
-| **no** (default / shop PCs) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, **Include unassigned** (locked ON), preview (+ find in preview), **Wydobądź** / Extract. Optional extract folder + path remap + auto-refresh. No scan / index / schedule / watch / map chrome. |
+| **no** (default / shop PCs) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, **Include unassigned** (locked ON), preview (+ find in preview), **Wydobądź** / Extract. Optional extract folder + path remap + auto-refresh. No scan / index / watch / quiet / safety / map chrome. |
 | **yes** (indexer PC) | Indexer | Two nav tabs — **Work / Praca** (search, results, preview) and **Index / Indeks** (folders, scan, map, watch Auto\|Poll, schedule + countdown, history, autostart/tray, report/duplicates/Excel). |
 
 Deploy lock: `settings_locked=yes` or empty `operator.lock` / `can_index.lock` beside the ini forces retrieve-only. Legacy `[ui] mode=simple|full` still loads when `can_index` is absent (`simple`→`no`, `full`→`yes`). See `gcode-index.ini.example` for every setting commented.
@@ -97,7 +97,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
 6. Click **Folder names…** (optional but recommended) — the **name-binding hub**. Frequency list with **chips** (machine / function / recipient). Right-click a row → create from this name or add an alias to an existing entry (label/alias prefilled). Catalogue dialogs stay for maintenance. Writes `aliases.local.yaml` / exact `folder_colour_aliases` / `odbiorcy.yaml`.
    - First scan prompts when unmatched date/machine folders remain.
    - **Machines & aliases…** opens a **machine list**: select a machine to edit its folder aliases (and label / control / layout). **Add machine** / **Remove machine** manage shop-local machines. Bundled spellings are read-only; add a local spelling to customize. Bundled `aliases.yaml` stays read-only.
-7. Click **Run index / scan** on the right of the Indeks bar (optional Excel export; optional **Incremental**; optional **Auto-index** schedule with live countdown).
+7. Click **Run index / scan** on the right of the Indeks bar (optional Excel export; optional **Incremental**; optional Watch quiet coalesce + safety rescan).
    **Watch folders** — method **Auto** (OS events on local disks, stamp-poll on UNC/network) or **Poll only**. One PC holds `gcode_index.lock`.
    **Scan history…** lists recent runs from `scan_history.json` (added/updated/removed/unchanged).
    Windows: **Start at Windows logon**, **Close to tray** / **Minimize to tray**.

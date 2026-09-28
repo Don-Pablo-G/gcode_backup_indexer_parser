@@ -15,7 +15,7 @@ With `can_index=yes` the GUI can:
 
 - Scan backup trees and write / update `gcode_index.sqlite`
 - Add **green** (on-machine) and **yellow** (extra) scan roots
-- Run **auto-index** on a schedule while the GUI stays open
+- Watch folders with min. quiet coalesce and optional safety rescan while the GUI stays open
 - Map odd folder names to machines and edit **local aliases**
 - Use advanced filters, saved views, compare, scan report / index quality, duplicates
 - Optionally write Excel after a scan
@@ -115,15 +115,18 @@ Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / ex
 3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch / tray), and **Reports…**.
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**). From the report (or **Reports…**), **Unassigned header tokens…** lists frequent O-line comment tokens that still have no machine / function / recipient alias — right-click assign like **Folder names**. Excludes program numbers and tokens with more than 4 digit characters. Cache: `header_token_freq.json` beside the DB; a **full rescan** refreshes the list so taught tokens drop out.
 
-### Auto-index
-
-Set **Auto-index**: amount + unit (seconds / minutes / hours / days), e.g. 15 minutes. While the GUI stays open, due scans run automatically. Floor clients (`can_index=no`) never run this.
-
-A live **countdown** to the next run appears beside it (`In m:ss` / `h:mm:ss`, refreshing every second). Changing amount or unit **restarts** the timer immediately. While a scan runs, status shows **Auto-indexing…**.
-
 ### Watch folders
 
-Tick **Watch folders** to watch the backup tree and extra (green/yellow) roots. When new or changed indexable files appear, the app waits a short debounce, then runs an **incremental** scan (no full rebuild).
+Tick **Watch folders** to watch the backup tree and extra (green/yellow) roots. When new or changed indexable files appear, the app waits a short debounce (3 s), then runs an **incremental** scan (no full rebuild). Stamp-poll stays at 5 s.
+
+While Watch is on you also get:
+
+- **Min. quiet between scans** (default **45 s**, floor 15 s) — after a Watch-triggered scan *starts*, further change signals coalesce: at most one follow-up scan when the quiet window ends. Busy dumps produce one scan per quiet window, not one per debounce burst.
+- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Successful scans reset the safety countdown.
+
+Settings: `[scan] watch_coalesce_s`, `watch_safety`, `watch_safety_last_run` in `gcode-index.ini`. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
+
+Floor clients (`can_index=no`) never see Watch. Automatic scans require Watch on (and take `gcode_index.lock`).
 
 Next to the checkbox, choose the watch **method** (segmented control):
 
@@ -187,7 +190,7 @@ Practical routine to **build and keep** the index healthy. Each successful scan 
 | Use **Incremental** (default; leave checked) | Use **Full** (uncheck Incremental) |
 |----------------------------------------------|------------------------------------|
 | Day-to-day new backups / new folders under known roots | After machine map or machine-alias edits that should reassign **old** files |
-| Watch / schedule (always force incremental) | After **removing** function-colour aliases (clear stale roles) |
+| Watch / quiet / safety (always force incremental) | After **removing** function-colour aliases (clear stale roles) |
 | Fast catch-up when most files are unchanged | After turning **O9 → system programs** off (or cleaning legacy O9 tags) |
 | First scan after adding a root (new files miss cache anyway) | After a major tree reorganisation you do not trust cache for |
 | | Once after upgrading if you need fresh `program_sha256` / duplicate hygiene on old rows |
@@ -199,9 +202,9 @@ Rule of thumb: **Incremental keeps the catalog current with the disk. Full rebui
 ### Daily (indexer PC)
 
 1. Keep **one** indexer owning the share (`gcode_index.lock` / Watch). Floor PCs stay `can_index=no`.
-2. Prefer **Watch** and/or a modest **Auto-index** schedule so new dumps enter the DB without babysitting (both run incremental).
+2. Prefer **Watch** (with quiet coalesce; optional safety rescan) so new dumps enter the DB without babysitting.
 3. Before expecting Haas NGC rows: confirm UMC / ST-20Y zips were **unzipped** under the date/machine folder (scanner ignores `.zip`).
-4. Glance at the Indeks status line (last schedule / watch) and any **missing source** count after a search.
+4. Glance at the Indeks status line (Watch / quiet / safety) and any **missing source** count after a search.
 
 ### Weekly (or after a busy backup week)
 
@@ -214,7 +217,7 @@ Rule of thumb: **Incremental keeps the catalog current with the disk. Full rebui
 
 | Change | Next action |
 |--------|-------------|
-| New files only / new subfolder under an existing root | Incremental (Watch / schedule / manual) |
+| New files only / new subfolder under an existing root | Incremental (Watch / safety / manual) |
 | Machine folders map or machine aliases for **already indexed** paths | Full rescan |
 | Removed function-colour rules (or want roles rebuilt clean) | Full rescan |
 | Added colour / tree / O9 rules that still match paths | Incremental usually enough |
@@ -235,7 +238,7 @@ Treat the **database folder** as one kit. Share the **whole folder**, not sqlite
 | `aliases.local.yaml`, `machine_folders.yaml` | Machine teaching for the next scan |
 | `odbiorcy.yaml` | Recipient catalogue |
 | `extra_scan_roots.yaml` | Green/yellow roots |
-| `indexer_settings.yaml` | Shop scan/watch/schedule **defaults** (never forces `can_index`) |
+| `indexer_settings.yaml` | Shop scan/watch/quiet/safety **defaults** (never forces `can_index`) |
 
 Optional: `scan_history.json`, `ui_settings.yaml`, `views.yaml`, `gcode_index.xlsx`.
 
@@ -266,11 +269,11 @@ When locked, `can_index` is forced to **no** even if the ini says yes. Remove th
 
 ## Auto-refresh search (clients after incremental index)
 
-Tick **Auto-refresh results** / **Odświeżaj wyniki** to **re-run the current search** when `gcode_index.sqlite` changes (mtime poll, default ~20 s). Useful on floor clients that open a **network** copy of the DB while the indexer runs Watch / scheduled incremental scans: new rows appear without clearing filters or reopening the file. Saved as `search_auto_refresh` / `search_auto_refresh_s` in the ini. Without it, operators click Search again after the indexer finishes.
+Tick **Auto-refresh results** / **Odświeżaj wyniki** to **re-run the current search** when `gcode_index.sqlite` changes (mtime poll, default ~20 s). Useful on floor clients that open a **network** copy of the DB while the indexer runs Watch / safety incremental scans: new rows appear without clearing filters or reopening the file. Saved as `search_auto_refresh` / `search_auto_refresh_s` in the ini. Without it, operators click Search again after the indexer finishes.
 
 ## Instance settings
 
-**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, desktop prefs, window size, path remap, **last find-bar filters**, sort column, and Praca/Indeks layout. Next to the DB: `indexer_settings.yaml` — **shared shop defaults** for scan / schedule / watch (data pack; does **not** force `can_index`). The indexer updates this file when those toggles change.
+**Ustawienia wracają po restarcie** / settings survive restart: `gcode-index.ini` next to the exe remembers folders, greens/yellows, **`can_index`**, language, desktop prefs, window size, path remap, **last find-bar filters**, sort column, and Praca/Indeks layout. Next to the DB: `indexer_settings.yaml` — **shared shop defaults** for scan / watch / quiet / safety (data pack; does **not** force `can_index`). The indexer updates this file when those toggles change.
 
 **Prepare indexer…** (Tools / Index): confirm backup and extract paths plus remap, apply pack defaults, set `can_index=yes`, optionally enable watch. Floor clients stay on `can_index=no` (plus optional `operator.lock`).  
 

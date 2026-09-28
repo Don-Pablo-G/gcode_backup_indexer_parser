@@ -55,14 +55,28 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_unit_minutes": "minuty",
         "schedule_unit_hours": "godziny",
         "schedule_unit_days": "dni",
-        
         "schedule_next": "Następny: {when}",
         "schedule_countdown": "Za {countdown}",
         "schedule_due_now": "Teraz…",
         "schedule_idle": "Auto-indeks wyłączony",
-        "schedule_running": "Auto-indeks w toku…",
+        "schedule_running": "Skan automatyczny…",
         "schedule_last": "Ostatni auto-indeks: {when}",
         "watch_folders": "Obserwuj foldery",
+        "watch_coalesce": "Min. przerwa między skanami:",
+        "watch_coalesce_unit": "sekund",
+        "watch_coalesce_hint": (
+            "Po skanie Watch czeka co najmniej tyle, zanim uruchomi kolejny "
+            "(zmiany w tym czasie łączą się w jeden skan)."
+        ),
+        "watch_safety": "Skan bezpieczeństwa co:",
+        "watch_safety_hint": (
+            "Wymuszony skan przyrostowy nawet bez zmian — na wypadek "
+            "pominiętych zdarzeń / wolnego UNC. To nie jest min. przerwa."
+        ),
+        "watch_status_quiet": "przerwa {seconds} s",
+        "watch_status_safety_off": "bezpieczeństwo wył.",
+        "watch_status_safety_on": "bezpieczeństwo {interval}",
+        "watch_status_safety_due": "bezpieczeństwo za {countdown}",
         "watch_mode": "Metoda",
         "watch_mode_hybrid": "Auto",
         "watch_mode_poll": "Tylko poll",
@@ -71,6 +85,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "watch_locked": "Obserwacja zablokowana: {holder}",
         "watch_need_folders": "Ustaw folder kopii i folder bazy, aby obserwować.",
         "watch_trigger": "Wykryto zmianę — indeks przyrostowy…",
+        "watch_safety_trigger": "Skan bezpieczeństwa — indeks przyrostowy…",
+        "watch_coalesce_pending": "Zmiany oczekują na min. przerwę…",
         "run_scan": "Uruchom skan",
         "map_folders": "Nazwy folderów…",
         "map_tree": "Mapuj drzewo…",
@@ -413,11 +429,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "indeks_win_reports_title": "Raporty indeksu",
         "indeks_win_reports_intro": "Jakość indeksu, raport skanu, nieprzypisane tokeny nagłówka, historia i duplikaty.",
         "prepare_indexer_title": "Przygotuj indeksator",
-        "prepare_indexer_intro": "Ostatni krok na PC, który będzie indeksował i nasłuchiwał. Potwierdź ścieżki widziane z tego komputera, zastosuj domyślne ustawienia pakietu (harmonogram / obserwacja), włącz can_index i opcjonalnie obserwację folderów.",
+        "prepare_indexer_intro": "Ostatni krok na PC, który będzie indeksował i nasłuchiwał. Potwierdź ścieżki widziane z tego komputera, zastosuj domyślne ustawienia pakietu (przerwa / bezpieczeństwo / obserwacja), włącz can_index i opcjonalnie obserwację folderów.",
         "prepare_indexer_apply": "Ustaw jako indeksator",
         "prepare_indexer_apply_pack": "Zastosuj domyślne ustawienia z pakietu (indexer_settings.yaml)",
         "prepare_indexer_no_pack": "Brak indexer_settings.yaml w folderze bazy — użyte zostaną bieżące przełączniki",
-        "prepare_indexer_pack_summary": "Pakiet: harmonogram={schedule}, obserwacja={watch}, metoda={mode}",
+        "prepare_indexer_pack_summary": "Pakiet: przerwa={coalesce} s, bezpieczeństwo={safety}, obserwacja={watch}, metoda={mode}",
         "prepare_indexer_enable_watch": "Włącz obserwację folderów po zatwierdzeniu",
         "prepare_indexer_can_index_note": "Ta instalacja dostanie can_index=yes w lokalnym gcode-index.ini (obok exe). Pakiet danych nie wymusza can_index.",
         "prepare_indexer_floor_hint": "Komputery na hali: can_index=no oraz opcjonalnie pusty operator.lock (lub settings_locked=yes) obok ich ini — żeby nikt nie włączył indeksatora edycją pliku. Razem z bazą zawsze dawaj folder_colour_aliases.yaml (kolory Flagi).",
@@ -720,14 +736,28 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_unit_minutes": "minutes",
         "schedule_unit_hours": "hours",
         "schedule_unit_days": "days",
-        
         "schedule_next": "Next: {when}",
         "schedule_countdown": "In {countdown}",
         "schedule_due_now": "Due now…",
         "schedule_idle": "Auto-index off",
-        "schedule_running": "Auto-indexing…",
+        "schedule_running": "Automatic scan…",
         "schedule_last": "Last auto-index: {when}",
         "watch_folders": "Watch folders",
+        "watch_coalesce": "Min. quiet between scans:",
+        "watch_coalesce_unit": "seconds",
+        "watch_coalesce_hint": (
+            "After a Watch scan, wait at least this long before another "
+            "(changes in between coalesce into one scan)."
+        ),
+        "watch_safety": "Safety rescan every:",
+        "watch_safety_hint": (
+            "Forced incremental even if quiet — missed events / flaky UNC. "
+            "This is not the quiet timer."
+        ),
+        "watch_status_quiet": "quiet {seconds} s",
+        "watch_status_safety_off": "safety off",
+        "watch_status_safety_on": "safety {interval}",
+        "watch_status_safety_due": "safety in {countdown}",
         "watch_mode": "Method",
         "watch_mode_hybrid": "Auto",
         "watch_mode_poll": "Poll only",
@@ -736,6 +766,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "watch_locked": "Watch locked: {holder}",
         "watch_need_folders": "Set backup and database folders to enable watch.",
         "watch_trigger": "Change detected — incremental index…",
+        "watch_safety_trigger": "Safety rescan — incremental index…",
+        "watch_coalesce_pending": "Changes waiting for min. quiet…",
         "run_scan": "Run scan",
         "map_folders": "Folder names…",
         "map_tree": "Map tree…",
@@ -1078,11 +1110,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "indeks_win_reports_title": "Index reports",
         "indeks_win_reports_intro": "Index quality, scan report, unassigned header tokens, history, and duplicates.",
         "prepare_indexer_title": "Prepare indexer",
-        "prepare_indexer_intro": "Last step on the PC that will index and listen. Confirm paths as this computer sees them, apply pack defaults (schedule / watch), set can_index, and optionally enable folder watch.",
+        "prepare_indexer_intro": "Last step on the PC that will index and listen. Confirm paths as this computer sees them, apply pack defaults (quiet / safety / watch), set can_index, and optionally enable folder watch.",
         "prepare_indexer_apply": "Make this the indexer",
         "prepare_indexer_apply_pack": "Apply pack defaults (indexer_settings.yaml)",
         "prepare_indexer_no_pack": "No indexer_settings.yaml in the database folder — current toggles will be kept",
-        "prepare_indexer_pack_summary": "Pack: schedule={schedule}, watch={watch}, mode={mode}",
+        "prepare_indexer_pack_summary": "Pack: quiet={coalesce} s, safety={safety}, watch={watch}, mode={mode}",
         "prepare_indexer_enable_watch": "Enable folder watch after confirm",
         "prepare_indexer_can_index_note": "This install gets can_index=yes in local gcode-index.ini (next to the exe). The data pack never forces can_index.",
         "prepare_indexer_floor_hint": "Floor PCs: can_index=no plus optional empty operator.lock (or settings_locked=yes) next to their ini — so nobody elevates to indexer by editing the file. Always ship folder_colour_aliases.yaml with the DB (Flag colours).",
@@ -1377,7 +1409,7 @@ def ui_settings_path_for_target(target: Path | str) -> Path:
     return Path(target) / UI_SETTINGS_FILENAME
 
 def load_ui_settings(path: Path | str | None = None) -> dict[str, str]:
-    """Return language / ui_mode / schedule settings with defaults."""
+    """Return language / ui_mode settings (legacy schedule keys still read for migrate)."""
     out = {
         "language": DEFAULT_LANG,
         "ui_mode": DEFAULT_UI_MODE,
@@ -1411,33 +1443,28 @@ def save_ui_settings(
     schedule: Optional[str] = None,
     schedule_last_run: Optional[str] = None,
 ) -> Path:
-    """Write UI settings, merging with any existing file values."""
+    """Write UI settings, merging with any existing file values.
+
+    Legacy ``schedule`` / ``schedule_last_run`` are no longer written for runtime;
+    they stay readable on load for one-time migrate into Watch safety.
+    """
     p = Path(path)
     existing = load_ui_settings(p if p.is_file() else None)
-    from gcode_index.schedule import normalize_schedule
 
     lang = normalize_lang(language if language is not None else existing["language"])
     mode = normalize_ui_mode(ui_mode if ui_mode is not None else existing["ui_mode"])
-    sched = normalize_schedule(
-        schedule if schedule is not None else existing.get("schedule") or "off"
-    )
-    last = (
-        schedule_last_run
-        if schedule_last_run is not None
-        else existing.get("schedule_last_run") or ""
-    )
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "language": lang,
         "ui_mode": mode,
-        "schedule": sched,
-        "schedule_last_run": last,
         "_comment": (
             "GUI settings for G-code Backup Indexer "
-            "(language: pl default; ui_mode: simple|full; "
-            "schedule: off|15m|2h|1d|30s)."
+            "(language: pl default; ui_mode: simple|full). "
+            "Watch coalesce/safety live in gcode-index.ini [scan]."
         ),
     }
+    # Accept kwargs for call-site compatibility but do not persist schedule.
+    _ = schedule, schedule_last_run
     with p.open("w", encoding="utf-8") as f:
         yaml.safe_dump(payload, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
     return p

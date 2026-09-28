@@ -183,16 +183,18 @@ from gcode_index.presets import (
     upsert_preset,
 )
 from gcode_index.schedule import (
+    DEFAULT_WATCH_COALESCE_S,
+    DEFAULT_WATCH_SAFETY_WHEN_ENABLED,
     SCHEDULE_OFF,
-    UNIT_DAYS,
     UNIT_HOURS,
     UNIT_MINUTES,
     UNIT_SECONDS,
+    clamp_watch_coalesce_s,
     format_countdown,
     format_iso_datetime,
     format_schedule,
     is_schedule_due,
-    normalize_schedule,
+    normalize_watch_safety,
     parse_iso_datetime,
     parse_schedule,
     schedule_poll_ms,
@@ -367,10 +369,10 @@ class IndexerApp(tk.Tk):
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self._colour_catalog = ColourCatalog()
-        self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
-        self.schedule_amount_var = tk.StringVar(value="1")
-        self.schedule_unit_var = tk.StringVar(value="")
-        self.schedule_status_var = tk.StringVar(value="")
+        self.watch_coalesce_var = tk.StringVar(value=str(DEFAULT_WATCH_COALESCE_S))
+        self.watch_safety_enabled_var = tk.BooleanVar(value=False)
+        self.watch_safety_amount_var = tk.StringVar(value="1")
+        self.watch_safety_unit_var = tk.StringVar(value="")
         self.watch_status_var = tk.StringVar(value="")
         self.watch_strip_var = tk.StringVar(value="")
         self.indeks_status_var = tk.StringVar(value="")
@@ -398,8 +400,10 @@ class IndexerApp(tk.Tk):
         self._col_fill_after_id: Optional[str] = None
         self._pelny_view = "praca"
         self._search_after_id: Optional[str] = None
-        self._schedule_after_id: Optional[str] = None
-        self._schedule_amount_debounce_id: Optional[str] = None
+        self._safety_after_id: Optional[str] = None
+        self._coalesce_after_id: Optional[str] = None
+        self._coalesce_amount_debounce_id: Optional[str] = None
+        self._safety_amount_debounce_id: Optional[str] = None
         self._result_rows: list = []
         self._missing_source_count: int = 0
         self._flag_tip_after_id: Optional[str] = None
@@ -412,9 +416,15 @@ class IndexerApp(tk.Tk):
         self._heading_labels: dict[str, str] = {}
         self._scan_busy = False
         self._watch_rescan_pending = False
+        self._watch_safety_pending = False
+        self._watch_quiet_until: Optional[float] = None  # time.monotonic deadline
         self._folder_watcher: Optional[FolderWatcher] = None
         self._watch_enabled = False
         self._watch_mode = DEFAULT_WATCH_MODE
+        self._watch_coalesce_s = DEFAULT_WATCH_COALESCE_S
+        self._watch_safety = SCHEDULE_OFF
+        self._watch_safety_last_run: Optional[str] = None
+        self._watch_opts_widgets: list = []
         self._tray: Optional[TrayController] = None
         self._tray_hidden = False
         self._iconify_guard = False
@@ -437,8 +447,6 @@ class IndexerApp(tk.Tk):
         self._auto_refresh_after_id: Optional[str] = None
         self._db_mtime_seen: Optional[float] = None
         self._hidden_root_specs: list[ScanRootSpec] = []
-        self._schedule = SCHEDULE_OFF
-        self._schedule_last_run: Optional[str] = None
         self._machine_sel: set[str] = set()
         self._folders_expanded = True
         self._more_filters_open = False
@@ -460,7 +468,7 @@ class IndexerApp(tk.Tk):
         # Only auto-collapse when session did not pin folders_expanded
         if getattr(self, "_session_pinned_folders", False) is not True:
             self._maybe_auto_collapse_folders()
-        self._arm_schedule_timer()
+        self._arm_safety_timer()
         self._sync_folder_watch(initial=True)
         self._arm_search_auto_refresh()
         if self._folders_ready():
@@ -528,9 +536,10 @@ class IndexerApp(tk.Tk):
         )
         self._can_index = bool(cfg.can_index) and not self._settings_locked
         self.lang_var.set(self._lang)
-        self._schedule = normalize_schedule(cfg.schedule)
-        self._schedule_last_run = cfg.schedule_last_run or None
-        self._sync_schedule_widgets()
+        self._watch_coalesce_s = clamp_watch_coalesce_s(cfg.watch_coalesce_s)
+        self._watch_safety = normalize_watch_safety(cfg.watch_safety)
+        self._watch_safety_last_run = cfg.watch_safety_last_run or None
+        self._sync_watch_quiet_widgets()
         self.backup_var.set(cfg.backup or "")
         self.target_var.set(cfg.target or "")
         self.extract_var.set(cfg.extract or "")
@@ -590,12 +599,16 @@ class IndexerApp(tk.Tk):
                 disk_roots = list(load_scan_roots(roots_path))
                 if disk_roots:
                     self._hidden_root_specs = disk_roots
-        # Keep schedule_last_run from target ui_settings only when INI left it blank
+        # Seed safety last-run from legacy ui_settings schedule_last_run when blank
         if target:
             settings = load_ui_settings(ui_settings_path_for_target(target))
-            if not self._schedule_last_run and settings.get("schedule_last_run"):
-                self._schedule_last_run = settings["schedule_last_run"]
-            # Shop pack defaults (scan/schedule/watch) — never can_index
+            if (
+                not self._watch_safety_last_run
+                and self._watch_safety != SCHEDULE_OFF
+                and settings.get("schedule_last_run")
+            ):
+                self._watch_safety_last_run = settings["schedule_last_run"]
+            # Shop pack defaults (scan/watch/coalesce/safety) — never can_index
             self._apply_indexer_settings_from_target(target, persist_local=False)
         # Stash session/filters for apply after widgets exist
         self._pending_session_cfg = cfg
@@ -741,11 +754,14 @@ class IndexerApp(tk.Tk):
             ui_mode=ui_mode_from_can_index(
                 False if self._settings_locked else self._can_index
             ),
-            schedule=self._schedule,
-            schedule_last_run=self._schedule_last_run or "",
+            schedule=SCHEDULE_OFF,
+            schedule_last_run="",
             incremental=bool(self.incremental_var.get()),
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_coalesce_s=self._watch_coalesce_s,
+            watch_safety=self._watch_safety,
+            watch_safety_last_run=self._watch_safety_last_run or "",
             also_excel=bool(self.excel_var.get()),
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
             role_from_header=bool(self.role_from_header_var.get()),
@@ -1029,9 +1045,10 @@ class IndexerApp(tk.Tk):
             also_excel=bool(self.excel_var.get()),
             newest_only=bool(self.newest_only_var.get()),
             include_unknown=self._effective_include_unknown(),
-            schedule=self._schedule,
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_coalesce_s=self._watch_coalesce_s,
+            watch_safety=self._watch_safety,
             backup_hint=self.backup_var.get().strip(),
             green_root_hints=greens,
             yellow_root_hints=yellows,
@@ -1076,7 +1093,8 @@ class IndexerApp(tk.Tk):
             self.newest_only_var.set(bool(settings.newest_only))
             if not (self._is_simple() or self._settings_locked):
                 self.include_unknown_var.set(bool(settings.include_unknown))
-            self._set_schedule(settings.schedule, persist=False)
+            self._set_watch_coalesce_s(settings.watch_coalesce_s, persist=False)
+            self._set_watch_safety(settings.watch_safety, persist=False)
             self.watch_var.set(bool(settings.watch_folders))
             self._watch_enabled = bool(settings.watch_folders) and not self._is_simple()
             self._set_watch_mode(settings.watch_mode, persist=False)
@@ -1137,7 +1155,7 @@ class IndexerApp(tk.Tk):
         else:
             self._sync_include_unknown_widget()
             self._update_folders_summary()
-        self._arm_schedule_timer()
+        self._arm_safety_timer()
         self._sync_folder_watch()
         self.status_var.set(self._("prepare_indexer_done"))
         messagebox.showinfo(
@@ -1503,7 +1521,8 @@ class IndexerApp(tk.Tk):
             "roots": list(self._scan_root_specs()),
             "folders_expanded": bool(self._folders_expanded),
             "more_filters": bool(self._more_filters_open),
-            "schedule": self._schedule,
+            "watch_coalesce_s": self._watch_coalesce_s,
+            "watch_safety": self._watch_safety,
             "sort_col": self._sort_col,
             "sort_reverse": bool(self._sort_reverse),
             "pelny_view": getattr(self, "_pelny_view", "praca"),
@@ -1524,8 +1543,6 @@ class IndexerApp(tk.Tk):
                     ui_settings_path_for_target(dest),
                     language=self._lang,
                     ui_mode=ui_mode_from_can_index(self._can_index),
-                    schedule=self._schedule,
-                    schedule_last_run=self._schedule_last_run or "",
                 )
             except OSError:
                 log.exception("save ui settings failed")
@@ -1613,7 +1630,10 @@ class IndexerApp(tk.Tk):
             "_geometry_save_after_id",
             "_colour_load_after_id",
             "_indexer_settings_load_after_id",
-            "_schedule_amount_debounce_id",
+            "_coalesce_amount_debounce_id",
+            "_safety_amount_debounce_id",
+            "_coalesce_after_id",
+            "_safety_after_id",
             "_auto_refresh_after_id",
             "_nav_unlock_after_id",
         ):
@@ -1790,9 +1810,14 @@ class IndexerApp(tk.Tk):
                     for r in roots
                 ]
                 self._fill_extra_list(self._hidden_root_specs)
-                if preserved.get("schedule") is not None:
-                    self._set_schedule(
-                        str(preserved.get("schedule") or SCHEDULE_OFF), persist=False
+                if preserved.get("watch_coalesce_s") is not None:
+                    self._set_watch_coalesce_s(
+                        preserved.get("watch_coalesce_s"), persist=False
+                    )
+                if preserved.get("watch_safety") is not None:
+                    self._set_watch_safety(
+                        str(preserved.get("watch_safety") or SCHEDULE_OFF),
+                        persist=False,
                     )
         finally:
             self._filter_trace_lock = False
@@ -2532,24 +2557,25 @@ class IndexerApp(tk.Tk):
             style="Muted.TLabel",
             wraplength=900,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self._update_schedule_status()
         self._update_watch_status()
         self._refresh_watch_strip()
         self._refresh_indeks_status_line()
 
     def _refresh_indeks_status_line(self) -> None:
-        """Combine schedule + watch into one muted Indeks status line."""
+        """Watch + quiet/safety summary on the muted Indeks status line."""
         if not hasattr(self, "indeks_status_var"):
             return
-        sched = (self.schedule_status_var.get() or "").strip()
         watch = (self.watch_status_var.get() or "").strip()
         strip = (self.watch_strip_var.get() or "").strip()
         idle_strip = self._("watch_strip_idle")
         bits: list[str] = []
-        if sched:
-            bits.append(f"{self._('schedule')}: {sched}")
         if watch:
-            bits.append(f"{self._('watch_folders')}: {watch}")
+            bits.append(watch)
+            if self._watch_enabled and not self._is_simple():
+                bits.append(
+                    self._("watch_status_quiet", seconds=self._watch_coalesce_s)
+                )
+                bits.append(self._watch_safety_status_bit())
         if strip and strip != idle_strip:
             bits.append(strip)
         self.indeks_status_var.set(" · ".join(bits) if bits else "")
@@ -2635,34 +2661,7 @@ class IndexerApp(tk.Tk):
         )
         body, foot = shell.body, shell.footer
 
-        # Schedule
-        sched_box = ttk.LabelFrame(body, text=self._("schedule"), padding=8)
-        sched_box.pack(fill=tk.X, pady=(0, 8))
-        sched = ttk.Frame(sched_box)
-        sched.pack(fill=tk.X)
-        self._sync_schedule_widgets()
-        amount_entry = ttk.Entry(
-            sched, textvariable=self.schedule_amount_var, width=5
-        )
-        amount_entry.pack(side=tk.LEFT)
-        amount_entry.bind("<FocusOut>", self._on_schedule_widgets_changed)
-        amount_entry.bind("<Return>", self._on_schedule_widgets_changed)
-        amount_entry.bind("<KeyRelease>", self._on_schedule_amount_typed)
-        unit_combo = ttk.Combobox(
-            sched,
-            textvariable=self.schedule_unit_var,
-            values=self._schedule_unit_labels(),
-            state="readonly",
-            width=10,
-        )
-        unit_combo.pack(side=tk.LEFT, padx=(4, 0))
-        unit_combo.bind("<<ComboboxSelected>>", self._on_schedule_widgets_changed)
-        ttk.Label(
-            sched, textvariable=self.schedule_status_var, style="Muted.TLabel"
-        ).pack(side=tk.LEFT, padx=(8, 0))
-        self._update_schedule_status()
-
-        # Watch
+        # Watch (coalesce + optional safety live under Watch when on)
         watch_box = ttk.LabelFrame(body, text=self._("watch_folders"), padding=8)
         watch_box.pack(fill=tk.X, pady=(0, 8))
         watch_row = ttk.Frame(watch_box)
@@ -2678,6 +2677,76 @@ class IndexerApp(tk.Tk):
             watch_row, textvariable=self.watch_status_var, style="Muted.TLabel"
         ).pack(side=tk.LEFT, padx=(8, 0))
         self._update_watch_status()
+
+        self._watch_opts_widgets = []
+        coalesce_row = ttk.Frame(watch_box)
+        coalesce_row.pack(fill=tk.X, pady=(8, 0))
+        coalesce_lbl = ttk.Label(coalesce_row, text=self._("watch_coalesce"))
+        coalesce_lbl.pack(side=tk.LEFT)
+        self._sync_watch_quiet_widgets()
+        coalesce_entry = ttk.Entry(
+            coalesce_row, textvariable=self.watch_coalesce_var, width=5
+        )
+        coalesce_entry.pack(side=tk.LEFT, padx=(4, 0))
+        coalesce_entry.bind("<FocusOut>", self._on_watch_coalesce_changed)
+        coalesce_entry.bind("<Return>", self._on_watch_coalesce_changed)
+        coalesce_entry.bind("<KeyRelease>", self._on_watch_coalesce_typed)
+        coalesce_unit = ttk.Label(
+            coalesce_row, text=self._("watch_coalesce_unit"), style="Muted.TLabel"
+        )
+        coalesce_unit.pack(side=tk.LEFT, padx=(4, 0))
+        coalesce_hint = ttk.Label(
+            watch_box,
+            text=self._("watch_coalesce_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        )
+        coalesce_hint.pack(anchor=tk.W, pady=(2, 0))
+
+        safety_row = ttk.Frame(watch_box)
+        safety_row.pack(fill=tk.X, pady=(8, 0))
+        safety_chk = ttk.Checkbutton(
+            safety_row,
+            text=self._("watch_safety"),
+            variable=self.watch_safety_enabled_var,
+            command=self._on_watch_safety_widgets_changed,
+        )
+        safety_chk.pack(side=tk.LEFT)
+        safety_amount = ttk.Entry(
+            safety_row, textvariable=self.watch_safety_amount_var, width=5
+        )
+        safety_amount.pack(side=tk.LEFT, padx=(4, 0))
+        safety_amount.bind("<FocusOut>", self._on_watch_safety_widgets_changed)
+        safety_amount.bind("<Return>", self._on_watch_safety_widgets_changed)
+        safety_amount.bind("<KeyRelease>", self._on_watch_safety_amount_typed)
+        safety_unit = ttk.Combobox(
+            safety_row,
+            textvariable=self.watch_safety_unit_var,
+            values=self._safety_unit_labels(),
+            state="readonly",
+            width=10,
+        )
+        safety_unit.pack(side=tk.LEFT, padx=(4, 0))
+        safety_unit.bind("<<ComboboxSelected>>", self._on_watch_safety_widgets_changed)
+        safety_hint = ttk.Label(
+            watch_box,
+            text=self._("watch_safety_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        )
+        safety_hint.pack(anchor=tk.W, pady=(2, 0))
+        self._watch_opts_widgets = [
+            coalesce_lbl,
+            coalesce_entry,
+            coalesce_unit,
+            coalesce_hint,
+            safety_chk,
+            safety_amount,
+            safety_unit,
+            safety_hint,
+        ]
+        self._set_watch_opts_enabled(bool(self.watch_var.get()))
+
         strip_row = ttk.Frame(watch_box)
         strip_row.pack(fill=tk.X, pady=(4, 0))
         ttk.Label(
@@ -3725,10 +3794,14 @@ class IndexerApp(tk.Tk):
                 self._persist_extra_roots()
             self._refresh_preset_combo()
             self._update_folders_summary()
-            # INI is primary for language/schedule; YAML only fills blank last-run.
+            # INI is primary; legacy ui_settings may seed safety last-run once.
             settings = load_ui_settings(ui_settings_path_for_target(path))
-            if not self._schedule_last_run and settings.get("schedule_last_run"):
-                self._schedule_last_run = settings.get("schedule_last_run") or None
+            if (
+                not self._watch_safety_last_run
+                and self._watch_safety != SCHEDULE_OFF
+                and settings.get("schedule_last_run")
+            ):
+                self._watch_safety_last_run = settings.get("schedule_last_run") or None
             self._load_colour_catalog()
             self._apply_indexer_settings_from_target(path, persist_local=True)
             self._save_instance_ini()
@@ -3772,7 +3845,7 @@ class IndexerApp(tk.Tk):
         self._save_instance_ini()
         self._persist_indexer_settings()
         self._sync_folder_watch()
-        self._arm_schedule_timer()
+        self._arm_safety_timer()
 
     def _scan_root_specs(self) -> list[ScanRootSpec]:
         if hasattr(self, "extra_list"):
@@ -3892,13 +3965,10 @@ class IndexerApp(tk.Tk):
         self._persist_extra_roots()
         self._sync_folder_watch()
 
-    def _schedule_unit_labels(self) -> list[str]:
+    def _safety_unit_labels(self) -> list[str]:
         return [
-            self._("schedule_off"),
-            self._("schedule_unit_seconds"),
             self._("schedule_unit_minutes"),
             self._("schedule_unit_hours"),
-            self._("schedule_unit_days"),
         ]
 
     def _unit_code_from_label(self, label: str) -> Optional[str]:
@@ -3908,11 +3978,9 @@ class IndexerApp(tk.Tk):
             self._("schedule_unit_seconds"): UNIT_SECONDS,
             self._("schedule_unit_minutes"): UNIT_MINUTES,
             self._("schedule_unit_hours"): UNIT_HOURS,
-            self._("schedule_unit_days"): UNIT_DAYS,
         }
         if raw in mapping:
             return mapping[raw]
-        # English/raw fallbacks
         low = raw.casefold()
         if low in ("off", "wyłączony", "wylaczony"):
             return None
@@ -3923,7 +3991,8 @@ class IndexerApp(tk.Tk):
         if low.startswith("hour") or low.startswith("godz"):
             return UNIT_HOURS
         if low.startswith("day") or low.startswith("dni") or low.startswith("dzie"):
-            return UNIT_DAYS
+            # Safety UI is minutes/hours; days from migration shown as hours.
+            return UNIT_HOURS
         return UNIT_MINUTES
 
     def _unit_label_from_code(self, unit: Optional[str]) -> str:
@@ -3933,144 +4002,256 @@ class IndexerApp(tk.Tk):
             UNIT_SECONDS: self._("schedule_unit_seconds"),
             UNIT_MINUTES: self._("schedule_unit_minutes"),
             UNIT_HOURS: self._("schedule_unit_hours"),
-            UNIT_DAYS: self._("schedule_unit_days"),
         }.get(unit, self._("schedule_off"))
 
-    def _sync_schedule_widgets(self) -> None:
-        parsed = parse_schedule(self._schedule)
+    def _sync_watch_quiet_widgets(self) -> None:
+        self.watch_coalesce_var.set(str(self._watch_coalesce_s))
+        parsed = parse_schedule(self._watch_safety)
         if parsed is None:
-            self.schedule_amount_var.set("1")
-            self.schedule_unit_var.set(self._("schedule_off"))
-            self.schedule_var.set(SCHEDULE_OFF)
+            self.watch_safety_enabled_var.set(False)
+            self.watch_safety_amount_var.set("1")
+            self.watch_safety_unit_var.set(self._("schedule_unit_hours"))
             return
         amount, unit = parsed
-        self.schedule_amount_var.set(str(amount))
-        self.schedule_unit_var.set(self._unit_label_from_code(unit))
-        self.schedule_var.set(self._schedule)
+        if unit == "d":
+            amount = max(1, amount * 24)
+            unit = UNIT_HOURS
+        self.watch_safety_enabled_var.set(True)
+        self.watch_safety_amount_var.set(str(amount))
+        self.watch_safety_unit_var.set(self._unit_label_from_code(unit))
 
-    def _collect_schedule_from_widgets(self) -> str:
-        unit = self._unit_code_from_label(self.schedule_unit_var.get())
-        if unit is None:
+    def _collect_watch_safety_from_widgets(self) -> str:
+        if not bool(self.watch_safety_enabled_var.get()):
             return SCHEDULE_OFF
-        raw_amount = self.schedule_amount_var.get().strip()
+        unit = self._unit_code_from_label(self.watch_safety_unit_var.get())
+        if unit is None or unit == UNIT_SECONDS:
+            unit = UNIT_HOURS
+        raw_amount = self.watch_safety_amount_var.get().strip()
         try:
             amount = int(float(raw_amount.replace(",", ".")))
         except ValueError:
             amount = 1
-        return format_schedule(amount, unit)
+        return normalize_watch_safety(format_schedule(amount, unit))
 
-    def _on_schedule_amount_typed(self, *_args) -> None:
-        """Debounce amount edits so the countdown recalculates while typing."""
-        if self._schedule_amount_debounce_id is not None:
+    def _set_watch_opts_enabled(self, enabled: bool) -> None:
+        state = tk.NORMAL if enabled else tk.DISABLED
+        for w in getattr(self, "_watch_opts_widgets", []) or []:
             try:
-                self.after_cancel(self._schedule_amount_debounce_id)
+                if isinstance(w, ttk.Combobox):
+                    w.configure(state="readonly" if enabled else tk.DISABLED)
+                elif isinstance(w, ttk.Entry):
+                    w.configure(state=state)
+                elif isinstance(w, ttk.Checkbutton):
+                    w.configure(state=state)
+                elif isinstance(w, ttk.Label):
+                    # Labels have no disable on all themes; leave visible.
+                    pass
             except tk.TclError:
                 pass
-        self._schedule_amount_debounce_id = self.after(
-            400, self._on_schedule_widgets_changed
+
+    def _on_watch_coalesce_typed(self, *_args) -> None:
+        if self._coalesce_amount_debounce_id is not None:
+            try:
+                self.after_cancel(self._coalesce_amount_debounce_id)
+            except tk.TclError:
+                pass
+        self._coalesce_amount_debounce_id = self.after(
+            400, self._on_watch_coalesce_changed
         )
 
-    def _on_schedule_widgets_changed(self, *_args) -> None:
-        if self._schedule_amount_debounce_id is not None:
+    def _on_watch_coalesce_changed(self, *_args) -> None:
+        if self._coalesce_amount_debounce_id is not None:
             try:
-                self.after_cancel(self._schedule_amount_debounce_id)
+                self.after_cancel(self._coalesce_amount_debounce_id)
             except tk.TclError:
                 pass
-            self._schedule_amount_debounce_id = None
-        new_code = self._collect_schedule_from_widgets()
-        old_code = self._schedule
-        # Amount/unit change: restart the interval from *now* so next-run
-        # updates immediately instead of staying anchored to an old last_run.
-        if new_code != old_code and new_code != SCHEDULE_OFF:
-            from datetime import datetime, timezone
+            self._coalesce_amount_debounce_id = None
+        self._set_watch_coalesce_s(self.watch_coalesce_var.get())
 
-            self._schedule_last_run = format_iso_datetime(
-                datetime.now(timezone.utc)
-            )
-        self._set_schedule(new_code)
-
-    def _set_schedule(self, schedule: str, *, persist: bool = True) -> None:
-        code = normalize_schedule(schedule)
-        self._schedule = code
-        self._sync_schedule_widgets()
+    def _set_watch_coalesce_s(self, value, *, persist: bool = True) -> None:
+        self._watch_coalesce_s = clamp_watch_coalesce_s(value)
+        self.watch_coalesce_var.set(str(self._watch_coalesce_s))
         if persist:
-            self._persist_ui_settings()
             self._save_instance_ini()
             if not getattr(self, "_applying_indexer_settings", False):
                 self._persist_indexer_settings()
-        self._update_schedule_status()
-        self._arm_schedule_timer()
-
-    def _update_schedule_status(self) -> None:
-        if not hasattr(self, "schedule_status_var"):
-            return
-        if self._schedule == SCHEDULE_OFF:
-            self.schedule_status_var.set(self._("schedule_idle"))
-            self._refresh_indeks_status_line()
-            return
-        if self._scan_busy:
-            self.schedule_status_var.set(self._("schedule_running"))
-            self._refresh_indeks_status_line()
-            return
-        rem = seconds_until_next(self._schedule, self._schedule_last_run)
-        if rem is None:
-            self.schedule_status_var.set(self._("schedule_idle"))
-            self._refresh_indeks_status_line()
-            return
-        if rem <= 0.5:
-            self.schedule_status_var.set(self._("schedule_due_now"))
-            self._refresh_indeks_status_line()
-            return
-        self.schedule_status_var.set(
-            self._("schedule_countdown", countdown=format_countdown(rem))
-        )
         self._refresh_indeks_status_line()
 
-    def _arm_schedule_timer(self) -> None:
-        if self._schedule_after_id is not None:
+    def _on_watch_safety_amount_typed(self, *_args) -> None:
+        if self._safety_amount_debounce_id is not None:
             try:
-                self.after_cancel(self._schedule_after_id)
+                self.after_cancel(self._safety_amount_debounce_id)
             except tk.TclError:
                 pass
-            self._schedule_after_id = None
-        # Floor client (can_index=no) — no auto-index timer.
-        if self._is_simple():
-            return
-        if self._schedule != SCHEDULE_OFF:
-            self._schedule_after_id = self.after(
-                schedule_poll_ms(self._schedule), self._schedule_tick
+        self._safety_amount_debounce_id = self.after(
+            400, self._on_watch_safety_widgets_changed
+        )
+
+    def _on_watch_safety_widgets_changed(self, *_args) -> None:
+        if self._safety_amount_debounce_id is not None:
+            try:
+                self.after_cancel(self._safety_amount_debounce_id)
+            except tk.TclError:
+                pass
+            self._safety_amount_debounce_id = None
+        # First enable → suggest 1 hour
+        if bool(self.watch_safety_enabled_var.get()) and self._watch_safety == SCHEDULE_OFF:
+            parsed_default = parse_schedule(DEFAULT_WATCH_SAFETY_WHEN_ENABLED)
+            if parsed_default is not None:
+                amt, unit = parsed_default
+                self.watch_safety_amount_var.set(str(amt))
+                self.watch_safety_unit_var.set(self._unit_label_from_code(unit))
+            elif not (self.watch_safety_amount_var.get() or "").strip():
+                self.watch_safety_amount_var.set("1")
+                self.watch_safety_unit_var.set(self._("schedule_unit_hours"))
+        new_code = self._collect_watch_safety_from_widgets()
+        if (
+            new_code != self._watch_safety
+            and new_code != SCHEDULE_OFF
+            and bool(self.watch_safety_enabled_var.get())
+        ):
+            from datetime import datetime, timezone
+
+            self._watch_safety_last_run = format_iso_datetime(
+                datetime.now(timezone.utc)
             )
+        self._set_watch_safety(new_code)
 
-    def _schedule_tick(self) -> None:
-        self._schedule_after_id = None
-        try:
-            self._update_schedule_status()
-            self._maybe_run_scheduled_scan()
-        finally:
-            self._arm_schedule_timer()
-            # Refresh again after possible scan start so "indexing now" shows.
-            self._update_schedule_status()
+    def _set_watch_safety(self, safety: str, *, persist: bool = True) -> None:
+        code = normalize_watch_safety(safety)
+        self._watch_safety = code
+        self._sync_watch_quiet_widgets()
+        if persist:
+            self._save_instance_ini()
+            if not getattr(self, "_applying_indexer_settings", False):
+                self._persist_indexer_settings()
+        self._refresh_indeks_status_line()
+        self._arm_safety_timer()
 
-    def _maybe_run_scheduled_scan(self) -> None:
-        if self._is_simple():
+    def _watch_safety_status_bit(self) -> str:
+        if self._watch_safety == SCHEDULE_OFF:
+            return self._("watch_status_safety_off")
+        if self._scan_busy:
+            return self._("watch_status_safety_on", interval=self._watch_safety)
+        rem = seconds_until_next(self._watch_safety, self._watch_safety_last_run)
+        if rem is None:
+            return self._("watch_status_safety_off")
+        if rem <= 0.5:
+            return self._("watch_status_safety_on", interval=self._watch_safety)
+        return self._(
+            "watch_status_safety_due", countdown=format_countdown(rem)
+        )
+
+    def _quiet_active(self) -> bool:
+        import time
+
+        deadline = self._watch_quiet_until
+        if deadline is None:
+            return False
+        return time.monotonic() < deadline
+
+    def _start_watch_quiet(self) -> None:
+        """Quiet window starts when a Watch-triggered scan starts (wall-clock gap)."""
+        import time
+
+        self._watch_quiet_until = time.monotonic() + float(self._watch_coalesce_s)
+        self._arm_coalesce_timer()
+
+    def _arm_coalesce_timer(self) -> None:
+        if self._coalesce_after_id is not None:
+            try:
+                self.after_cancel(self._coalesce_after_id)
+            except tk.TclError:
+                pass
+            self._coalesce_after_id = None
+        if not self._watch_enabled or self._is_simple():
             return
-        if self._schedule == SCHEDULE_OFF or self._scan_busy:
+        import time
+
+        if self._watch_quiet_until is None:
+            return
+        rem_ms = int(max(0.0, (self._watch_quiet_until - time.monotonic()) * 1000)) + 20
+        self._coalesce_after_id = self.after(rem_ms, self._on_coalesce_expired)
+
+    def _on_coalesce_expired(self) -> None:
+        self._coalesce_after_id = None
+        if self._quiet_active():
+            self._arm_coalesce_timer()
+            return
+        self._watch_quiet_until = None
+        if self._scan_busy or not self._watch_enabled or self._is_simple():
+            return
+        if self._watch_rescan_pending or self._watch_safety_pending:
+            self._watch_rescan_pending = False
+            was_safety = self._watch_safety_pending
+            self._watch_safety_pending = False
+            self._begin_watch_triggered_scan(safety=was_safety)
+
+    def _begin_watch_triggered_scan(self, *, safety: bool = False) -> None:
+        """Start incremental scan under Watch; quiet begins at scan start."""
+        if self._scan_busy or not self._watch_enabled or self._is_simple():
             return
         if not self._folders_ready():
             return
-        if not is_schedule_due(self._schedule, self._schedule_last_run):
-            return
-        self.status_var.set(self._("schedule_running"))
-        self.schedule_status_var.set(self._("schedule_running"))
-        self._start_scan(auto=True)
-
-    def _mark_schedule_ran(self) -> None:
         from datetime import datetime, timezone
 
-        self._schedule_last_run = format_iso_datetime(datetime.now(timezone.utc))
-        self._persist_ui_settings()
+        self._start_watch_quiet()
+        self._last_watch_scan_at = datetime.now(timezone.utc)
+        self._refresh_watch_strip()
+        if safety:
+            self.status_var.set(self._("watch_safety_trigger"))
+        else:
+            self.status_var.set(self._("watch_trigger"))
+        self._start_scan(auto=True)
+
+    def _arm_safety_timer(self) -> None:
+        if self._safety_after_id is not None:
+            try:
+                self.after_cancel(self._safety_after_id)
+            except tk.TclError:
+                pass
+            self._safety_after_id = None
+        if self._is_simple() or not self._watch_enabled:
+            return
+        if self._watch_safety == SCHEDULE_OFF:
+            self._refresh_indeks_status_line()
+            return
+        self._safety_after_id = self.after(
+            schedule_poll_ms(self._watch_safety), self._safety_tick
+        )
+
+    def _safety_tick(self) -> None:
+        self._safety_after_id = None
+        try:
+            self._refresh_indeks_status_line()
+            self._maybe_run_safety_scan()
+        finally:
+            self._arm_safety_timer()
+            self._refresh_indeks_status_line()
+
+    def _maybe_run_safety_scan(self) -> None:
+        if self._is_simple() or not self._watch_enabled:
+            return
+        if self._watch_safety == SCHEDULE_OFF or self._scan_busy:
+            return
+        if not self._folders_ready():
+            return
+        if not is_schedule_due(self._watch_safety, self._watch_safety_last_run):
+            return
+        if self._quiet_active():
+            self._watch_safety_pending = True
+            self._arm_coalesce_timer()
+            return
+        self._begin_watch_triggered_scan(safety=True)
+
+    def _mark_safety_ran(self) -> None:
+        from datetime import datetime, timezone
+
+        self._watch_safety_last_run = format_iso_datetime(
+            datetime.now(timezone.utc)
+        )
         self._save_instance_ini()
-        self._update_schedule_status()
+        self._refresh_indeks_status_line()
 
     def _watch_mode_label(self, mode: str) -> str:
         code = normalize_watch_mode(mode)
@@ -4300,10 +4481,17 @@ class IndexerApp(tk.Tk):
 
     def _on_watch_toggled(self) -> None:
         self._watch_enabled = bool(self.watch_var.get()) and not self._is_simple()
+        self._set_watch_opts_enabled(bool(self.watch_var.get()))
         self._save_instance_ini()
         if not getattr(self, "_applying_indexer_settings", False):
             self._persist_indexer_settings()
         self._sync_folder_watch()
+        self._arm_safety_timer()
+        if not self._watch_enabled:
+            self._watch_quiet_until = None
+            self._watch_rescan_pending = False
+            self._watch_safety_pending = False
+        self._refresh_indeks_status_line()
 
     def _stop_folder_watch(self, *, release: bool = False) -> None:
         if self._folder_watcher is not None:
@@ -4317,6 +4505,8 @@ class IndexerApp(tk.Tk):
             if target and we_hold_lock(target):
                 release_lock(target)
         self._update_watch_status()
+        self._arm_safety_timer()
+        self._refresh_indeks_status_line()
 
     def _sync_folder_watch(self, *, initial: bool = False) -> None:
         """Start/stop watcher for indexer (can_index=yes) based on checkbox + folders + lock."""
@@ -4391,6 +4581,8 @@ class IndexerApp(tk.Tk):
                 self._folder_watcher.seed()
         self._update_watch_status()
         self._save_instance_ini()
+        self._arm_safety_timer()
+        self._refresh_indeks_status_line()
 
     def _on_watch_change_thread(self) -> None:
         """Called from watcher thread — marshal onto Tk."""
@@ -4402,15 +4594,13 @@ class IndexerApp(tk.Tk):
     def _on_watch_change(self) -> None:
         if self._is_simple() or not self._watch_enabled:
             return
-        if self._scan_busy:
+        if self._scan_busy or self._quiet_active():
             self._watch_rescan_pending = True
+            if self._quiet_active() and not self._scan_busy:
+                self.status_var.set(self._("watch_coalesce_pending"))
+                self._arm_coalesce_timer()
             return
-        from datetime import datetime, timezone
-
-        self._last_watch_scan_at = datetime.now(timezone.utc)
-        self._refresh_watch_strip()
-        self.status_var.set(self._("watch_trigger"))
-        self._start_scan(auto=True)
+        self._begin_watch_triggered_scan(safety=False)
 
     def _db_path(self) -> Optional[Path]:
         target = self.target_var.get().strip()
@@ -4704,7 +4894,7 @@ class IndexerApp(tk.Tk):
         self.status_var.set(
             self._("schedule_running") if auto else self._("scan_scanning")
         )
-        self._update_schedule_status()
+        self._refresh_indeks_status_line()
         self._show_progress(True)
         self._maybe_auto_collapse_folders()
         if self._is_simple() or auto:
@@ -4997,7 +5187,7 @@ class IndexerApp(tk.Tk):
         if ok:
             self.progress_var.set(100.0)
             self.progress_label_var.set(self._("scan_done"))
-            self._mark_schedule_ran()
+            self._mark_safety_ran()
             if auto:
                 from datetime import datetime, timezone
 
@@ -5014,7 +5204,7 @@ class IndexerApp(tk.Tk):
         else:
             self.progress_var.set(0.0)
             self.progress_label_var.set("")
-        self._update_schedule_status()
+        self._refresh_indeks_status_line()
         self.status_var.set(message)
         # Hide progress bar shortly after finish to free vertical space
         self.after(1200, lambda: self._show_progress(False) if not self._scan_busy else None)
@@ -6953,7 +7143,8 @@ class PrepareIndexerDialog(tk.Toplevel):
             summary = _tr(
                 master,
                 "prepare_indexer_pack_summary",
-                schedule=pack.schedule,
+                coalesce=pack.watch_coalesce_s,
+                safety=pack.watch_safety,
                 watch=("yes" if pack.watch_folders else "no"),
                 mode=pack.watch_mode,
             )

@@ -15,7 +15,7 @@ Przy `can_index=yes` GUI może:
 
 - Skanować drzewa kopii i zapisywać / aktualizować `gcode_index.sqlite`
 - Dodawać katalogi **zielone** (z maszyny) i **żółte** (dodatkowe)
-- Uruchamiać **auto-indeks** według harmonogramu, gdy GUI jest otwarte
+- Obserwować foldery z min. przerwą i opcjonalnym skanem bezpieczeństwa, gdy GUI jest otwarte
 - Mapować dziwne nazwy folderów na maszyny i edytować **lokalne aliasy**
 - Korzystać z filtrów zaawansowanych, widoków, porównania, raportu / jakości skanu, duplikatów
 - Opcjonalnie zapisać Excel po skanie
@@ -111,13 +111,18 @@ Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie
 3. Głębsze ustawienia: **Mapowanie…** (w tym mapowanie ścieżek), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja / zasobnik), **Raporty…**.
 4. Pasek postępu + **Raport skanu** po zakończeniu. Z raportu (lub **Raporty…**): **Nieprzypisane tokeny nagłówka…** — częste tokeny z komentarzy na linii O bez aliasu maszyny / funkcji / odbiorcy; prawy klik jak w **Nazwy folderów**. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi. Cache: `header_token_freq.json` obok bazy; **pełny skan** odświeża listę (nauczone znikają).
 
-### Auto-indeks
-
-Ilość + jednostka (sekundy / minuty / godziny / dni). Klient hali (`can_index=no`) tego nie uruchamia. Live **odliczanie** do następnego uruchomienia.
-
 ### Obserwacja folderów
 
-Zaznacz **Obserwuj foldery** — po zmianach w kopii / zielonych/żółtych katalogach uruchamia się **przyrostowy** skan (po krótkim debounce).
+Zaznacz **Obserwuj foldery** — po zmianach w kopii / zielonych/żółtych katalogach uruchamia się **przyrostowy** skan (debounce 3 s; stamp-poll 5 s).
+
+Gdy obserwacja jest włączona:
+
+- **Min. przerwa między skanami** (domyślnie **45 s**, min. 15 s) — po *starcie* skanu Watch kolejne sygnały zmian łączą się: co najwyżej jeden skan po wygaśnięciu przerwy.
+- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”.
+
+Klucze: `[scan] watch_coalesce_s`, `watch_safety`, `watch_safety_last_run`. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
+
+Klient hali (`can_index=no`) nie widzi Obserwuj. Automatyczne skany wymagają włączonej obserwacji (i biorą `gcode_index.lock`).
 
 Obok checkboxa wybierz **metodę** (przełącznik segmentowy):
 
@@ -170,7 +175,7 @@ Praktyczna rutyna, żeby **budować i utrzymywać** zdrowy indeks. Każdy udany 
 | Używaj **Przyrostowo** (domyślnie; zostaw zaznaczone) | Używaj **Pełny** (odznacz Przyrostowo) |
 |------------------------------------------------------|----------------------------------------|
 | Codzienne nowe kopie / nowe foldery pod znanymi korzeniami | Po edycji mapy maszyn lub aliasów maszyn, które mają przeassignować **stare** pliki |
-| Obserwuj / harmonogram (zawsze wymuszają przyrostowy) | Po **usunięciu** aliasów kolorów funkcji (wyczyść stare role) |
+| Obserwuj / przerwa / bezpieczeństwo (zawsze wymuszają przyrostowy) | Po **usunięciu** aliasów kolorów funkcji (wyczyść stare role) |
 | Szybkie dogonienie, gdy większość plików bez zmian | Po wyłączeniu **O9 → programy systemowe** (albo czyszczeniu starych tagów O9) |
 | Pierwszy skan po dodaniu korzenia (nowe pliki i tak nie trafią w cache) | Po dużej reorganizacji drzewa, której cache nie ufasz |
 | | Raz po aktualizacji, gdy potrzebujesz świeżego `program_sha256` / higieny duplikatów na starych wierszach |
@@ -184,7 +189,7 @@ Zasada: **Przyrostowy utrzymuje katalog na bieżąco z dyskiem. Pełny przebudow
 1. Trzymaj **jeden** indeksator na udziale (`gcode_index.lock` / Obserwuj). Komputery hali: `can_index=no`.
 2. Preferuj **Obserwuj foldery** i/lub skromny **Auto-indeks**, żeby nowe dumpy wchodziły do bazy bez pilnowania (oba biegną przyrostowo).
 3. Zanim oczekujesz wierszy Haas NGC: potwierdź, że ZIP-y UMC / ST-20Y zostały **rozpakowane** pod folderem daty/maszyny (skaner **ignoruje** `.zip`).
-4. Zerknij na pasek statusu Indeksu (ostatni harmonogram / obserwacja) i ewentualną liczbę **brakujących źródeł** po wyszukiwaniu.
+4. Zerknij na pasek statusu Indeksu (Obserwuj / przerwa / bezpieczeństwo) i ewentualną liczbę **brakujących źródeł** po wyszukiwaniu.
 
 ### Co tydzień (lub po intensywnym tygodniu kopii)
 
@@ -197,7 +202,7 @@ Zasada: **Przyrostowy utrzymuje katalog na bieżąco z dyskiem. Pełny przebudow
 
 | Zmiana | Następny krok |
 |--------|---------------|
-| Tylko nowe pliki / nowy podfolder pod istniejącym korzeniem | Przyrostowy (Obserwuj / harmonogram / ręcznie) |
+| Tylko nowe pliki / nowy podfolder pod istniejącym korzeniem | Przyrostowy (Obserwuj / bezpieczeństwo / ręcznie) |
 | Mapa folderów maszyn lub aliasy maszyn dla **już zindeksowanych** ścieżek | Pełny reskan |
 | Usunięte reguły kolorów funkcji (albo chcesz role od zera) | Pełny reskan |
 | Dodane reguły kolorów / drzewa / O9, które nadal pasują | Przyrostowy zwykle wystarczy |
@@ -218,7 +223,7 @@ Traktuj **folder bazy** jako jeden zestaw. Udostępniaj **cały folder**, nie sa
 | `aliases.local.yaml`, `machine_folders.yaml` | Nauka maszyn na następny skan |
 | `odbiorcy.yaml` | Katalog odbiorców |
 | `extra_scan_roots.yaml` | Korzenie zielone/żółte |
-| `indexer_settings.yaml` | Wspólne domyślne skanu / obserwacji / harmonogramu (**nie** wymusza `can_index`) |
+| `indexer_settings.yaml` | Wspólne domyślne skanu / obserwacji / przerwy / bezpieczeństwa (**nie** wymusza `can_index`) |
 
 Opcjonalnie: `scan_history.json`, `ui_settings.yaml`, `views.yaml`, `gcode_index.xlsx`.
 
@@ -244,11 +249,11 @@ Komputery na hali: `settings_locked = yes` w ini **albo** pusty plik `operator.l
 
 ## Odświeżanie wyników (klienci po skanie przyrostowym)
 
-Zaznacz **Odświeżaj wyniki**, aby **ponowić bieżące wyszukiwanie**, gdy zmieni się `gcode_index.sqlite` (mtime, domyślnie ~20 s). Przydatne na hali z bazą na **udziale sieciowym**, gdy indeksator robi Obserwuj / harmonogram przyrostowy: nowe wiersze pojawiają się bez czyszczenia filtrów i bez ponownego otwierania pliku. Zapis: `search_auto_refresh` / `search_auto_refresh_s` w ini. Bez tego operator klika Szukaj ponownie po skanie.
+Zaznacz **Odświeżaj wyniki**, aby **ponowić bieżące wyszukiwanie**, gdy zmieni się `gcode_index.sqlite` (mtime, domyślnie ~20 s). Przydatne na hali z bazą na **udziale sieciowym**, gdy indeksator robi Obserwuj / bezpieczeństwo przyrostowy: nowe wiersze pojawiają się bez czyszczenia filtrów i bez ponownego otwierania pliku. Zapis: `search_auto_refresh` / `search_auto_refresh_s` w ini. Bez tego operator klika Szukaj ponownie po skanie.
 
 ## Ustawienia instalacji
 
-**Ustawienia wracają po restarcie:** `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, desktop, geometrię, mapowanie ścieżek, **ostatnie filtry** oraz widok Praca/Indeks. Obok bazy: `indexer_settings.yaml` — **wspólne domyślne** skanu / harmonogramu / obserwacji (pakiet sklepu; **nie** wymusza `can_index`). Indeksator zapisuje ten plik przy zmianie tych przełączników.
+**Ustawienia wracają po restarcie:** `gcode-index.ini` obok exe pamięta foldery, zieleń/żółć, **`can_index`**, język, desktop, geometrię, mapowanie ścieżek, **ostatnie filtry** oraz widok Praca/Indeks. Obok bazy: `indexer_settings.yaml` — **wspólne domyślne** skanu / obserwacji / przerwy / bezpieczeństwa (pakiet sklepu; **nie** wymusza `can_index`). Indeksator zapisuje ten plik przy zmianie tych przełączników.
 
 **Przygotuj indeksator…** (Narzędzia / Indeks): potwierdź ścieżkę kopii i wydobycia oraz mapowanie, zastosuj domyślne z pakietu, ustaw `can_index=yes`, opcjonalnie włącz obserwację. Klienci hali zostają na `can_index=no` (+ opcjonalnie `operator.lock`).  
 
