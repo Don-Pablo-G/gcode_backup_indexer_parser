@@ -207,6 +207,17 @@ def scan_cmd(
         result=result,
     )
     conn.close()
+    try:
+        from gcode_index.header_token_freq import build_and_save_header_token_freq
+
+        build_and_save_header_token_freq(
+            db.parent,
+            result.instances,
+            run_id=run_id,
+            full_scan=cache is None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Warning: header token cache failed: {exc}", err=True)
     n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
     typer.echo(
         f"Wrote {len(result.instances)} instances, "

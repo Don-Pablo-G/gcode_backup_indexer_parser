@@ -113,7 +113,7 @@ Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / ex
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
 2. Click green **Run scan** / **Uruchom skan** (right side). Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
 3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch / tray), and **Reports…**.
-4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**).
+4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**). From the report (or **Reports…**), **Unassigned header tokens…** lists frequent O-line comment tokens that still have no machine / function / recipient alias — right-click assign like **Folder names**. Excludes program numbers and tokens with more than 4 digit characters. Cache: `header_token_freq.json` beside the DB; a **full rescan** refreshes the list so taught tokens drop out.
 
 ### Auto-index
 

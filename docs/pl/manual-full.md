@@ -109,7 +109,7 @@ Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
 2. Zielony **Uruchom skan** (po prawej).
 3. Głębsze ustawienia: **Mapowanie…** (w tym mapowanie ścieżek), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja / zasobnik), **Raporty…**.
-4. Pasek postępu + **Raport skanu** po zakończeniu.
+4. Pasek postępu + **Raport skanu** po zakończeniu. Z raportu (lub **Raporty…**): **Nieprzypisane tokeny nagłówka…** — częste tokeny z komentarzy na linii O bez aliasu maszyny / funkcji / odbiorcy; prawy klik jak w **Nazwy folderów**. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi. Cache: `header_token_freq.json` obok bazy; **pełny skan** odświeża listę (nauczone znikają).
 
 ### Auto-indeks
 

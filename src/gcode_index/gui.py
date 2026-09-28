@@ -209,6 +209,14 @@ from gcode_index.scan_report import (
     load_scan_report,
     scan_report_from_result,
 )
+from gcode_index.header_token_freq import (
+    HEADER_TOKEN_FREQ_FILENAME,
+    build_and_save_header_token_freq,
+    filter_unassigned_header_tokens,
+    header_token_freq_path_for_target,
+    load_header_token_freq,
+    token_has_alias,
+)
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots, roots_nest
 from gcode_index.folder_watch import (
     DEFAULT_WATCH_MODE,
@@ -2797,6 +2805,7 @@ class IndexerApp(tk.Tk):
         for label_key, cmd in (
             ("quality_dashboard", self._open_quality_dashboard),
             ("scan_report", self._open_scan_report),
+            ("header_tokens_button", self._open_unassigned_header_tokens),
             ("scan_history", self._open_scan_history),
             ("duplicates", self._open_duplicates),
         ):
@@ -4883,6 +4892,16 @@ class IndexerApp(tk.Tk):
                 append_scan_history(target, entry)
             except Exception:  # noqa: BLE001
                 log.exception("append scan history failed")
+            # Header-token teach list cache (O-line tokens; full rebuild each scan).
+            try:
+                build_and_save_header_token_freq(
+                    target,
+                    result.instances,
+                    run_id=run_id,
+                    full_scan=cache is None,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("build header token frequency cache failed")
             excel_note = ""
             if write_excel:
                 xlsx = target / "gcode_index.xlsx"
@@ -5080,6 +5099,79 @@ class IndexerApp(tk.Tk):
 
     def _show_scan_report(self, report: ScanReport) -> None:
         ScanReportDialog(self, report=report)
+
+    def _open_unassigned_header_tokens(self) -> None:
+        """Scan-report teach list: O-line tokens with no machine/role/odbiorca alias."""
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showinfo(
+                self._("header_tokens_dialog_title"),
+                self._("header_tokens_need_target"),
+            )
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        cache_path = header_token_freq_path_for_target(target)
+        cached = load_header_token_freq(cache_path)
+        if cached is None or not cached.tokens:
+            messagebox.showinfo(
+                self._("header_tokens_dialog_title"),
+                self._(
+                    "header_tokens_need_scan",
+                    filename=HEADER_TOKEN_FREQ_FILENAME,
+                ),
+            )
+            return
+        try:
+            aliases = self._load_alias_map()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(self._("header_tokens_dialog_title"), str(exc))
+            return
+        colour_path = folder_colour_aliases_path_for_target(target)
+        catalog = load_colour_catalog(colour_path)
+        colour_map = FolderColourAliasMap(
+            catalog.rules, known_ids=catalog.colour_ids
+        )
+        odb_path = odbiorcy_path_for_target(target)
+        odb_catalog = load_odbiorca_catalog(odb_path)
+        odbiorca_map = odb_catalog.alias_map()
+        entries = filter_unassigned_header_tokens(
+            cached.tokens,
+            aliases=aliases,
+            colour_map=colour_map,
+            odbiorca_map=odbiorca_map,
+        )
+        if not entries:
+            messagebox.showinfo(
+                self._("header_tokens_dialog_title"),
+                self._("header_tokens_empty"),
+            )
+            return
+        dlg = FolderNameBrowserDialog(
+            self,
+            roots=[],
+            entries=entries,
+            aliases=aliases,
+            machine_choices=[
+                display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
+                *aliases.known_machine_displays(),
+            ],
+            local_aliases_path=local_aliases_path_for_target(target),
+            colour_save_path=colour_path,
+            catalog=catalog,
+            odbiorca_save_path=odb_path,
+            odbiorca_catalog=odb_catalog,
+            title_key="header_tokens_dialog_title",
+            intro_key="header_tokens_intro",
+            drop_when_assigned=True,
+        )
+        self.wait_window(dlg)
+        if dlg.changed:
+            self._load_colour_catalog()
+            self._odbiorca_catalog_cache = getattr(
+                dlg, "_odbiorca_catalog", odb_catalog
+            )
+            self._refresh_filter_choices()
+            self.status_var.set(self._("header_tokens_status_saved"))
 
     def _open_quality_dashboard(self) -> None:
         db_path = self._db_path()
@@ -7264,7 +7356,19 @@ class ScanReportDialog(tk.Toplevel):
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "close"), command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(
+            btns,
+            text=_tr(master, "header_tokens_button"),
+            command=self._open_header_tokens,
+        ).pack(side=tk.LEFT)
+        ttk.Button(btns, text=_tr(master, "close"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+
+    def _open_header_tokens(self) -> None:
+        opener = getattr(self.master, "_open_unassigned_header_tokens", None)
+        if callable(opener):
+            opener()
 
 
 class DuplicatesDialog(tk.Toplevel):
@@ -8410,6 +8514,9 @@ class FolderNameBrowserDialog(tk.Toplevel):
     Primary bind surface for machine / role / odbiorca name aliases. Creates
     catalogue entries from a folder spelling when needed. Does not write
     ``machine_folders.yaml`` (still readable by the scanner).
+
+    Also reused for the unassigned O-line header-token teach list (scan report)
+    via ``title_key`` / ``intro_key`` / ``drop_when_assigned``.
     """
 
     def __init__(
@@ -8425,9 +8532,12 @@ class FolderNameBrowserDialog(tk.Toplevel):
         catalog: ColourCatalog,
         odbiorca_save_path: Path | None = None,
         odbiorca_catalog: OdbiorcaCatalog | None = None,
+        title_key: str = "name_browser_dialog_title",
+        intro_key: str = "name_browser_intro",
+        drop_when_assigned: bool = False,
     ) -> None:
         super().__init__(master)
-        self.title(_tr(master, "name_browser_dialog_title"))
+        self.title(_tr(master, title_key))
         self.transient(master)
         self.grab_set()
         shell = install_dialog_shell(
@@ -8455,10 +8565,12 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._odbiorca_catalog = odbiorca_catalog or OdbiorcaCatalog()
         self._odbiorca_map = self._odbiorca_catalog.alias_map()
         self._iid_by_key: dict[str, str] = {}
+        self._drop_when_assigned = bool(drop_when_assigned)
+        self._title_key = title_key
 
         ttk.Label(
             shell.body,
-            text=_tr(master, "name_browser_intro"),
+            text=_tr(master, intro_key),
             wraplength=900,
         ).pack(fill=tk.X, pady=(0, 6))
 
@@ -8557,6 +8669,14 @@ class FolderNameBrowserDialog(tk.Toplevel):
             bits.append(_tr(self.master, "name_browser_chip_odbiorca", value=o))
         return " · ".join(bits) if bits else "—"
 
+    def _entry_is_assigned(self, name: str) -> bool:
+        return token_has_alias(
+            name,
+            aliases=self._aliases,
+            colour_map=self._colour_map,
+            odbiorca_map=self._odbiorca_map,
+        )
+
     def _refresh_rows(self) -> None:
         needle = (self._filter_var.get() or "").strip().casefold()
         for iid in self._tree.get_children():
@@ -8579,6 +8699,10 @@ class FolderNameBrowserDialog(tk.Toplevel):
         )
 
     def _refresh_row(self, entry: FolderNameFreq) -> None:
+        if self._drop_when_assigned and self._entry_is_assigned(entry.name):
+            self._entries = [e for e in self._entries if e.key != entry.key]
+            self._refresh_rows()
+            return
         if entry.key not in self._iid_by_key:
             self._refresh_rows()
             return
