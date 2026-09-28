@@ -77,7 +77,7 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 **`folder_colour_aliases.yaml` jest obowiązkowy** obok `gcode_index.sqlite` dla prawdziwych kolorów Flagi na każdym kliencie (hala lub indeksator). Otwarcie bazy bez tego pliku używa domyślnych kolorów z tej wersji oprogramowania i pokazuje ostrzeżenie. **`folder_tree_map.yaml`** jest potrzebny, gdy tip Flagi ma pokazywać powody ścieżek z Mapuj drzewo.
 
-**Role i aliasy…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy — ten sam układ co **Maszyny i aliasy**:
+**Role i aliasy…** (indeksator) edytuje `folder_colour_aliases.yaml` obok bazy — ten sam układ co **Maszyny i aliasy**. Status / Flaga nie są edytowane w tym oknie; przycisk **Status i Flaga…** otwiera tę instrukcję (status, Flaga; legenda też w Praca):
 
 1. **Lewa** — lista ról (dodaj / edytuj / usuń). Startowo: **prototyp** (niebieski, nadpisanie **włączone**), **osobisty** (czerwony), **programy systemowe** (pomarańczowy), **przyrząd** (fioletowy). Wbudowanych nie usuniesz. Żółty/zielony to wyłącznie status — żółty **nigdy** nie oznacza przyrządu. Stare seedy (produkcja / WIP / test) zostają jako własne role, jeśli były w pliku. Pod listą: pasek **Wykluczenia nazw** (pisownie → nie indeksuj).
 2. **Prawa** — meta wybranej roli (`id`, etykiety PL+EN, wybór koloru / paleta, odznaka, znaczenie, **może zastąpić kolor statusu**) oraz zagnieżdżone **Aliasy folderów** tylko dla **tej** roli. Najgłębszy segment wygrywa. Aliasy ustawiają tylko role (nie nadpisują provenance). Wiele ról na folderze ustawisz w mapie drzewa.

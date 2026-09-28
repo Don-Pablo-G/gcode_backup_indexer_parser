@@ -61,6 +61,31 @@ def test_roles_no_notebook_nested_aliases_and_exclude(tmp_path: Path, tk, monkey
         assert dlg._exclude_list.size() == 1
         assert dlg._exclude_list.get(0) == "SkipMe"
 
+        # Help cleanup: no Status legend strip; Status & Flag opens manual
+        assert callable(getattr(dlg, "_open_status_flag_help", None))
+        assert "pack_status_legend" not in type(dlg).__dict__
+        from gcode_index.i18n import STRINGS
+
+        for lang in ("pl", "en"):
+            intro = STRINGS[lang]["folder_colours_intro"]
+            assert "Flaga" not in intro and "Flag =" not in intro
+            assert "folder_colour_aliases.yaml" in intro
+            assert "folder_colours_status_flag_help" in STRINGS[lang]
+        assert "folder_colour_status_explain" not in STRINGS["pl"]
+        assert "folder_colour_status_explain" not in STRINGS["en"]
+
+        opened: list[object] = []
+
+        class _FakeManual:
+            def __init__(self, *a, **k):
+                opened.append(k)
+
+        monkeypatch.setattr("gcode_index.gui.ManualViewerDialog", _FakeManual)
+        dlg._open_status_flag_help()
+        assert len(opened) == 1
+        assert isinstance(opened[0].get("body"), str) and opened[0]["body"]
+        assert opened[0].get("title")
+
         # Select prototype → only its alias
         _click_colour_row(dlg, _index_for_id(dlg, ROLE_PROTOTYPE), tk)
         assert list(dlg._alias_list.get(0, tk.END)) == ["ProtoFolder"]

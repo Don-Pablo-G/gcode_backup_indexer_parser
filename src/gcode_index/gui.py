@@ -88,7 +88,6 @@ from gcode_index.badge_style import (
     make_swatch,
     override_role_legend_items,
     pack_compact_colour_legend,
-    pack_status_legend,
     role_dot,
     status_dot,
     status_swatch,
@@ -9635,23 +9634,18 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._role_alias_rule_idxs: list[int] = []
         self._exclude_rule_idxs: list[int] = []
 
+        intro_row = ttk.Frame(shell.body)
+        intro_row.pack(fill=tk.X, pady=(0, 6))
         ttk.Label(
-            shell.body,
+            intro_row,
             text=_tr(master, "folder_colours_intro"),
-            wraplength=860,
-        ).pack(fill=tk.X, pady=(0, 6))
-
-        explain = ttk.LabelFrame(
-            shell.body, text=_tr(master, "filter_status"), padding=6
-        )
-        explain.pack(fill=tk.X, pady=(0, 8))
-        pack_status_legend(
-            explain,
-            on_machine_text=_tr(master, "status_on_machine"),
-            not_run_text=_tr(master, "status_unknown"),
-            explain_text=_tr(master, "folder_colour_status_explain"),
-            wraplength=840,
-        ).pack(fill=tk.X)
+            wraplength=720,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(
+            intro_row,
+            text=_tr(master, "folder_colours_status_flag_help"),
+            command=self._open_status_flag_help,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
 
         body = ttk.Frame(shell.body)
         body.pack(fill=tk.BOTH, expand=True, pady=4)
@@ -9840,6 +9834,15 @@ class FolderColourAliasDialog(tk.Toplevel):
         if self._catalog.colours:
             self._fill_colour_detail(self._catalog.colours[0])
             self._refresh_role_alias_list()
+
+    def _open_status_flag_help(self) -> None:
+        """Open packaged indexer manual (Status + Flag doctrine lives there)."""
+        ManualViewerDialog(
+            self,
+            title=_tr(self.master, "help_manual_full").rstrip("…").rstrip("."),
+            body=read_manual(self._lang, "full"),
+            close_label=_tr(self.master, "close"),
+        )
 
     def _set_swatch_colour(self, hex_colour: str) -> None:
         self._swatch_var.set(normalize_hex_colour(hex_colour))

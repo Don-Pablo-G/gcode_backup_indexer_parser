@@ -77,7 +77,7 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 **`folder_colour_aliases.yaml` is mandatory** beside `gcode_index.sqlite` for truthful Flag colours on every client (floor or indexer). Opening a DB without that sidecar uses this software version’s seed colours and shows a status warning. **`folder_tree_map.yaml`** is needed when Flag tip reasons should show Map-tree path lines.
 
-**Roles & aliases…** / **Role i aliasy…** (indexer) edits `folder_colour_aliases.yaml` next to the database — same layout as **Machines & aliases**:
+**Roles & aliases…** / **Role i aliasy…** (indexer) edits `folder_colour_aliases.yaml` next to the database — same layout as **Machines & aliases**. Status / Flag are not edited in this window; **Status & Flag…** opens this manual (status, Flag; Work legend too):
 
 1. **Left** — role list (add / edit / remove). Seeded: **prototype** (blue, override **on** by default), **personal** (red), **system programs** (orange), **fixture** (purple). Built-ins cannot be deleted. Yellow/green are status only — yellow must **never** read as fixture. Legacy seeds (production / WIP / test) remain as custom roles when already present in the file. Under the list: **Name exclusions** strip (folder spellings → do not index).
 2. **Right** — selected role meta (`id`, labels PL+EN, colour picker / palette, badge, meaning, **can override main state colour**) plus nested **Folder aliases** for **that** role only. Deepest matching path segment wins. Aliases set roles only (they do not rewrite provenance). A folder may later receive **multiple** roles via the tree map.
