@@ -1,4 +1,8 @@
-"""Flexible auto-index schedule: off | Ns | Nm | Nh | Nd.
+"""Flexible interval helpers: off | Ns | Nm | Nh | Nd.
+
+Historically used for standalone Auto-index. From 0.2.107 the GUI folds that
+into Watch as **min. quiet (coalesce)** + optional **safety rescan**; these
+helpers still parse/normalize interval strings and migrate legacy ``schedule``.
 
 Legacy presets ``hourly`` / ``daily`` / ``weekly`` normalize to ``1h`` / ``1d`` / ``7d``.
 """
@@ -24,6 +28,15 @@ MIN_BY_UNIT = {
     UNIT_DAYS: 1,
 }
 MAX_AMOUNT = 9999
+
+# Watch coalesce (min. quiet between Watch-triggered scans)
+DEFAULT_WATCH_COALESCE_S = 45
+MIN_WATCH_COALESCE_S = 15
+MAX_WATCH_COALESCE_S = 300
+
+# Optional Watch safety rescan (forced incremental). Default off; suggest 1h when enabling.
+DEFAULT_WATCH_SAFETY = SCHEDULE_OFF
+DEFAULT_WATCH_SAFETY_WHEN_ENABLED = "1h"
 
 # Legacy preset names still accepted on load / old UI settings
 SCHEDULE_HOURLY = "1h"
@@ -254,3 +267,51 @@ def next_schedule_at(
         previous = previous.replace(tzinfo=timezone.utc)
     nxt = previous + interval
     return nxt if nxt > current else current
+
+
+def clamp_watch_coalesce_s(value: object) -> int:
+    """Clamp Watch min-quiet seconds to ``[MIN_WATCH_COALESCE_S, MAX_WATCH_COALESCE_S]``."""
+    try:
+        n = int(float(str(value).strip().replace(",", ".")))
+    except (TypeError, ValueError):
+        n = DEFAULT_WATCH_COALESCE_S
+    return max(MIN_WATCH_COALESCE_S, min(MAX_WATCH_COALESCE_S, n))
+
+
+def normalize_watch_safety(value: Optional[str]) -> str:
+    """Canonical safety rescan: ``off`` or ``{n}{m|h|d}`` (no seconds)."""
+    code = normalize_schedule(value)
+    if code == SCHEDULE_OFF:
+        return SCHEDULE_OFF
+    parsed = parse_schedule(code)
+    if parsed is None:
+        return SCHEDULE_OFF
+    amount, unit = parsed
+    if unit == UNIT_SECONDS:
+        # Safety UI is minutes/hours only — fold short second values up to minutes.
+        minutes = max(1, (amount + 59) // 60)
+        return format_schedule(minutes, UNIT_MINUTES)
+    return format_schedule(amount, unit)
+
+
+def migrate_legacy_schedule(old_schedule: Optional[str]) -> tuple[int, str]:
+    """Map legacy ``[ui] schedule`` / pack ``schedule`` → ``(coalesce_s, safety)``.
+
+    | Old schedule | After |
+    |--------------|-------|
+    | ``off`` | coalesce default 45 s; safety off |
+    | Seconds (e.g. ``30s``, ``60s``; ≤ 2 min) | coalesce (clamped); safety off |
+    | Minutes / hours / days | coalesce default 45 s; safety same interval |
+    """
+    code = normalize_schedule(old_schedule)
+    if code == SCHEDULE_OFF:
+        return DEFAULT_WATCH_COALESCE_S, SCHEDULE_OFF
+    parsed = parse_schedule(code)
+    if parsed is None:
+        return DEFAULT_WATCH_COALESCE_S, SCHEDULE_OFF
+    amount, unit = parsed
+    if unit == UNIT_SECONDS:
+        # Short second schedules overlapped Watch — become quiet, not forced rescan.
+        # Values above 2 min still clamp into coalesce range (no seconds safety UI).
+        return clamp_watch_coalesce_s(amount), SCHEDULE_OFF
+    return DEFAULT_WATCH_COALESCE_S, normalize_watch_safety(code)

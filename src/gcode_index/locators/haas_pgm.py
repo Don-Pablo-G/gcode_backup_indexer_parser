@@ -16,7 +16,6 @@ from gcode_index.locators import (
     first_paren_comment,
     is_percent_line,
     iter_binary_lines,
-    parse_programmer_flag,
     strip_eol,
 )
 from gcode_index.models import ProgramInstance
@@ -34,7 +33,6 @@ class _HeaderHit:
     byte_start: int
     program_number: str
     part_number: Optional[str]
-    programmer: Optional[str] = None
 
 
 def locate_haas_pgm(
@@ -53,7 +51,6 @@ def locate_haas_pgm(
     size = p.stat().st_size
 
     hits: List[_HeaderHit] = []
-    pending: Optional[_HeaderHit] = None
     closing_pct_line: Optional[int] = None
     closing_pct_byte: Optional[int] = None
     last_line_no = 0
@@ -65,12 +62,6 @@ def locate_haas_pgm(
         content_b, _eol = strip_eol(raw)
         content = decode_header_line(content_b)
 
-        # Line immediately after an O-header: programmer flag or ignore
-        if pending is not None:
-            pending.programmer = parse_programmer_flag(content)
-            hits.append(pending)
-            pending = None
-
         if is_percent_line(content):
             # Keep updating; last % is the closing frame.
             closing_pct_line = line_no
@@ -79,15 +70,14 @@ def locate_haas_pgm(
 
         m = _O_HEADER.match(content)
         if m:
-            pending = _HeaderHit(
-                line_no=line_no,
-                byte_start=offset,
-                program_number=m.group(1),
-                part_number=first_paren_comment(content),
+            hits.append(
+                _HeaderHit(
+                    line_no=line_no,
+                    byte_start=offset,
+                    program_number=m.group(1),
+                    part_number=first_paren_comment(content),
+                )
             )
-
-    if pending is not None:
-        hits.append(pending)
 
     instances: List[ProgramInstance] = []
     digest = file_sha256(p)
@@ -134,7 +124,6 @@ def locate_haas_pgm(
                 parser_version=PARSER_VERSION,
                 parse_status="ok",
                 header_kind="o_number",
-                programmer=hit.programmer,
             )
         )
     return instances

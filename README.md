@@ -12,7 +12,8 @@ Index CNC machine **backup folder trees** into a portable **SQLite** catalog of 
 |----------|----------|
 | [Operator manual](docs/en/manual-simple.md) | Floor client (`can_index=no`) — search & extract |
 | [Indexer manual](docs/en/manual-full.md) | Indexer PC (`can_index=yes`) — build & maintain the database |
-| Polish manuals | [docs/pl/](docs/pl/) |
+| → [Day-to-day database hygiene](docs/en/manual-full.md#day-to-day-database-hygiene) | Incremental vs Full, Watch/schedule, pack beside DB, Haas unzip, weekly quality |
+| Polish manuals | [docs/pl/](docs/pl/) · [Higiena bazy](docs/pl/manual-full.md#higiena-bazy-na-co-dzień) |
 
 In the GUI: **Help / Pomoc** opens the same manuals (operator vs indexer text matches this PC’s `can_index`). Legacy filenames still say `manual-simple` / `manual-full`; there is **no** Prosty/Pełny mode switch.
 
@@ -45,11 +46,11 @@ Entry points:
 
 ## Instance settings (``gcode-index.ini``)
 
-**Ustawienia wracają po restarcie.** The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening restores backup / database / extract / green & yellow scan roots / language / `can_index` / schedule / watch / desktop prefs / last find-bar filters / sort / layout — without re-setup.
+**Ustawienia wracają po restarcie.** The Windows GUI remembers folders and options in **`gcode-index.ini`** next to ``gcode-index-gui.exe`` (or in the working directory when run from source). Reopening restores backup / database / extract / green & yellow scan roots / language / `can_index` / watch / quiet / safety / desktop prefs / last find-bar filters / sort / layout — without re-setup.
 
 - Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example) (every key commented, including `[filters]` / `[session]`)
 - Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
-- Sidecars next to the **database** folder (`machine_folders.yaml`, `folder_tree_map.yaml`, `folder_colour_aliases.yaml`, `aliases.local.yaml`, `extra_scan_roots.yaml`, …) auto-load with the DB — tree/role/machine maps survive restart
+- Sidecars next to the **database** folder (`folder_colour_aliases.yaml` **mandatory for Flag colours**, `folder_tree_map.yaml` for tip path reasons, `machine_folders.yaml`, `aliases.local.yaml`, `extra_scan_roots.yaml`, …) auto-load with the DB — tree/role/machine maps survive restart. Do **not** put `can_index` in the pack.
 - **`target`** = database folder · **`extract`** = Wydobądź output (blank → same as `target`)
 
 ## Windows GUI (Phase 2)
@@ -64,7 +65,7 @@ The GUI capability comes from **`gcode-index.ini`** next to the exe (not a runti
 
 | `can_index` | Who | What you see |
 |-------------|-----|----------------|
-| **no** (default / shop PCs) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, **Include unassigned** (locked ON), preview (+ find in preview), **Wydobądź** / Extract. Optional extract folder + path remap + auto-refresh. No scan / index / schedule / watch / map chrome. |
+| **no** (default / shop PCs) | Operators | **Retrieve only** — open existing DB, search, machines, dates, newest-only, **Include unassigned** (locked ON), preview (+ find in preview), **Wydobądź** / Extract. Optional extract folder + path remap + auto-refresh. No scan / index / watch / quiet / safety / map chrome. |
 | **yes** (indexer PC) | Indexer | Two nav tabs — **Work / Praca** (search, results, preview) and **Index / Indeks** (folders, scan, map, watch Auto\|Poll, schedule + countdown, history, autostart/tray, report/duplicates/Excel). |
 
 Deploy lock: `settings_locked=yes` or empty `operator.lock` / `can_index.lock` beside the ini forces retrieve-only. Legacy `[ui] mode=simple|full` still loads when `can_index` is absent (`simple`→`no`, `full`→`yes`). See `gcode-index.ini.example` for every setting commented.
@@ -89,14 +90,14 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - Main backup programs get a **green** flag (ran on the machine / from backup).
    - Extra-folder programs get a **yellow** flag (not from backup / not confirmed run).  
    - Nested roots: the **deepest** configured root that contains a file owns it (child colour wins; no duplicate rows).  
-   - **Status** 🟢 on-machine / 🟡 not-run comes from scan roots only. **Folder roles** (`folder_colour_aliases.yaml`): editable roles (labels, picker/palette, meaning) + folder-name → role/exclude aliases; deepest path segment wins — never overrides status.  
+   - **Status** 🟢 on-machine / 🟡 unknown comes from scan roots. **Flag** = status disc **plus** one disc per distinct function colour (image-drawn; never same-colour doubles). **`folder_colour_aliases.yaml` is mandatory** beside the DB for truthful Flag colours on floor clients. Roles with **can override main state colour** (prototype on by default) replace the status disc; other functions stay as additive Flag discs. **Role** text column is optional (hidden by default; tip explains reasons). **`folder_tree_map.yaml`** needed for tip path reasons.  
    - **Map tree…** (`folder_tree_map.yaml`): path-specific machine + **multi-tag** roles + exclude; longest path prefix beats name aliases; reindex reapplies without reopening the tree.  
    - Extra roots are saved as `extra_scan_roots.yaml` next to the DB.
-5. **Path remap (client)** under **Change…** if Extract/preview need a different drive letter than `scan_root` in the DB.
+5. **Path remap (client)** under **Mapping…** (Indexer) or **Change…** (floor client) if Extract/preview need a different drive letter than `scan_root` in the DB.
 6. Click **Folder names…** (optional but recommended) — the **name-binding hub**. Frequency list with **chips** (machine / function / recipient). Right-click a row → create from this name or add an alias to an existing entry (label/alias prefilled). Catalogue dialogs stay for maintenance. Writes `aliases.local.yaml` / exact `folder_colour_aliases` / `odbiorcy.yaml`.
    - First scan prompts when unmatched date/machine folders remain.
    - **Machines & aliases…** opens a **machine list**: select a machine to edit its folder aliases (and label / control / layout). **Add machine** / **Remove machine** manage shop-local machines. Bundled spellings are read-only; add a local spelling to customize. Bundled `aliases.yaml` stays read-only.
-7. Click **Run index / scan** (optional Excel export; optional **Incremental**; optional **Auto-index** schedule with live countdown).
+7. Click **Run index / scan** on the right of the Indeks bar (optional Excel export; optional **Incremental**; optional Watch quiet coalesce + safety rescan).
    **Watch folders** — method **Auto** (OS events on local disks, stamp-poll on UNC/network) or **Poll only**. One PC holds `gcode_index.lock`.
    **Scan history…** lists recent runs from `scan_history.json` (added/updated/removed/unchanged).
    Windows: **Start at Windows logon**, **Close to tray** / **Minimize to tray**.
@@ -110,13 +111,14 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)
    - **Control** (`haas`, `fanuc`, `sinumerik`)
    - **Flag** — all / green (backup) / yellow (extra)
-   - **Programmer** — next-line `(LP1)` / `(MS1)` when present (case-insensitive; other comments ignored)
    - **Newest only** — one row per program + machine (latest backup date)
+   - **Only green** / **Tylko zielone** — keep rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override blue (`only_green` in ini; AND with other filters; also in named views)
    - **View** — **Save current…** / **Load** / **Delete** named filter sets (`views.yaml` next to the DB; legacy `filter_presets.yaml` still loads)
    - Click any **results column header** to sort asc/desc (also on floor clients)
-   - **More filters** (indexer): size from/to (`10k` / `1.5M`) and file date (mtime/creation) ranges
+   - **More filters** (indexer + floor): inline ▾/▴ panel — source/control/status/role/odbiorca, views, size from/to (`10k` / `1.5M`), file date ranges
+   - Results legend: status green/yellow + **Overrides** chips only (roles with status-colour override)
    - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)
-   Search matches program #, part #, path, machine names, FANUC folder paths, and programmer.
+   Search matches program #, part #, path, machine names, and FANUC folder paths.
    Program-number search is **O / zero-padding aware**: `O03232`, `03232`, and `3232` find the same program.
    Empty text + filters still works.
 9. Select a row → **Extract selected…** / **Wydobądź zaznaczone…** (or double-click) to write the program body for your other parser (defaults into the **extract folder**).

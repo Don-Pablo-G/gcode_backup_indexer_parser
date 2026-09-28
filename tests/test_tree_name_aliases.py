@@ -1,4 +1,4 @@
-"""Name-wide role aliases: accumulate (union) + exact tree rules."""
+"""Name-wide role aliases: accumulate (union) + machine-style fuzzy."""
 
 from __future__ import annotations
 
@@ -47,19 +47,35 @@ def test_roles_accumulate_along_path(tmp_path: Path):
     assert ROLE_PERSONAL in roles
 
 
-def test_exact_rule_no_fuzzy_blast(tmp_path: Path):
-    """Tree-created exact rules must not fuzzy-match longer names."""
+def test_exact_flag_no_longer_blocks_fuzzy(tmp_path: Path):
+    """``exact=True`` is ignored — token-boundary match (0.2.105+)."""
     colours = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=True)]
     )
     assert colours.match_segment("Fix") == ROLE_FIXTURE
-    assert colours.match_segment("Fixture") is None  # would fuzzy-match if not exact
-    # Legacy fuzzy still works when exact=False
+    # Prefix Fix→Fixture no longer hits (residual 4 > 2)
+    assert colours.match_segment("Fixture") is None
+    assert colours.match_segment("Fix_bay") == ROLE_FIXTURE
     fuzzy = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=False)]
     )
-    assert fuzzy.match_segment("Fixture") == ROLE_FIXTURE
-
+    assert fuzzy.match_segment("Fix_bay") == ROLE_FIXTURE
+    # Mid-string 3-char does not substring-hit
+    assert colours.match_segment("XFixY") is None
+    # Substring ≥4 within one token still works
+    long = FolderColourAliasMap(
+        [FolderColourRule(alias="Uchw", colour=ROLE_FIXTURE, exact=True)]
+    )
+    assert long.match_segment("UCHWYTY") == ROLE_FIXTURE
+    # Motivating cases: pat vs pattyn / pat_backup
+    personal = FolderColourAliasMap(
+        [FolderColourRule(alias="pat", colour=ROLE_PERSONAL, exact=True)]
+    )
+    assert personal.match_segment("pattyn") is None
+    assert personal.match_segment("pat") == ROLE_PERSONAL
+    assert personal.match_segment("pat_backup") == ROLE_PERSONAL
+    assert personal.match_segment("pat-backup") == ROLE_PERSONAL
+    assert personal.match_segment("foo pat bar") == ROLE_PERSONAL
 
 def test_path_tags_replace_name_union(tmp_path: Path):
     bak = tmp_path / "bak"

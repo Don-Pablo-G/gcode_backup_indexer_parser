@@ -187,24 +187,48 @@ def normalize_extra_roots(
     return [p for p, _prov in normalize_scan_roots(specs, backup_root=backup_root)]
 
 
-def format_root_label(spec: ScanRootSpec, *, green_tag: str, yellow_tag: str) -> str:
-    tag = green_tag if spec.provenance == PROVENANCE_BACKUP else yellow_tag
+def format_root_label(
+    spec: ScanRootSpec,
+    *,
+    green_tag: str = "",
+    yellow_tag: str = "",
+) -> str:
+    """Listbox label: Flag disc + path (colour via Listbox item foreground).
+
+    ``green_tag`` / ``yellow_tag`` are kept for callers; legacy ``[G]`` / ``[Y]``
+    are replaced by the Flag disc glyph so Index UI matches the Flag column.
+    """
+    from gcode_index.badge_style import DOT_LARGE
+
+    legacy = {"[g]", "[y]", "g", "y"}
+    chosen = green_tag if spec.provenance == PROVENANCE_BACKUP else yellow_tag
+    tag = (chosen or "").strip()
+    if not tag or tag.casefold() in legacy:
+        tag = DOT_LARGE
     return f"{tag}  {spec.path}"
 
 
 def parse_root_label(label: str) -> Optional[ScanRootSpec]:
-    """Parse a listbox label produced by ``format_root_label``."""
+    """Parse a listbox label produced by ``format_root_label``.
+
+    Disc-only tags (``⬤`` / ``●``) are ambiguous — prefer in-memory
+    ``_hidden_root_specs`` in the GUI. Fallback treats a bare disc as yellow.
+    """
     raw = (label or "").strip()
     if not raw:
         return None
-    # "🟢  path" / "[G]  path" / "zielona  path"
+    # "⬤  path" / "🟢  path" / "[G]  path" / "zielona  path"
     parts = raw.split(None, 1)
     if len(parts) == 1:
         return ScanRootSpec(path=parts[0], provenance=PROVENANCE_EXTRA)
-    tag, path = parts[0].strip().casefold(), parts[1].strip()
+    tag_raw, path = parts[0].strip(), parts[1].strip()
+    tag = tag_raw.casefold()
     if tag in ("🟢", "[g]", "g", "green", "zielona", "backup"):
         return ScanRootSpec(path=path, provenance=PROVENANCE_BACKUP)
     if tag in ("🟡", "[y]", "y", "yellow", "żółta", "zolta", "extra"):
+        return ScanRootSpec(path=path, provenance=PROVENANCE_EXTRA)
+    # Flag discs (same glyph for green/yellow — colour is Listbox foreground)
+    if tag_raw in ("⬤", "●"):
         return ScanRootSpec(path=path, provenance=PROVENANCE_EXTRA)
     # Unknown tag — treat whole string as path (yellow)
     return ScanRootSpec(path=raw, provenance=PROVENANCE_EXTRA)

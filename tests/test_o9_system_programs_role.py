@@ -141,7 +141,7 @@ def test_legacy_duplicate_csv_collapses_on_display_and_reindex(tmp_path: Path):
     raw = "system_programs,system_programs,system"
     assert normalize_roles_list(raw) == [ROLE_SYSTEM_PROGRAMS]
     assert roles_to_db(raw.split(",")) == ROLE_SYSTEM_PROGRAMS
-    assert flag_text(PROVENANCE_BACKUP, raw.split(",")) == "⬤⬤"  # status + 1 role
+    assert flag_text(PROVENANCE_BACKUP, raw.split(",")) == "⬤"  # text fallback one glyph
 
     bak = tmp_path / "bak"
     hit = _write_nc(bak / "15.09.2026" / "VF2S" / "loose" / "sys.nc", "O9001")

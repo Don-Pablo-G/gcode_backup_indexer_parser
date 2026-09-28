@@ -37,6 +37,10 @@ from gcode_index.folder_tree_map import (
     roles_from_db,
     roles_to_db,
 )
+from gcode_index.header_match import (
+    match_machine_from_header,
+    match_roles_from_header,
+)
 from gcode_index.odbiorca_aliases import OdbiorcaAliasMap, match_odbiorca_from_header
 from gcode_index.folder_watch import path_under
 from gcode_index.scan_cache import ScanCache
@@ -275,6 +279,8 @@ def scan_backup_tree(
     tree_map: Optional[FolderTreeMap] = None,
     odbiorca_map: Optional[OdbiorcaAliasMap] = None,
     odbiorca_from_header: bool = True,
+    role_from_header: bool = True,
+    machine_from_header: bool = True,
     o9_system_programs_role: bool = True,
 ) -> ScanResult:
     root = Path(backup_root).resolve()
@@ -357,6 +363,10 @@ def scan_backup_tree(
     _apply_folder_tree_map_overrides(result, trees, aliases)
     if odbiorca_from_header:
         _apply_odbiorca_from_header(result, odbiorcy)
+    if role_from_header:
+        _apply_roles_from_header(result, colours)
+    if machine_from_header:
+        _apply_machine_from_header(result, aliases)
     if o9_system_programs_role:
         _apply_o9_system_programs_role(result)
     _normalize_instance_roles(result)
@@ -383,6 +393,8 @@ def scan_with_extra_roots(
     tree_map: Optional[FolderTreeMap] = None,
     odbiorca_map: Optional[OdbiorcaAliasMap] = None,
     odbiorca_from_header: bool = True,
+    role_from_header: bool = True,
+    machine_from_header: bool = True,
     o9_system_programs_role: bool = True,
 ) -> ScanResult:
     """Scan the main backup (green) plus optional additional folders.
@@ -479,6 +491,8 @@ def scan_with_extra_roots(
             tree_map=trees,
             odbiorca_map=odbiorcy,
             odbiorca_from_header=False,  # apply once on merged set below
+            role_from_header=False,
+            machine_from_header=False,
             o9_system_programs_role=False,
         )
         merged.instances.extend(part.instances)
@@ -492,6 +506,10 @@ def scan_with_extra_roots(
     _apply_folder_tree_map_overrides(merged, trees, aliases)
     if odbiorca_from_header:
         _apply_odbiorca_from_header(merged, odbiorcy)
+    if role_from_header:
+        _apply_roles_from_header(merged, colours)
+    if machine_from_header:
+        _apply_machine_from_header(merged, aliases)
     if o9_system_programs_role:
         _apply_o9_system_programs_role(merged)
     _normalize_instance_roles(merged)
@@ -628,6 +646,104 @@ def _apply_odbiorca_from_header(
             inst.odbiorca_id = oid
             n += 1
     result.odbiorca_from_header = n
+
+
+def _instance_source_file(inst) -> Optional[Path]:
+    root = (inst.scan_root or "").strip()
+    rel = (inst.source_path or "").strip()
+    if not root or not rel:
+        return None
+    try:
+        return Path(root) / rel
+    except Exception:
+        return None
+
+
+def _machine_is_unknown(inst) -> bool:
+    mid = (inst.machine_id or "").strip()
+    if not mid:
+        return True
+    low = mid.casefold()
+    return low == UNKNOWN_MACHINE_ID or low.startswith("unmapped:")
+
+
+def _apply_roles_from_header(
+    result: ScanResult,
+    colour_map: Optional[FolderColourAliasMap],
+) -> None:
+    """Accumulate role ids from header-window paren comments (after path/tree).
+
+    Never clears existing roles; never changes status / machine / odbiorca.
+    Runs before O9 so both can stack.
+    """
+    if colour_map is None or len(colour_map) == 0:
+        return
+    n = 0
+    for inst in result.instances:
+        path = _instance_source_file(inst)
+        if path is None:
+            continue
+        hits = match_roles_from_header(
+            path,
+            colour_map,
+            byte_start=inst.byte_start,
+        )
+        if not hits:
+            continue
+        roles = roles_from_db(inst.role)
+        seen = set(roles)
+        added = False
+        for rid in hits:
+            if rid in seen:
+                continue
+            roles.append(rid)
+            seen.add(rid)
+            added = True
+        if added:
+            inst.role = roles_to_db(roles)
+            n += 1
+    result.roles_from_header = n
+
+
+def _apply_machine_from_header(
+    result: ScanResult,
+    aliases: Optional[AliasMap],
+) -> None:
+    """Fill machine from header aliases only when still MACHINE UNKNOWN.
+
+    Folder map / name alias / tree ``machine_id`` always win — this never
+    overwrites a taught machine.
+    """
+    if aliases is None:
+        return
+    n = 0
+    for inst in result.instances:
+        if not _machine_is_unknown(inst):
+            continue
+        path = _instance_source_file(inst)
+        if path is None:
+            continue
+        hit = match_machine_from_header(
+            path,
+            aliases,
+            byte_start=inst.byte_start,
+        )
+        if hit is None:
+            continue
+        mid, _key, label, control_family = hit
+        inst.machine_id = mid
+        if label:
+            inst.machine_label = label
+        else:
+            info = aliases.info_for_machine_id(mid, mid)
+            if info is not None and info.label:
+                inst.machine_label = info.label
+            else:
+                inst.machine_label = mid
+        if control_family and not inst.control_family:
+            inst.control_family = control_family
+        n += 1
+    result.machine_from_header = n
 
 
 def _apply_folder_tree_map_overrides(

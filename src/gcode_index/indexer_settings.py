@@ -1,7 +1,9 @@
 """Shop defaults sidecar next to the database folder (``indexer_settings.yaml``).
 
-Carries scan toggles, auto-index schedule, and watch defaults with the data pack.
+Carries scan toggles, Watch coalesce / safety, and watch defaults with the data pack.
 Never stores or forces ``can_index`` — that stays in local ``gcode-index.ini``.
+
+Legacy ``schedule`` keys migrate once into ``watch_coalesce_s`` + ``watch_safety``.
 """
 
 from __future__ import annotations
@@ -13,7 +15,13 @@ from typing import Any, Optional
 import yaml
 
 from gcode_index.folder_watch import DEFAULT_WATCH_MODE, normalize_watch_mode
-from gcode_index.schedule import SCHEDULE_OFF, normalize_schedule
+from gcode_index.schedule import (
+    DEFAULT_WATCH_COALESCE_S,
+    SCHEDULE_OFF,
+    clamp_watch_coalesce_s,
+    migrate_legacy_schedule,
+    normalize_watch_safety,
+)
 
 INDEXER_SETTINGS_FILENAME = "indexer_settings.yaml"
 
@@ -26,17 +34,19 @@ class IndexerSettings:
     also_excel: bool = False
     newest_only: bool = False
     include_unknown: bool = True
-    schedule: str = SCHEDULE_OFF
     watch_folders: bool = False
     watch_mode: str = DEFAULT_WATCH_MODE
+    watch_coalesce_s: int = DEFAULT_WATCH_COALESCE_S
+    watch_safety: str = SCHEDULE_OFF
     # Optional documented logical roots (UNC/share forms preferred when known)
     backup_hint: str = ""
     green_root_hints: list[str] = field(default_factory=list)
     yellow_root_hints: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self.schedule = normalize_schedule(self.schedule)
         self.watch_mode = normalize_watch_mode(self.watch_mode)
+        self.watch_coalesce_s = clamp_watch_coalesce_s(self.watch_coalesce_s)
+        self.watch_safety = normalize_watch_safety(self.watch_safety)
         self.backup_hint = (self.backup_hint or "").strip()
         self.green_root_hints = _clean_path_list(self.green_root_hints)
         self.yellow_root_hints = _clean_path_list(self.yellow_root_hints)
@@ -98,16 +108,36 @@ def load_indexer_settings(path: Path | str | None) -> Optional[IndexerSettings]:
     # Never honour a can_index key if present in an old/hand-edited file
     data.pop("can_index", None)
     data.pop("ui_mode", None)
+
+    has_coalesce = "watch_coalesce_s" in data
+    has_safety = "watch_safety" in data
+    if has_coalesce or has_safety:
+        coalesce_s = (
+            clamp_watch_coalesce_s(data.get("watch_coalesce_s"))
+            if has_coalesce
+            else DEFAULT_WATCH_COALESCE_S
+        )
+        safety = (
+            normalize_watch_safety(str(data.get("watch_safety") or SCHEDULE_OFF))
+            if has_safety
+            else SCHEDULE_OFF
+        )
+    else:
+        coalesce_s, safety = migrate_legacy_schedule(
+            str(data.get("schedule") or SCHEDULE_OFF)
+        )
+
     return IndexerSettings(
         incremental=_truthy(data.get("incremental"), default=True),
         also_excel=_truthy(data.get("also_excel"), default=False),
         newest_only=_truthy(data.get("newest_only"), default=False),
         include_unknown=_truthy(data.get("include_unknown"), default=True),
-        schedule=normalize_schedule(str(data.get("schedule") or SCHEDULE_OFF)),
         watch_folders=_truthy(data.get("watch_folders"), default=False),
         watch_mode=normalize_watch_mode(
             str(data.get("watch_mode") or DEFAULT_WATCH_MODE)
         ),
+        watch_coalesce_s=coalesce_s,
+        watch_safety=safety,
         backup_hint=str(data.get("backup_hint") or "").strip(),
         green_root_hints=_clean_path_list(data.get("green_root_hints")),
         yellow_root_hints=_clean_path_list(data.get("yellow_root_hints")),
@@ -125,15 +155,17 @@ def save_indexer_settings(
         "_comment": (
             "Shop / indexer defaults for this database folder (data pack). "
             "Loaded when target points here. Does NOT set indexer capability "
-            "(that stays in local gcode-index.ini next to the exe)."
+            "(that stays in local gcode-index.ini next to the exe). "
+            "watch_coalesce_s = min quiet seconds; watch_safety = off|15m|1h|…"
         ),
         "incremental": bool(settings.incremental),
         "also_excel": bool(settings.also_excel),
         "newest_only": bool(settings.newest_only),
         "include_unknown": bool(settings.include_unknown),
-        "schedule": normalize_schedule(settings.schedule),
         "watch_folders": bool(settings.watch_folders),
         "watch_mode": normalize_watch_mode(settings.watch_mode),
+        "watch_coalesce_s": clamp_watch_coalesce_s(settings.watch_coalesce_s),
+        "watch_safety": normalize_watch_safety(settings.watch_safety),
     }
     if settings.backup_hint:
         payload["backup_hint"] = settings.backup_hint

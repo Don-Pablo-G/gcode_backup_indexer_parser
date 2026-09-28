@@ -12,7 +12,8 @@ Indeksuje **drzewa kopii zapasowych** maszyn CNC do przenośnego katalogu **SQLi
 |----------|----------|
 | [Instrukcja operatora](docs/pl/manual-simple.md) | Klient hali (`can_index=no`) — szukanie i wydobycie |
 | [Instrukcja indeksatora](docs/pl/manual-full.md) | PC indeksatora (`can_index=yes`) — budowa i utrzymanie bazy |
-| Same manuals in English | [docs/en/](docs/en/) |
+| → [Higiena bazy na co dzień](docs/pl/manual-full.md#higiena-bazy-na-co-dzień) | Przyrostowy vs Pełny, Obserwuj/przerwa/bezpieczeństwo, pakiet obok bazy, rozpakowanie Haas, cotygodniowa jakość |
+| Same manuals in English | [docs/en/](docs/en/) · [Database hygiene](docs/en/manual-full.md#day-to-day-database-hygiene) |
 
 W aplikacji GUI: menu **Pomoc** otwiera te same instrukcje (operator vs indeksator wg `can_index` tej instalacji). Nazwy plików `manual-simple` / `manual-full` są legacy — **nie ma** przełącznika Prosty/Pełny.
 
@@ -44,11 +45,11 @@ python3 -m pip install -e ".[dev]"
 | `can_index` | Kto | Co widać |
 |-------------|-----|----------|
 | **no** (domyślnie / hala) | Operator | Tylko odczyt — otwórz bazę, szukaj, **Uwzględniaj nieprzypisane** (zablokowane ON), podgląd (+ szukanie w podglądzie), **Wydobądź**. Opcjonalnie mapowanie ścieżek i **Odświeżaj wyniki**. |
-| **yes** (PC indeksatora) | Indeksator | Zakładki **Praca** / **Indeks**; skan; **Role folderów…** (prototyp/osobisty/system/przyrząd); obserwacja Auto\|Poll; … |
+| **yes** (PC indeksatora) | Indeksator | Zakładki **Praca** / **Indeks**; skan; **Role i aliasy…** (prototyp/osobisty/system/przyrząd); Flaga = status + kolorowe funkcje; obserwacja Auto\|Poll; … |
 
 Blokada wdrożenia: `settings_locked=yes` albo pusty `operator.lock` / `can_index.lock` obok ini wymusza odczyt. Legacy `[ui] mode=simple|full` nadal się wczytuje (`simple`→`no`, `full`→`yes`). Wszystkie klucze: `gcode-index.ini.example`.
 
-Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza).
+Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza). Obok bazy **obowiązkowo** `folder_colour_aliases.yaml` (kolory Flagi); `folder_tree_map.yaml` dla powodów ścieżek w tipie. Nie wkładaj `can_index` do pakietu danych.
 
 ### Po skanie przyrostowym
 

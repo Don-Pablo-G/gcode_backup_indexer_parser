@@ -19,6 +19,20 @@ def test_preview_popup_and_columns_i18n():
         assert t(lang, "columns_menu")
         assert t(lang, "columns_menu_title")
         assert t(lang, "colour_legend_roles")
+        assert t(lang, "colour_legend_overrides")
+        assert t(lang, "ctx_extract_to")
+    assert t("pl", "ctx_extract_to").startswith("Wydobądź")
+    assert "Extract to" in t("en", "ctx_extract_to")
+
+
+def test_preview_popup_wires_extract_to_shared_helper():
+    """Preview footer Extract to… must call the Work extract-to pipeline."""
+    gui = Path(__file__).resolve().parents[1] / "src" / "gcode_index" / "gui.py"
+    src = gui.read_text(encoding="utf-8")
+    # Marker: button in _open_preview_popup footer, not a second extract path
+    assert 'text=self._("ctx_extract_to")' in src
+    assert "command=self._extract_to_folder" in src
+    assert src.count("def _extract_to_folder") == 1
 
 
 @pytest.mark.skipif(
@@ -40,7 +54,7 @@ def test_preview_popup_columns_legend_and_lang_nav_lock(tmp_path: Path, monkeypa
     )
     monkeypatch.setenv("GCODE_INDEX_INI", str(ini))
 
-    from gcode_index.gui import IndexerApp, RESULT_COLUMNS
+    from gcode_index.gui import IndexerApp, RESULT_COLUMNS, RESULT_DATA_COLUMNS
 
     app = IndexerApp()
     try:
@@ -65,6 +79,19 @@ def test_preview_popup_columns_legend_and_lang_nav_lock(tmp_path: Path, monkeypa
         app._open_preview_popup()
         assert app._preview_widgets_alive()
         assert app._preview_win is not None
+        # Extract to… shares the footer action row with Close
+        foot_labels: list[str] = []
+
+        def _collect_buttons(widget) -> None:
+            for child in widget.winfo_children():
+                cls = str(child.winfo_class())
+                if cls == "TButton":
+                    foot_labels.append(str(child.cget("text")))
+                _collect_buttons(child)
+
+        _collect_buttons(app._preview_win)
+        assert app._("ctx_extract_to") in foot_labels
+        assert app._("close") in foot_labels
         app._close_preview_popup(persist=False)
         assert not app._preview_widgets_alive()
 
@@ -73,13 +100,19 @@ def test_preview_popup_columns_legend_and_lang_nav_lock(tmp_path: Path, monkeypa
         app._set_column_visible("path", True)
         assert "path" not in app._hidden_columns
 
-        # Columns do not use Tk stretch (we fill / adjacent-resize ourselves)
-        for col in RESULT_COLUMNS:
+        # Flag is Treeview #0 (image); data columns are RESULT_DATA_COLUMNS.
+        # Neither uses Tk stretch (we fill / adjacent-resize ourselves).
+        assert int(app.tree.column("#0", "stretch")) == 0
+        for col in RESULT_DATA_COLUMNS:
             assert int(app.tree.column(col, "stretch")) == 0
         app.update_idletasks()
         app._fill_tree_columns()
         visible = app._visible_result_columns()
-        total = sum(int(app.tree.column(c, "width")) for c in visible)
+        widths = []
+        if app._flag_column_visible():
+            widths.append(int(app.tree.column("#0", "width")))
+        widths.extend(int(app.tree.column(c, "width")) for c in visible)
+        total = sum(widths)
         usable = app._tree_usable_width()
         if usable > 0:
             assert total == usable

@@ -3,13 +3,24 @@
 Emoji (🟢🟡🔴) often render as patterned B&W glyphs under Windows tk fonts.
 Use a monochrome circle ``●`` (U+25CF) that takes Treeview/Listbox
 ``foreground=`` hex, or a solid ``tk.Label`` background chip for legends.
+
+**Multi-colour Flag model** (restated 0.2.95):
+
+- Always show **status** 🟢 backup / 🟡 extra, **unless** a role with
+  ``can_override_main_state_colour`` replaces it (prototype → single blue).
+- Then add **one disc per distinct function colour** from row roles.
+- Never two discs of the **same** colour (dedupe by swatch hex).
+- True multi-colour needs a composed image (see ``flag_image``) — Treeview
+  one-fg would paint every ``⬤`` the same colour (the old double-green bug).
+- Row text colour still follows the **primary** disc (status or override) via
+  ``flag_tag``; function discs do not recolour the whole row.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
-from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA
+from gcode_index.models import PROVENANCE_BACKUP, PROVENANCE_EXTRA, ROLE_PROTOTYPE
 
 if TYPE_CHECKING:
     import tkinter as tk
@@ -23,6 +34,9 @@ STATUS_SWATCH = {
     PROVENANCE_BACKUP: "#1A7F37",  # on machine / green
     PROVENANCE_EXTRA: "#B58900",  # status unknown / yellow (never a role)
 }
+
+# Fixed override priority: prototype first, then stable alphabetical order.
+_OVERRIDE_PRIORITY_FIRST = (ROLE_PROTOTYPE,)
 
 
 def status_swatch(prov: Optional[str]) -> str:
@@ -40,40 +54,139 @@ def role_dot(_badge: Optional[str] = None) -> str:
     return DOT_LARGE
 
 
-def flag_text(prov: Optional[str], role_ids: Sequence[str] | None = None) -> str:
-    """Flag-column text: status disc + one disc per unique role (alongside).
+def normalize_swatch_hex(colour: Optional[str]) -> str:
+    """Lowercase ``#rrggbb`` for same-colour dedupe (3-digit expanded)."""
+    raw = (colour or "").strip() or "#888888"
+    if not raw.startswith("#"):
+        raw = f"#{raw}"
+    h = raw[1:]
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    if len(h) != 6:
+        return "#888888"
+    try:
+        int(h, 16)
+    except ValueError:
+        return "#888888"
+    return f"#{h.casefold()}"
 
-    Roles are a set — duplicate ids never produce extra chips. Status is always
-    present as the first disc; role discs are extras, not a replacement.
+
+def pick_override_role(
+    role_ids: Sequence[str] | None,
+    override_role_ids: Sequence[str] | None = None,
+) -> Optional[str]:
+    """Return the role id that should replace status, or ``None``.
+
+    Only roles listed in ``override_role_ids`` qualify. Among matches:
+    prototype first, then stable sorted order. Same-colour / duplicate role
+    ids are already collapsed by ``normalize_roles_list``.
     """
     from gcode_index.folder_tree_map import normalize_roles_list
 
+    override = {
+        str(x).strip()
+        for x in (override_role_ids or ())
+        if x is not None and str(x).strip()
+    }
+    if not override:
+        return None
     roles = normalize_roles_list(list(role_ids or []))
-    parts = [DOT_LARGE]  # status
-    parts.extend(DOT_LARGE for _ in roles)
-    return "".join(parts)
+    candidates = [r for r in roles if r in override]
+    if not candidates:
+        return None
+    for preferred in _OVERRIDE_PRIORITY_FIRST:
+        if preferred in candidates:
+            return preferred
+    return sorted(candidates)[0]
+
+
+def flag_discs(
+    prov: Optional[str],
+    role_ids: Sequence[str] | None = None,
+    *,
+    override_role_ids: Sequence[str] | None = None,
+    role_swatches: Mapping[str, str] | None = None,
+) -> list[tuple[str, str]]:
+    """Ordered Flag discs as ``(id, hex)`` — status/override then functions.
+
+    Rules:
+    - Override match → **only** that role's disc (replaces status).
+    - Otherwise → status disc, then one disc per **distinct** role colour
+      (skip when the swatch matches a disc already shown).
+    """
+    from gcode_index.folder_tree_map import normalize_roles_list
+
+    swatches = dict(role_swatches or {})
+    roles = normalize_roles_list(list(role_ids or []))
+    chosen = pick_override_role(roles, override_role_ids)
+    if chosen:
+        hx = swatches.get(chosen) or "#888888"
+        return [(chosen, hx)]
+
+    status = (prov or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP
+    status_hex = status_swatch(status)
+    discs: list[tuple[str, str]] = [(status, status_hex)]
+    seen = {normalize_swatch_hex(status_hex)}
+    for rid in roles:
+        hx = swatches.get(rid) or "#888888"
+        key = normalize_swatch_hex(hx)
+        if key in seen:
+            continue
+        seen.add(key)
+        discs.append((rid, hx))
+    return discs
+
+
+def flag_text(
+    prov: Optional[str],
+    role_ids: Sequence[str] | None = None,
+    *,
+    override_role_ids: Sequence[str] | None = None,
+) -> str:
+    """Plain-text Flag fallback: one ``⬤`` only (never multi-glyph).
+
+    GUI Work/floor results use ``flag_image`` for true multi-colour discs.
+    Do **not** put several ``⬤`` here — Treeview one-fg would reintroduce
+    same-colour doubles.
+    """
+    _ = (prov, role_ids, override_role_ids)
+    return DOT_LARGE
 
 
 def flag_tag(
     prov: Optional[str],
     role_ids: Sequence[str] | None = None,
     *,
-    role_overshadow_status: bool = False,
+    override_role_ids: Sequence[str] | None = None,
 ) -> str:
-    """Treeview tag name for row/flag colour.
+    """Treeview tag name for **row text** colour (primary disc only).
 
-    Default: **status** wins (green backup / yellow extra). When
-    ``role_overshadow_status`` is True and roles exist, the first role id
-    colours the row instead.
+    Default: **status** (green backup / yellow extra). When a matching role
+    has override enabled, that role colours the row instead.
     """
-    from gcode_index.folder_tree_map import normalize_roles_list
-
+    chosen = pick_override_role(role_ids, override_role_ids)
+    if chosen:
+        return f"flag_{chosen}"
     status = (prov or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP
-    if role_overshadow_status:
-        roles = normalize_roles_list(list(role_ids or []))
-        if roles:
-            return f"flag_{roles[0]}"
     return f"flag_{status}"
+
+
+def is_flag_green(
+    prov: Optional[str],
+    role_ids: Sequence[str] | None = None,
+    *,
+    override_role_ids: Sequence[str] | None = None,
+) -> bool:
+    """True when the primary Flag disc is backup/trusted green.
+
+    Yellow (extra) and overriding function colours (e.g. prototype blue) are
+    not green — used by the Work GUI **Only green** filter. Additive function
+    discs beside green status do not change this.
+    """
+    return (
+        flag_tag(prov, role_ids, override_role_ids=override_role_ids)
+        == f"flag_{PROVENANCE_BACKUP}"
+    )
 
 
 def make_swatch(
@@ -131,6 +244,33 @@ def pack_status_legend(
     return frame
 
 
+def override_role_legend_items(
+    colours: Sequence[object],
+    lang: str = "pl",
+    *,
+    cap: int = 6,
+) -> list[tuple[str, str]]:
+    """``(swatch, label)`` chips for roles that replace status colour.
+
+    Non-override catalogue roles stay out of the results legend (they live on
+    Flag discs / hover tip). Catalogue order; optional cap for rare shops.
+    """
+    items: list[tuple[str, str]] = []
+    for c in colours:
+        if not bool(getattr(c, "can_override_main_state_colour", False)):
+            continue
+        label_fn = getattr(c, "label", None)
+        if callable(label_fn):
+            label = str(label_fn(lang))
+        else:
+            label = str(getattr(c, "id", "") or "")
+        swatch = str(getattr(c, "swatch", "") or "#888888")
+        items.append((swatch, label))
+        if len(items) >= max(1, int(cap)):
+            break
+    return items
+
+
 def pack_compact_colour_legend(
     parent: "tk.Misc",
     *,
@@ -139,7 +279,7 @@ def pack_compact_colour_legend(
     role_items: Sequence[tuple[str, str]] | None = None,
     roles_caption: str = "",
 ) -> "tk.Frame":
-    """One-line status (+ optional role) legend for the results toolbar."""
+    """One-line status (+ optional override-role) legend for the results toolbar."""
     import tkinter as tk
 
     frame = tk.Frame(parent)

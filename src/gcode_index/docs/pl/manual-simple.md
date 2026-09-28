@@ -22,6 +22,8 @@ Plików kopii zapasowej nigdy nie zmieniasz. Wydobycie zawsze zapisuje do osobne
 2. Sprawdź, że na tym PC w `gcode-index.ini` jest `can_index = no` (domyślnie dla kopii halowych).
 3. Kliknij zielony przycisk **Otwórz istniejącą bazę…** i wskaż `gcode_index.sqlite`.
 
+W folderze bazy musi też być **`folder_colour_aliases.yaml`**, żeby kolory Flagi zgadzały się z katalogiem sklepu. Bez niego zobaczysz ostrzeżenie i tylko domyślne kolory. Trzymaj też **`folder_tree_map.yaml`**, jeśli tip Flagi ma pokazywać powody ścieżek. W pakiecie współdzielonym nie umieszczaj `can_index`.
+
 Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder co otwarta baza). Na kliencie hali **nie ma** pól folderu kopii ani folderu bazy — katalog wybierasz przez **Otwórz istniejącą bazę…**.
 
 ---
@@ -33,7 +35,9 @@ Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder 
 3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR` (albo mały kalendarz przez **▾** obok pola).
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
 5. **Uwzględniaj nieprzypisane** / **Include unassigned** na kliencie hali jest zawsze **włączone** i **zablokowane** — przy filtrze maszyn w wynikach zostają też **MACHINE UNKNOWN** / nieprzypisane. (Na PC indeksatora można wyłączyć po ostrzeżeniu; zapis: `include_unknown` w ini, domyślnie yes.)
-6. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
+6. Opcjonalnie **Tylko zielone** — tylko wiersze z zielonym krążkiem Flag (ukrywa żółte i nadpisania).
+7. **Więcej filtrów ▾** otwiera panel zaawansowany pod paskiem (jak na indeksatorze): typ źródła, sterowanie, status, rola, odbiorca, **widoki**, zakresy rozmiaru i daty pliku. Ponowny klik (**Mniej filtrów ▴**) chowa panel — wartości zostają. Stan otwarcia jest w ini.
+8. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 
 Wyniki są w tabeli. **Podgląd** jest na stałe **po prawej** (pełna wysokość, rozciągany) — nie pod tabelą.
 
@@ -50,7 +54,7 @@ Jeśli plik źródłowy **nie istnieje** na dysku (kolumna **Źródło = BRAK**)
 
 ## Szukanie w podglądzie
 
-Zaznacz wiersz wyniku, żeby załadować G-code w **Podglądzie** po prawej. Pole **W podglądzie** nad tekstem szuka w treści — **▲** / **▼** (lub Enter / Shift+Enter) przechodzą między trafieniami; wyniki są podświetlone.
+Zaznacz wiersz wyniku i otwórz **Podgląd…**. Pole **W podglądzie** nad tekstem szuka w treści — **▲** / **▼** (lub Enter / Shift+Enter) przechodzą między trafieniami; wyniki są podświetlone. **Wydobądź do…** w wierszu akcji podglądu zapisuje oglądany program do wybranego folderu (jak prawy przycisk na wynikach).
 
 ---
 
@@ -74,18 +78,20 @@ Zobacz **Instrukcję indeksatora** w menu Pomoc.
 
 ## Mapowanie ścieżek (klient)
 
-Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:**, ustaw w **Zmień…** sekcję **Mapowanie ścieżek (klient)**:
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), w **Zmień…** → **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
 
 - **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
-Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
+
+Prawy przycisk na wyniku → **Wydobądź do…** — wybierz folder docelowy (ostatnie foldery są zapamiętywane).
 
 ---
 
 ## Po aktualizacji bazy przez indeksator
 
-Gdy PC indeksatora robi skan **przyrostowy** (Obserwuj foldery lub auto-indeks), nadpisuje `gcode_index.sqlite` na udziale. Klient hali **nie** musi zamykać bazy ani czyścić paska szukania:
+Gdy PC indeksatora robi skan **przyrostowy** (Obserwuj foldery lub skan bezpieczeństwa), nadpisuje `gcode_index.sqlite` na udziale. Klient hali **nie** musi zamykać bazy ani czyścić paska szukania:
 
 1. Zaznacz **Odświeżaj wyniki** (zapis: `search_auto_refresh` w ini; interwał `search_auto_refresh_s`, domyślnie ~20 s).
 2. Gdy zmieni się mtime pliku bazy, aplikacja **ponawia bieżące wyszukiwanie** z tym samym tekstem, maszynami, datami i filtrami.
@@ -96,6 +102,12 @@ Bez odświeżania kliknij ponownie **Szukaj** (albo zmień filtr) po zakończeni
 ## Blokada operatora
 
 Gdy jest `operator.lock` / `can_index.lock` obok ini lub exe, albo `settings_locked=yes` w ini, PC zostaje w trybie odczytu nawet po edycji `can_index=yes`. **Nie ma** przełącznika Prosty/Pełny — zdolność to tylko `can_index` + blokada.
+
+## Higiena pakietu (hala)
+
+Otwieraj **współdzielony folder bazy**, nie sam plik sqlite. Trzymaj `folder_colour_aliases.yaml` (i najlepiej `folder_tree_map.yaml`) obok `gcode_index.sqlite`. `gcode-index.ini` tego PC zostaje lokalne — nigdy nie wkładaj `can_index` do pakietu współdzielonego. Preferuj osobny folder **wydobycia**, żeby Wydobądź nie zaśmiecało pakietu.
+
+Codzienne utrzymanie indeksu (Obserwuj / Przyrostowy vs Pełny / cotygodniowa jakość) jest na PC indeksatora — zobacz **Higiena bazy na co dzień** w instrukcji indeksatora.
 
 ## Wskazówki
 

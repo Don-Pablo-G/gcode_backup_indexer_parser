@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS program_instances (
   role TEXT,
   odbiorca_id TEXT,
   scan_root TEXT,
-  programmer TEXT,
+  programmer TEXT,  -- legacy; retained so older DBs open; no longer populated
   run_id TEXT,
   FOREIGN KEY (run_id) REFERENCES index_runs(run_id)
 );
@@ -208,7 +208,7 @@ def write_scan_result(
                 roles_to_db(roles_from_db(inst.role)),
                 inst.odbiorca_id,
                 inst.scan_root,
-                inst.programmer,
+                None,  # programmer column kept for older DBs; no longer populated
                 run_id,
             )
         )
@@ -417,7 +417,7 @@ _INSTANCE_SELECT = """
                source_path, line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_mtime, source_size, content_sha256,
                program_sha256,
-               provenance, role, odbiorca_id, scan_root, programmer
+               provenance, role, odbiorca_id, scan_root
         FROM program_instances
 """
 
@@ -477,7 +477,6 @@ _SORT_KEY_FNS = {
     ).casefold(),
     "program": lambda r: str(r["program_number"] or "").casefold(),
     "part": lambda r: str(r["part_number"] or "").casefold(),
-    "programmer": lambda r: str(r["programmer"] or "").casefold(),
     "odbiorca": lambda r: str(
         r["odbiorca_id"] if "odbiorca_id" in r.keys() else ""
     ).casefold(),
@@ -598,7 +597,6 @@ def query_instances(
     provenance: Optional[str] = None,
     role: Optional[str] = None,
     odbiorca: Optional[str] = None,
-    programmer: Optional[str] = None,
     newest_only: bool = False,
     include_unknown: bool = False,
     limit: int = 500,
@@ -606,7 +604,7 @@ def query_instances(
     """Flexible filter/search for GUI and CLI.
 
     ``text`` — free substring (any characters) across program #, part #, path,
-    machine id/label/folder, FANUC folder_path, date folder, programmer.
+    machine id/label/folder, FANUC folder_path, date folder.
     Program-shaped queries (optional ``O`` + digits) also match ``program_number``
     after stripping ``O`` / leading zeros (``1234`` ↔ ``O01234`` ↔ ``01234``).
     ``machine`` — single machine id/label (CLI); ignored if ``machines`` is set.
@@ -619,7 +617,6 @@ def query_instances(
     (``COALESCE(source_mtime, file_ctime, backup_date)``).
     ``source_type`` / ``control_family`` — exact match when set.
     ``provenance`` — ``backup`` (green / ran on machine) or ``extra`` (yellow).
-    ``programmer`` — exact uppercase flag e.g. ``LP1`` (case-insensitive input).
     ``newest_only`` — keep newest row per program+machine after filtering.
     ``include_unknown`` — when a machine multi-select is active, also keep
     ``MACHINE UNKNOWN`` / ``unmapped:…`` rows (floor-client sticky default).
@@ -643,9 +640,8 @@ def query_instances(
             "LOWER(IFNULL(machine_folder_raw,'')) LIKE ?",
             "LOWER(IFNULL(folder_path,'')) LIKE ?",
             "LOWER(IFNULL(date_folder_raw,'')) LIKE ?",
-            "LOWER(IFNULL(programmer,'')) LIKE ?",
         ]
-        field_params: list[object] = [like] * 9
+        field_params: list[object] = [like] * 8
         # #20: also match program_number against O/padding variants
         if is_program_number_query(q):
             for needle in program_search_variants(q):
@@ -789,13 +785,6 @@ def query_instances(
             clauses.append("IFNULL(odbiorca_id,'') = ?")
             params.append(odb)
 
-    if programmer is not None and str(programmer).strip() and str(programmer).strip() not in {
-        "(all)",
-        "(wszystkie)",
-    }:
-        clauses.append("UPPER(IFNULL(programmer,'')) = ?")
-        params.append(str(programmer).strip().upper())
-
     sql = _INSTANCE_SELECT
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
@@ -904,16 +893,6 @@ def list_filter_values(
             """
         )
     ]
-    programmers = [
-        r[0]
-        for r in conn.execute(
-            """
-            SELECT DISTINCT programmer FROM program_instances
-            WHERE programmer IS NOT NULL AND programmer != ''
-            ORDER BY programmer
-            """
-        )
-    ]
     odbiorcy = [
         r[0]
         for r in conn.execute(
@@ -928,7 +907,6 @@ def list_filter_values(
         "machines": machines,
         "source_types": types,
         "control_families": families,
-        "programmers": programmers,
         "odbiorcy": odbiorcy,
     }
 

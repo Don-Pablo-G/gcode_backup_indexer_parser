@@ -22,6 +22,8 @@ You never change the backup files. Extract always writes to a separate folder.
 2. Confirm this PC’s `gcode-index.ini` has `can_index = no` (default for shop copies).
 3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.
 
+The database folder must also contain **`folder_colour_aliases.yaml`** so Flag colours match the shop catalogue. Without it you get a status warning and seed colours only. Keep **`folder_tree_map.yaml`** too if Flag hover tips should show path reasons. Do not expect `can_index` inside the shared pack.
+
 Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydobądź output (blank = same folder as the open database). Floor clients have **no** backup or database folder pickers — use **Open existing DB…** to choose the catalog.
 
 ---
@@ -33,7 +35,9 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 3. Optionally set **Date from / to** as `DD.MM.YYYY` (or open the small calendar via **▾** next to each field).
 4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
 5. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
-6. Click a **column header** in the results table to sort ascending/descending (click again to flip).
+6. Optionally tick **Only green** / **Tylko zielone** to keep rows whose Flag disc is green (hides yellow and override colours).
+7. **More filters ▾** opens an advanced panel under the find bar (same as the indexer): source type, control, status, role, odbiorca, named **views**, size and file-date ranges. Click again (**Fewer filters ▴**) to hide — values stay applied. Open/closed is remembered in the ini.
+8. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 
 Results appear in the table. **Preview** stays docked on the **right** (full height, resizable) — not under the table.
 
@@ -50,7 +54,7 @@ If the source file is **missing on disk** (column **Source = MISSING**) or chang
 
 ## Find in preview
 
-Select a result row to load G-code in the right-hand **Preview**. Use **In preview** above the text to search inside the body — **▲** / **▼** (or Enter / Shift+Enter) move between matches; hits are highlighted.
+Select a result row and open **Preview…**. Use **In preview** above the text to search inside the body — **▲** / **▼** (or Enter / Shift+Enter) move between matches; hits are highlighted. **Extract to…** on the preview action row writes the viewed program to a folder you choose (same as right-click on results).
 
 ---
 
@@ -74,18 +78,20 @@ See the **Indexer manual** in the Help menu.
 
 ## Path remap (client)
 
-If the index was built on a server as **C:** and this PC sees the same share as **Z:**, open **Change…** and set **Path remap (client)**:
+If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Change…** → **Path remap (client)** and **Add…** one or more rules:
 
 - **Prefix in index** = `C:\…` (as stored in the DB / `scan_root`)
 - **Local prefix** = `Z:\…` (as on this PC)
 
-Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
+
+Right-click a result → **Extract to…** to pick a destination folder (recent folders are remembered).
 
 ---
 
 ## After the indexer updates the database
 
-When the indexer PC runs an **incremental** scan (Watch folders or scheduled auto-index), it rewrites `gcode_index.sqlite` on the shared path. Floor clients do **not** need to close the DB or clear the find bar:
+When the indexer PC runs an **incremental** scan (Watch folders or safety rescan), it rewrites `gcode_index.sqlite` on the shared path. Floor clients do **not** need to close the DB or clear the find bar:
 
 1. Tick **Auto-refresh results** / **Odświeżaj wyniki** (saved as `search_auto_refresh` in the ini; poll interval `search_auto_refresh_s`, default ~20 s).
 2. When the DB file’s mtime changes, the app **re-runs the current search** with the same text, machines, dates, and filters.
@@ -96,6 +102,12 @@ Without auto-refresh, click **Search** again (or change a filter) after the inde
 ## Operator lock
 
 If this PC has `operator.lock` / `can_index.lock` beside the ini or exe, or `settings_locked=yes` in the ini, it stays retrieve-only even if someone edits `can_index=yes`. There is **no** Prosty/Pełny (Simple/Full) mode switch — capability is only `can_index` + lock.
+
+## Pack hygiene (floor)
+
+Open the **shared database folder**, not a lone sqlite copy. Keep `folder_colour_aliases.yaml` (and preferably `folder_tree_map.yaml`) beside `gcode_index.sqlite`. Your PC’s `gcode-index.ini` stays local — never put `can_index` in the shared pack. Prefer a separate **extract** folder so Wydobądź output does not clutter the pack.
+
+Day-to-day index maintenance (Watch / Incremental vs Full / weekly quality check) lives on the indexer PC — see **Day-to-day database hygiene** in the Indexer manual.
 
 ## Tips
 

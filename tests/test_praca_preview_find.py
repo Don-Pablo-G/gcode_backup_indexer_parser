@@ -39,6 +39,8 @@ def test_full_manual_mentions_praca_indeks():
     assert "Work" in en and "Index" in en
     assert "W podglądzie" in pl
     assert "In preview" in en
+    assert "Wydobądź do…" in pl
+    assert "Extract to…" in en
 
 
 @pytest.mark.skipif(

@@ -81,15 +81,18 @@ from gcode_index.folder_tree_map import (
 from gcode_index.badge_style import (
     DOT,
     STATUS_SWATCH,
+    flag_discs,
     flag_tag,
     flag_text,
+    is_flag_green,
     make_swatch,
+    override_role_legend_items,
     pack_compact_colour_legend,
-    pack_status_legend,
     role_dot,
     status_dot,
     status_swatch,
 )
+from gcode_index.flag_image import FlagPhotoCache, flag_image_size
 from gcode_index.column_layout import (
     DEFAULT_COLUMN_WIDTHS,
     MIN_COLUMN_WIDTH,
@@ -116,6 +119,7 @@ from gcode_index.folder_colour_aliases import (
     FolderColourRule,
     FolderNameFreq,
     collect_folder_name_frequencies,
+    colour_aliases_sidecar_present,
     count_same_name_dirs,
     default_colours,
     folder_colour_aliases_path_for_target,
@@ -145,6 +149,7 @@ from gcode_index.path_util import (
     source_exists_on_disk,
 )
 from gcode_index.path_remap import PathRemap, normalize_remaps
+from gcode_index.role_explain import format_flag_tooltip
 from gcode_index.instance_ini import (
     InstanceConfig,
     default_instance_ini_path,
@@ -178,16 +183,18 @@ from gcode_index.presets import (
     upsert_preset,
 )
 from gcode_index.schedule import (
+    DEFAULT_WATCH_COALESCE_S,
+    DEFAULT_WATCH_SAFETY_WHEN_ENABLED,
     SCHEDULE_OFF,
-    UNIT_DAYS,
     UNIT_HOURS,
     UNIT_MINUTES,
     UNIT_SECONDS,
+    clamp_watch_coalesce_s,
     format_countdown,
     format_iso_datetime,
     format_schedule,
     is_schedule_due,
-    normalize_schedule,
+    normalize_watch_safety,
     parse_iso_datetime,
     parse_schedule,
     schedule_poll_ms,
@@ -203,6 +210,14 @@ from gcode_index.scan_report import (
     load_quality_metrics,
     load_scan_report,
     scan_report_from_result,
+)
+from gcode_index.header_token_freq import (
+    HEADER_TOKEN_FREQ_FILENAME,
+    build_and_save_header_token_freq,
+    filter_unassigned_header_tokens,
+    header_token_freq_path_for_target,
+    load_header_token_freq,
+    token_has_alias,
 )
 from gcode_index.scanner import scan_backup_tree, scan_with_extra_roots, roots_nest
 from gcode_index.folder_watch import (
@@ -238,6 +253,7 @@ from gcode_index.indexer_lock import (
 )
 from gcode_index.help_docs import docs_roots, read_manual, resolve_manual
 from gcode_index.app_meta import format_version_build, window_title
+from gcode_index.dialog_shell import install_dialog_shell
 from gcode_index.ui_theme import (
     UI_ACCENT,
     UI_ACCENT_HOVER,
@@ -248,6 +264,12 @@ from gcode_index.ui_theme import (
     UI_NAV_IDLE_BG,
     UI_NAV_IDLE_FG,
     UI_NAV_IDLE_HOVER,
+    UI_STATUS_GREEN,
+    UI_STATUS_GREEN_HOVER,
+    UI_STATUS_GREEN_TEXT,
+    UI_STATUS_YELLOW,
+    UI_STATUS_YELLOW_HOVER,
+    UI_STATUS_YELLOW_TEXT,
 )
 
 log = logging.getLogger(__name__)
@@ -261,10 +283,10 @@ ALL_TOKENS = frozenset({"(all)", "(wszystkie)"})
 # Results table column ids (order = default display order)
 RESULT_COLUMNS: tuple[str, ...] = (
     "flag",
+    "role",
     "src",
     "program",
     "part",
-    "programmer",
     "machine",
     "odbiorca",
     "date",
@@ -274,6 +296,8 @@ RESULT_COLUMNS: tuple[str, ...] = (
     "path",
     "location",
 )
+# Flag uses Treeview #0 (PhotoImage); remaining ids are data columns.
+RESULT_DATA_COLUMNS: tuple[str, ...] = tuple(c for c in RESULT_COLUMNS if c != "flag")
 DEFAULT_PREVIEW_GEOMETRY = "760x640"
 UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
@@ -331,23 +355,24 @@ class IndexerApp(tk.Tk):
         self.provenance_var = tk.StringVar(value=ALL)
         self.role_var = tk.StringVar(value=ALL)
         self.odbiorca_var = tk.StringVar(value=ALL)
-        self.programmer_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
+        self.only_green_var = tk.BooleanVar(value=False)
         self.include_unknown_var = tk.BooleanVar(value=True)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
+        self.role_from_header_var = tk.BooleanVar(value=True)
+        self.machine_from_header_var = tk.BooleanVar(value=True)
         self.o9_system_programs_role_var = tk.BooleanVar(value=True)
-        self.role_colours_overshadow_status_var = tk.BooleanVar(value=False)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
         self.excel_var = tk.BooleanVar(value=True)
         self.lang_var = tk.StringVar(value=DEFAULT_LANG)
         self._colour_catalog = ColourCatalog()
-        self.schedule_var = tk.StringVar(value=SCHEDULE_OFF)
-        self.schedule_amount_var = tk.StringVar(value="1")
-        self.schedule_unit_var = tk.StringVar(value="")
-        self.schedule_status_var = tk.StringVar(value="")
+        self.watch_coalesce_var = tk.StringVar(value=str(DEFAULT_WATCH_COALESCE_S))
+        self.watch_safety_enabled_var = tk.BooleanVar(value=False)
+        self.watch_safety_amount_var = tk.StringVar(value="1")
+        self.watch_safety_unit_var = tk.StringVar(value="")
         self.watch_status_var = tk.StringVar(value="")
         self.watch_strip_var = tk.StringVar(value="")
         self.indeks_status_var = tk.StringVar(value="")
@@ -369,24 +394,37 @@ class IndexerApp(tk.Tk):
         self._preview_body_error: bool = False
         self._preview_win: Optional[tk.Toplevel] = None
         self._preview_geometry: str = DEFAULT_PREVIEW_GEOMETRY
-        self._hidden_columns: set[str] = set()
+        self._hidden_columns: set[str] = {"role"}
         self._column_widths: dict[str, int] = dict(DEFAULT_COLUMN_WIDTHS)
         self._col_resize: Optional[dict] = None
         self._col_fill_after_id: Optional[str] = None
         self._pelny_view = "praca"
         self._search_after_id: Optional[str] = None
-        self._schedule_after_id: Optional[str] = None
-        self._schedule_amount_debounce_id: Optional[str] = None
+        self._safety_after_id: Optional[str] = None
+        self._coalesce_after_id: Optional[str] = None
+        self._coalesce_amount_debounce_id: Optional[str] = None
+        self._safety_amount_debounce_id: Optional[str] = None
         self._result_rows: list = []
         self._missing_source_count: int = 0
+        self._flag_tip_after_id: Optional[str] = None
+        self._flag_tip_win: Optional[tk.Toplevel] = None
+        self._flag_tip_row: Optional[str] = None
+        self._flag_photos = FlagPhotoCache(self)
+        self._colours_sidecar_missing = False
         self._sort_col: Optional[str] = None
         self._sort_reverse: bool = False
         self._heading_labels: dict[str, str] = {}
         self._scan_busy = False
         self._watch_rescan_pending = False
+        self._watch_safety_pending = False
+        self._watch_quiet_until: Optional[float] = None  # time.monotonic deadline
         self._folder_watcher: Optional[FolderWatcher] = None
         self._watch_enabled = False
         self._watch_mode = DEFAULT_WATCH_MODE
+        self._watch_coalesce_s = DEFAULT_WATCH_COALESCE_S
+        self._watch_safety = SCHEDULE_OFF
+        self._watch_safety_last_run: Optional[str] = None
+        self._watch_opts_widgets: list = []
         self._tray: Optional[TrayController] = None
         self._tray_hidden = False
         self._iconify_guard = False
@@ -409,8 +447,6 @@ class IndexerApp(tk.Tk):
         self._auto_refresh_after_id: Optional[str] = None
         self._db_mtime_seen: Optional[float] = None
         self._hidden_root_specs: list[ScanRootSpec] = []
-        self._schedule = SCHEDULE_OFF
-        self._schedule_last_run: Optional[str] = None
         self._machine_sel: set[str] = set()
         self._folders_expanded = True
         self._more_filters_open = False
@@ -432,7 +468,7 @@ class IndexerApp(tk.Tk):
         # Only auto-collapse when session did not pin folders_expanded
         if getattr(self, "_session_pinned_folders", False) is not True:
             self._maybe_auto_collapse_folders()
-        self._arm_schedule_timer()
+        self._arm_safety_timer()
         self._sync_folder_watch(initial=True)
         self._arm_search_auto_refresh()
         if self._folders_ready():
@@ -462,8 +498,8 @@ class IndexerApp(tk.Tk):
             self.provenance_var,
             self.role_var,
             self.odbiorca_var,
-            self.programmer_var,
             self.newest_only_var,
+            self.only_green_var,
         ):
             var.trace_add("write", self._on_filter_changed)
         # Persist scan/option toggles immediately (also covered by quit save)
@@ -472,8 +508,9 @@ class IndexerApp(tk.Tk):
             self.incremental_var,
             self.newest_only_var,
             self.odbiorca_from_header_var,
+            self.role_from_header_var,
+            self.machine_from_header_var,
             self.o9_system_programs_role_var,
-            self.role_colours_overshadow_status_var,
         ):
             var.trace_add("write", self._on_scan_option_changed)
         # Persist folder edits typed by hand (debounced)
@@ -499,19 +536,19 @@ class IndexerApp(tk.Tk):
         )
         self._can_index = bool(cfg.can_index) and not self._settings_locked
         self.lang_var.set(self._lang)
-        self._schedule = normalize_schedule(cfg.schedule)
-        self._schedule_last_run = cfg.schedule_last_run or None
-        self._sync_schedule_widgets()
+        self._watch_coalesce_s = clamp_watch_coalesce_s(cfg.watch_coalesce_s)
+        self._watch_safety = normalize_watch_safety(cfg.watch_safety)
+        self._watch_safety_last_run = cfg.watch_safety_last_run or None
+        self._sync_watch_quiet_widgets()
         self.backup_var.set(cfg.backup or "")
         self.target_var.set(cfg.target or "")
         self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
+        self.role_from_header_var.set(bool(cfg.role_from_header))
+        self.machine_from_header_var.set(bool(cfg.machine_from_header))
         self.o9_system_programs_role_var.set(bool(cfg.o9_system_programs_role))
-        self.role_colours_overshadow_status_var.set(
-            bool(cfg.role_colours_overshadow_status)
-        )
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
         self.search_auto_refresh_var.set(bool(cfg.search_auto_refresh))
@@ -562,12 +599,16 @@ class IndexerApp(tk.Tk):
                 disk_roots = list(load_scan_roots(roots_path))
                 if disk_roots:
                     self._hidden_root_specs = disk_roots
-        # Keep schedule_last_run from target ui_settings only when INI left it blank
+        # Seed safety last-run from legacy ui_settings schedule_last_run when blank
         if target:
             settings = load_ui_settings(ui_settings_path_for_target(target))
-            if not self._schedule_last_run and settings.get("schedule_last_run"):
-                self._schedule_last_run = settings["schedule_last_run"]
-            # Shop pack defaults (scan/schedule/watch) — never can_index
+            if (
+                not self._watch_safety_last_run
+                and self._watch_safety != SCHEDULE_OFF
+                and settings.get("schedule_last_run")
+            ):
+                self._watch_safety_last_run = settings["schedule_last_run"]
+            # Shop pack defaults (scan/watch/coalesce/safety) — never can_index
             self._apply_indexer_settings_from_target(target, persist_local=False)
         # Stash session/filters for apply after widgets exist
         self._pending_session_cfg = cfg
@@ -616,9 +657,6 @@ class IndexerApp(tk.Tk):
                 self.role_var.set(c.label(self._lang) if c else role_id)
             else:
                 self.role_var.set(self._all_token())
-            self.programmer_var.set(
-                cfg.filter_programmer or self._all_token()
-            )
             # Odbiorca — restore id / __missing__ as display label
             odb = (cfg.filter_odbiorca or "").strip()
             if hasattr(self, "odbiorca_var"):
@@ -670,6 +708,8 @@ class IndexerApp(tk.Tk):
                         pass
             else:
                 self._pelny_view = "praca"
+            if hasattr(self, "only_green_var"):
+                self.only_green_var.set(bool(cfg.filter_only_green))
             if cfg.preview_find and hasattr(self, "preview_find_var"):
                 self.preview_find_var.set(cfg.preview_find)
             hidden = [
@@ -714,17 +754,19 @@ class IndexerApp(tk.Tk):
             ui_mode=ui_mode_from_can_index(
                 False if self._settings_locked else self._can_index
             ),
-            schedule=self._schedule,
-            schedule_last_run=self._schedule_last_run or "",
+            schedule=SCHEDULE_OFF,
+            schedule_last_run="",
             incremental=bool(self.incremental_var.get()),
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_coalesce_s=self._watch_coalesce_s,
+            watch_safety=self._watch_safety,
+            watch_safety_last_run=self._watch_safety_last_run or "",
             also_excel=bool(self.excel_var.get()),
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+            role_from_header=bool(self.role_from_header_var.get()),
+            machine_from_header=bool(self.machine_from_header_var.get()),
             o9_system_programs_role=bool(self.o9_system_programs_role_var.get()),
-            role_colours_overshadow_status=bool(
-                self.role_colours_overshadow_status_var.get()
-            ),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
             close_to_tray=bool(self.close_to_tray_var.get()),
@@ -748,8 +790,8 @@ class IndexerApp(tk.Tk):
             filter_control=self._combo_filter_for_ini(self.control_var.get()),
             filter_status=self._status_filter_value() or "",
             filter_role=self._role_filter_value() or "",
-            filter_programmer=self._combo_filter_for_ini(self.programmer_var.get()),
             filter_odbiorca=self._odbiorca_filter_for_ini(),
+            filter_only_green=bool(self.only_green_var.get()),
             sort_col=self._sort_col or "",
             sort_reverse=bool(self._sort_reverse),
             more_filters=bool(self._more_filters_open),
@@ -1003,9 +1045,10 @@ class IndexerApp(tk.Tk):
             also_excel=bool(self.excel_var.get()),
             newest_only=bool(self.newest_only_var.get()),
             include_unknown=self._effective_include_unknown(),
-            schedule=self._schedule,
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_coalesce_s=self._watch_coalesce_s,
+            watch_safety=self._watch_safety,
             backup_hint=self.backup_var.get().strip(),
             green_root_hints=greens,
             yellow_root_hints=yellows,
@@ -1050,7 +1093,8 @@ class IndexerApp(tk.Tk):
             self.newest_only_var.set(bool(settings.newest_only))
             if not (self._is_simple() or self._settings_locked):
                 self.include_unknown_var.set(bool(settings.include_unknown))
-            self._set_schedule(settings.schedule, persist=False)
+            self._set_watch_coalesce_s(settings.watch_coalesce_s, persist=False)
+            self._set_watch_safety(settings.watch_safety, persist=False)
             self.watch_var.set(bool(settings.watch_folders))
             self._watch_enabled = bool(settings.watch_folders) and not self._is_simple()
             self._set_watch_mode(settings.watch_mode, persist=False)
@@ -1111,7 +1155,7 @@ class IndexerApp(tk.Tk):
         else:
             self._sync_include_unknown_widget()
             self._update_folders_summary()
-        self._arm_schedule_timer()
+        self._arm_safety_timer()
         self._sync_folder_watch()
         self.status_var.set(self._("prepare_indexer_done"))
         messagebox.showinfo(
@@ -1368,6 +1412,45 @@ class IndexerApp(tk.Tk):
             highlightthickness=0,
         )
 
+    def _make_status_button(
+        self,
+        parent: tk.Misc,
+        text: str,
+        command,
+        *,
+        provenance: str,
+    ) -> tk.Button:
+        """Coloured Add green / Add yellow — matches Flag status disc swatches."""
+        if provenance == PROVENANCE_BACKUP:
+            bg, hover, fg = (
+                UI_STATUS_GREEN,
+                UI_STATUS_GREEN_HOVER,
+                UI_STATUS_GREEN_TEXT,
+            )
+        else:
+            bg, hover, fg = (
+                UI_STATUS_YELLOW,
+                UI_STATUS_YELLOW_HOVER,
+                UI_STATUS_YELLOW_TEXT,
+            )
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            activebackground=hover,
+            activeforeground=fg,
+            disabledforeground="#c8c8c8",
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=10,
+            pady=4,
+            font=self._ui_font(size=9, bold=True),
+            cursor="hand2",
+            highlightthickness=0,
+        )
+
     def _set_primary_button_enabled(self, btn: tk.Button | None, enabled: bool) -> None:
         if btn is None:
             return
@@ -1419,27 +1502,27 @@ class IndexerApp(tk.Tk):
             "control": self.control_var.get(),
             "provenance": self.provenance_var.get(),
             "role": self.role_var.get(),
-            "programmer": self.programmer_var.get(),
             "odbiorca": self._odbiorca_filter_for_ini()
             if hasattr(self, "odbiorca_var")
             else "",
             "newest": bool(self.newest_only_var.get()),
+            "only_green": bool(self.only_green_var.get()),
             "include_unknown": bool(self.include_unknown_var.get()),
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
+            "role_from_header": bool(self.role_from_header_var.get()),
+            "machine_from_header": bool(self.machine_from_header_var.get()),
             "o9_system_programs_role": bool(self.o9_system_programs_role_var.get()),
-            "role_colours_overshadow_status": bool(
-                self.role_colours_overshadow_status_var.get()
-            ),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
             "machines": self._selected_machines(),
             "roots": list(self._scan_root_specs()),
             "folders_expanded": bool(self._folders_expanded),
             "more_filters": bool(self._more_filters_open),
-            "schedule": self._schedule,
+            "watch_coalesce_s": self._watch_coalesce_s,
+            "watch_safety": self._watch_safety,
             "sort_col": self._sort_col,
             "sort_reverse": bool(self._sort_reverse),
             "pelny_view": getattr(self, "_pelny_view", "praca"),
@@ -1460,8 +1543,6 @@ class IndexerApp(tk.Tk):
                     ui_settings_path_for_target(dest),
                     language=self._lang,
                     ui_mode=ui_mode_from_can_index(self._can_index),
-                    schedule=self._schedule,
-                    schedule_last_run=self._schedule_last_run or "",
                 )
             except OSError:
                 log.exception("save ui settings failed")
@@ -1549,7 +1630,10 @@ class IndexerApp(tk.Tk):
             "_geometry_save_after_id",
             "_colour_load_after_id",
             "_indexer_settings_load_after_id",
-            "_schedule_amount_debounce_id",
+            "_coalesce_amount_debounce_id",
+            "_safety_amount_debounce_id",
+            "_coalesce_after_id",
+            "_safety_after_id",
             "_auto_refresh_after_id",
             "_nav_unlock_after_id",
         ):
@@ -1647,10 +1731,6 @@ class IndexerApp(tk.Tk):
                 if ctl in ALL_TOKENS:
                     ctl = self._all_token()
                 self.control_var.set(ctl)
-                prog = preserved.get("programmer") or self._all_token()
-                if prog in ALL_TOKENS:
-                    prog = self._all_token()
-                self.programmer_var.set(prog)
                 if hasattr(self, "odbiorca_var"):
                     odb_raw = str(preserved.get("odbiorca") or "")
                     if not odb_raw or self._is_all_token(odb_raw):
@@ -1689,6 +1769,8 @@ class IndexerApp(tk.Tk):
                 else:
                     self.role_var.set(self._all_token())
                 self.newest_only_var.set(bool(preserved.get("newest")))
+                if "only_green" in preserved:
+                    self.only_green_var.set(bool(preserved.get("only_green")))
                 if "include_unknown" in preserved:
                     self.include_unknown_var.set(bool(preserved.get("include_unknown")))
                 self.incremental_var.set(bool(preserved.get("incremental", True)))
@@ -1697,13 +1779,17 @@ class IndexerApp(tk.Tk):
                     self.odbiorca_from_header_var.set(
                         bool(preserved.get("odbiorca_from_header"))
                     )
+                if "role_from_header" in preserved:
+                    self.role_from_header_var.set(
+                        bool(preserved.get("role_from_header"))
+                    )
+                if "machine_from_header" in preserved:
+                    self.machine_from_header_var.set(
+                        bool(preserved.get("machine_from_header"))
+                    )
                 if "o9_system_programs_role" in preserved:
                     self.o9_system_programs_role_var.set(
                         bool(preserved.get("o9_system_programs_role"))
-                    )
-                if "role_colours_overshadow_status" in preserved:
-                    self.role_colours_overshadow_status_var.set(
-                        bool(preserved.get("role_colours_overshadow_status"))
                     )
                 if preserved.get("watch_mode") is not None:
                     self._watch_mode = normalize_watch_mode(
@@ -1724,9 +1810,14 @@ class IndexerApp(tk.Tk):
                     for r in roots
                 ]
                 self._fill_extra_list(self._hidden_root_specs)
-                if preserved.get("schedule") is not None:
-                    self._set_schedule(
-                        str(preserved.get("schedule") or SCHEDULE_OFF), persist=False
+                if preserved.get("watch_coalesce_s") is not None:
+                    self._set_watch_coalesce_s(
+                        preserved.get("watch_coalesce_s"), persist=False
+                    )
+                if preserved.get("watch_safety") is not None:
+                    self._set_watch_safety(
+                        str(preserved.get("watch_safety") or SCHEDULE_OFF),
+                        persist=False,
                     )
         finally:
             self._filter_trace_lock = False
@@ -1826,6 +1917,9 @@ class IndexerApp(tk.Tk):
             return
         before = getattr(self, "_actions_frame", None)
         pack_opts: dict = {"fill": tk.X, "padx": 8, "pady": 4}
+        if self._folders_expanded and not self._is_simple():
+            pack_opts["fill"] = tk.BOTH
+            pack_opts["expand"] = True
         # Pack above index actions when they share a parent.
         try:
             if (
@@ -1842,7 +1936,9 @@ class IndexerApp(tk.Tk):
         else:
             self._folders_expanded_frame.pack_forget()
             self._update_folders_summary()
-            self._folders_summary_frame.pack(**pack_opts)
+            summary_opts = {k: v for k, v in pack_opts.items() if k != "expand"}
+            summary_opts["fill"] = tk.X
+            self._folders_summary_frame.pack(**summary_opts)
         self._sync_praca_path_from_summary()
         if persist:
             self._schedule_filter_ini_save()
@@ -1954,12 +2050,15 @@ class IndexerApp(tk.Tk):
     def _apply_more_filters_visibility(self) -> None:
         if not hasattr(self, "_more_filters_frame"):
             return
+        # ``filt`` children use grid — never pack into the same parent.
         if self._more_filters_open:
-            self._more_filters_frame.pack(fill=tk.X, pady=(6, 0))
+            self._more_filters_frame.grid(
+                row=2, column=0, columnspan=10, sticky=tk.EW, pady=(6, 0)
+            )
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("fewer_filters"))
         else:
-            self._more_filters_frame.pack_forget()
+            self._more_filters_frame.grid_remove()
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("more_filters"))
 
@@ -2137,8 +2236,6 @@ class IndexerApp(tk.Tk):
             self.source_type_var.set(self._all_token())
         if self._is_all_token(self.control_var.get()):
             self.control_var.set(self._all_token())
-        if self._is_all_token(self.programmer_var.get()):
-            self.programmer_var.set(self._all_token())
         if self._is_all_token(self.provenance_var.get()) or not self.provenance_var.get():
             self.provenance_var.set(self._all_token())
         if not self.status_var.get():
@@ -2232,7 +2329,7 @@ class IndexerApp(tk.Tk):
         self._folders_expanded_frame = ttk.LabelFrame(
             parent,
             text=(
-                self._("folders_step_simple") if simple else self._("folders")
+                self._("folders_step_simple") if simple else self._("folders_step")
             ),
             padding=8,
             style="Primary.TLabelframe",
@@ -2240,7 +2337,7 @@ class IndexerApp(tk.Tk):
         paths = self._folders_expanded_frame
         if simple:
             # Floor client: no backup/DB path pickers — open DB via the primary button.
-            # Optional extract folder only.
+            # Optional extract folder only. Path remap stays here (no Mapowanie…).
             ttk.Label(
                 paths,
                 text=self._("extract_folder"),
@@ -2259,6 +2356,7 @@ class IndexerApp(tk.Tk):
             ).grid(row=1, column=1, sticky=tk.W, padx=4, pady=(0, 2))
             done_row_idx = self._add_path_remap_fields(paths, 2)
         else:
+            # Indexer Indeks: paths + extras only. Path remap lives in Mapowanie….
             ttk.Label(
                 paths,
                 text=self._("backup_folder"),
@@ -2300,16 +2398,21 @@ class IndexerApp(tk.Tk):
                 style="Muted.TLabel",
             ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(0, 2))
 
-            # Additional folders (green catch + yellow extras) — indexer only
+            # Additional folders (green catch + yellow extras) — taller list
             extra = ttk.LabelFrame(
                 paths,
                 text=self._("extra_folders"),
                 padding=6,
             )
-            extra.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
+            extra.grid(
+                row=4, column=0, columnspan=3, sticky=tk.NSEW, pady=(8, 0)
+            )
+            paths.rowconfigure(4, weight=1)
             extra_row = ttk.Frame(extra)
-            extra_row.pack(fill=tk.X)
-            self.extra_list = tk.Listbox(extra_row, height=3, selectmode=tk.EXTENDED)
+            extra_row.pack(fill=tk.BOTH, expand=True)
+            self.extra_list = tk.Listbox(
+                extra_row, height=7, selectmode=tk.EXTENDED
+            )
             extra_sb = ttk.Scrollbar(
                 extra_row, orient=tk.VERTICAL, command=self.extra_list.yview
             )
@@ -2318,15 +2421,17 @@ class IndexerApp(tk.Tk):
             extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
             extra_btns = ttk.Frame(extra)
             extra_btns.pack(fill=tk.X, pady=(4, 0))
-            ttk.Button(
+            self._make_status_button(
                 extra_btns,
-                text=self._("add_green_folder"),
-                command=lambda: self._add_scan_root(PROVENANCE_BACKUP),
+                self._("add_green_folder"),
+                lambda: self._add_scan_root(PROVENANCE_BACKUP),
+                provenance=PROVENANCE_BACKUP,
             ).pack(side=tk.LEFT)
-            ttk.Button(
+            self._make_status_button(
                 extra_btns,
-                text=self._("add_yellow_folder"),
-                command=lambda: self._add_scan_root(PROVENANCE_EXTRA),
+                self._("add_yellow_folder"),
+                lambda: self._add_scan_root(PROVENANCE_EXTRA),
+                provenance=PROVENANCE_EXTRA,
             ).pack(side=tk.LEFT, padx=4)
             ttk.Button(
                 extra_btns,
@@ -2337,7 +2442,7 @@ class IndexerApp(tk.Tk):
                 side=tk.LEFT, padx=8
             )
             self._fill_extra_list(self._hidden_root_specs)
-            done_row_idx = self._add_path_remap_fields(paths, 5)
+            done_row_idx = 5
 
         if simple and hasattr(self, "extra_list"):
             delattr(self, "extra_list")
@@ -2359,7 +2464,8 @@ class IndexerApp(tk.Tk):
         # Initial folders visibility
         if self._folders_expanded or not self._folders_ready():
             self._folders_expanded = True
-            self._folders_expanded_frame.pack(fill=tk.X, **pad)
+            fill = tk.BOTH if not simple else tk.X
+            self._folders_expanded_frame.pack(fill=fill, expand=not simple, **pad)
         else:
             self._folders_summary_frame.pack(fill=tk.X, **pad)
 
@@ -2387,35 +2493,24 @@ class IndexerApp(tk.Tk):
 
 
     def _build_full_index_actions(self, parent, pad: dict) -> None:
-        """Indexer Indeks tab: thin run bar + doorways into settings windows.
+        """Indexer Indeks tab: scan-order flow + doorways into settings windows.
 
-        Deep setup (mapping, scan/watch options, reports) lives in dialogs A/B/C.
-        No checkboxes on this bar — only run controls, doorways, and a muted
-        schedule/watch status line.
+        Visual order teaches the workflow: (1) folders above → (2) config
+        doorways as needed → (3) run scan on the right. Deep setup lives in
+        dialogs A/B/C. No checkboxes on this bar.
         """
         actions = ttk.Frame(parent)
         self._actions_frame = actions
         actions.pack(fill=tk.X, **pad)
 
-        # Row 1 — run / pack
-        row_scan = ttk.Frame(actions)
-        row_scan.pack(fill=tk.X)
-        self.scan_btn = self._make_primary_button(
-            row_scan, self._("run_scan"), self._start_scan
-        )
-        self.scan_btn.pack(side=tk.LEFT)
-        ttk.Button(
-            row_scan, text=self._("open_db"), command=self._pick_existing_db
-        ).pack(side=tk.LEFT, padx=8)
-        ttk.Button(
-            row_scan,
-            text=self._("prepare_indexer"),
-            command=self._open_prepare_indexer,
-        ).pack(side=tk.LEFT, padx=8)
-
-        # Row 2 — three doorways (full captions must fit)
+        # Step 2 — doorways (config as needed)
         row_doors = ttk.Frame(actions)
-        row_doors.pack(fill=tk.X, pady=(6, 0))
+        row_doors.pack(fill=tk.X)
+        ttk.Label(
+            row_doors,
+            text=self._("indeks_step_config"),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(
             row_doors,
             text=self._("indeks_door_mapping"),
@@ -2432,6 +2527,27 @@ class IndexerApp(tk.Tk):
             command=self._open_indeks_reports_window,
         ).pack(side=tk.LEFT, padx=8)
 
+        # Step 3 — secondary pack actions left; primary Run scan on the right
+        row_scan = ttk.Frame(actions)
+        row_scan.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(
+            row_scan,
+            text=self._("indeks_step_run"),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(
+            row_scan, text=self._("open_db"), command=self._pick_existing_db
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            row_scan,
+            text=self._("prepare_indexer"),
+            command=self._open_prepare_indexer,
+        ).pack(side=tk.LEFT, padx=8)
+        self.scan_btn = self._make_primary_button(
+            row_scan, self._("run_scan"), self._start_scan
+        )
+        self.scan_btn.pack(side=tk.RIGHT)
+
         # Muted status line: schedule · watch (edit inside window B)
         status_row = ttk.Frame(actions)
         status_row.pack(fill=tk.X, pady=(4, 0))
@@ -2441,60 +2557,92 @@ class IndexerApp(tk.Tk):
             style="Muted.TLabel",
             wraplength=900,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self._update_schedule_status()
         self._update_watch_status()
         self._refresh_watch_strip()
         self._refresh_indeks_status_line()
 
     def _refresh_indeks_status_line(self) -> None:
-        """Combine schedule + watch into one muted Indeks status line."""
+        """Watch + quiet/safety summary on the muted Indeks status line."""
         if not hasattr(self, "indeks_status_var"):
             return
-        sched = (self.schedule_status_var.get() or "").strip()
         watch = (self.watch_status_var.get() or "").strip()
         strip = (self.watch_strip_var.get() or "").strip()
         idle_strip = self._("watch_strip_idle")
         bits: list[str] = []
-        if sched:
-            bits.append(f"{self._('schedule')}: {sched}")
         if watch:
-            bits.append(f"{self._('watch_folders')}: {watch}")
+            bits.append(watch)
+            if self._watch_enabled and not self._is_simple():
+                bits.append(
+                    self._("watch_status_quiet", seconds=self._watch_coalesce_s)
+                )
+                bits.append(self._watch_safety_status_bit())
         if strip and strip != idle_strip:
             bits.append(strip)
         self.indeks_status_var.set(" · ".join(bits) if bits else "")
 
     def _open_indeks_mapping_window(self) -> None:
-        """Window A — Mapowanie: aliases, tree, roles, odbiorcy, path remap."""
+        """Window A — Mapowanie: teach names, catalogues (machines/roles/odbiorcy), path remap."""
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_mapping_title"))
         dlg.transient(self)
-        dlg.minsize(480, 360)
-        body = ttk.Frame(dlg, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            dlg,
+            min_width=540,
+            min_height=460,
+            width=580,
+            height=560,
+            scrollable=True,
+        )
+        body, foot = shell.body, shell.footer
         ttk.Label(
             body,
             text=self._("indeks_win_mapping_intro"),
             style="Muted.TLabel",
-            wraplength=440,
+            wraplength=500,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 10))
+        teach = ttk.LabelFrame(
+            body, text=self._("indeks_win_mapping_teach_group"), padding=8
+        )
+        teach.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(
+            teach,
+            text=self._("indeks_win_mapping_teach_hint"),
+            style="Muted.TLabel",
+            wraplength=480,
+        ).pack(anchor=tk.W, pady=(0, 4))
         for label_key, cmd in (
             ("map_folders", self._open_folder_map),
             ("map_tree", self._open_folder_tree_map),
+        ):
+            ttk.Button(teach, text=self._(label_key), command=cmd).pack(
+                fill=tk.X, pady=2
+            )
+        cats = ttk.LabelFrame(
+            body, text=self._("indeks_win_mapping_catalogues_group"), padding=8
+        )
+        cats.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(
+            cats,
+            text=self._("indeks_win_mapping_catalogues_hint"),
+            style="Muted.TLabel",
+            wraplength=480,
+        ).pack(anchor=tk.W, pady=(0, 4))
+        for label_key, cmd in (
             ("aliases", self._open_alias_editor),
             ("folder_colours", self._open_folder_colour_editor),
             ("odbiorcy", self._open_odbiorca_editor),
         ):
-            ttk.Button(body, text=self._(label_key), command=cmd).pack(
+            ttk.Button(cats, text=self._(label_key), command=cmd).pack(
                 fill=tk.X, pady=2
             )
-        # Path remap editor (same multi-rule list as folders expander)
-        remap_host = ttk.Frame(body)
-        remap_host.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
-        remap_host.columnconfigure(0, weight=1)
-        self._add_path_remap_fields(remap_host, 0)
-        foot = ttk.Frame(body)
-        foot.pack(fill=tk.X, pady=(12, 0))
+        # Path remap editor (Indexer home for multi-rule list; floor keeps Zmień…)
+        remap = ttk.LabelFrame(
+            body, text=self._("path_remap"), padding=8
+        )
+        remap.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
+        remap.columnconfigure(0, weight=1)
+        self._add_path_remap_fields(remap, 0)
         ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
@@ -2503,38 +2651,17 @@ class IndexerApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_scan_watch_title"))
         dlg.transient(self)
-        dlg.minsize(520, 420)
-        body = ttk.Frame(dlg, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
-
-        # Schedule
-        sched_box = ttk.LabelFrame(body, text=self._("schedule"), padding=8)
-        sched_box.pack(fill=tk.X, pady=(0, 8))
-        sched = ttk.Frame(sched_box)
-        sched.pack(fill=tk.X)
-        self._sync_schedule_widgets()
-        amount_entry = ttk.Entry(
-            sched, textvariable=self.schedule_amount_var, width=5
+        shell = install_dialog_shell(
+            dlg,
+            min_width=560,
+            min_height=440,
+            width=600,
+            height=560,
+            scrollable=True,
         )
-        amount_entry.pack(side=tk.LEFT)
-        amount_entry.bind("<FocusOut>", self._on_schedule_widgets_changed)
-        amount_entry.bind("<Return>", self._on_schedule_widgets_changed)
-        amount_entry.bind("<KeyRelease>", self._on_schedule_amount_typed)
-        unit_combo = ttk.Combobox(
-            sched,
-            textvariable=self.schedule_unit_var,
-            values=self._schedule_unit_labels(),
-            state="readonly",
-            width=10,
-        )
-        unit_combo.pack(side=tk.LEFT, padx=(4, 0))
-        unit_combo.bind("<<ComboboxSelected>>", self._on_schedule_widgets_changed)
-        ttk.Label(
-            sched, textvariable=self.schedule_status_var, style="Muted.TLabel"
-        ).pack(side=tk.LEFT, padx=(8, 0))
-        self._update_schedule_status()
+        body, foot = shell.body, shell.footer
 
-        # Watch
+        # Watch (coalesce + optional safety live under Watch when on)
         watch_box = ttk.LabelFrame(body, text=self._("watch_folders"), padding=8)
         watch_box.pack(fill=tk.X, pady=(0, 8))
         watch_row = ttk.Frame(watch_box)
@@ -2550,6 +2677,76 @@ class IndexerApp(tk.Tk):
             watch_row, textvariable=self.watch_status_var, style="Muted.TLabel"
         ).pack(side=tk.LEFT, padx=(8, 0))
         self._update_watch_status()
+
+        self._watch_opts_widgets = []
+        coalesce_row = ttk.Frame(watch_box)
+        coalesce_row.pack(fill=tk.X, pady=(8, 0))
+        coalesce_lbl = ttk.Label(coalesce_row, text=self._("watch_coalesce"))
+        coalesce_lbl.pack(side=tk.LEFT)
+        self._sync_watch_quiet_widgets()
+        coalesce_entry = ttk.Entry(
+            coalesce_row, textvariable=self.watch_coalesce_var, width=5
+        )
+        coalesce_entry.pack(side=tk.LEFT, padx=(4, 0))
+        coalesce_entry.bind("<FocusOut>", self._on_watch_coalesce_changed)
+        coalesce_entry.bind("<Return>", self._on_watch_coalesce_changed)
+        coalesce_entry.bind("<KeyRelease>", self._on_watch_coalesce_typed)
+        coalesce_unit = ttk.Label(
+            coalesce_row, text=self._("watch_coalesce_unit"), style="Muted.TLabel"
+        )
+        coalesce_unit.pack(side=tk.LEFT, padx=(4, 0))
+        coalesce_hint = ttk.Label(
+            watch_box,
+            text=self._("watch_coalesce_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        )
+        coalesce_hint.pack(anchor=tk.W, pady=(2, 0))
+
+        safety_row = ttk.Frame(watch_box)
+        safety_row.pack(fill=tk.X, pady=(8, 0))
+        safety_chk = ttk.Checkbutton(
+            safety_row,
+            text=self._("watch_safety"),
+            variable=self.watch_safety_enabled_var,
+            command=self._on_watch_safety_widgets_changed,
+        )
+        safety_chk.pack(side=tk.LEFT)
+        safety_amount = ttk.Entry(
+            safety_row, textvariable=self.watch_safety_amount_var, width=5
+        )
+        safety_amount.pack(side=tk.LEFT, padx=(4, 0))
+        safety_amount.bind("<FocusOut>", self._on_watch_safety_widgets_changed)
+        safety_amount.bind("<Return>", self._on_watch_safety_widgets_changed)
+        safety_amount.bind("<KeyRelease>", self._on_watch_safety_amount_typed)
+        safety_unit = ttk.Combobox(
+            safety_row,
+            textvariable=self.watch_safety_unit_var,
+            values=self._safety_unit_labels(),
+            state="readonly",
+            width=10,
+        )
+        safety_unit.pack(side=tk.LEFT, padx=(4, 0))
+        safety_unit.bind("<<ComboboxSelected>>", self._on_watch_safety_widgets_changed)
+        safety_hint = ttk.Label(
+            watch_box,
+            text=self._("watch_safety_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        )
+        safety_hint.pack(anchor=tk.W, pady=(2, 0))
+        self._watch_opts_widgets = [
+            coalesce_lbl,
+            coalesce_entry,
+            coalesce_unit,
+            coalesce_hint,
+            safety_chk,
+            safety_amount,
+            safety_unit,
+            safety_hint,
+        ]
+        self._set_watch_opts_enabled(bool(self.watch_var.get()))
+
         strip_row = ttk.Frame(watch_box)
         strip_row.pack(fill=tk.X, pady=(4, 0))
         ttk.Label(
@@ -2579,15 +2776,21 @@ class IndexerApp(tk.Tk):
         ).pack(anchor=tk.W)
         ttk.Checkbutton(
             opts,
-            text=self._("o9_system_programs_role"),
-            variable=self.o9_system_programs_role_var,
+            text=self._("role_from_header"),
+            variable=self.role_from_header_var,
             command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
         ttk.Checkbutton(
             opts,
-            text=self._("role_colours_overshadow_status"),
-            variable=self.role_colours_overshadow_status_var,
-            command=self._on_role_overshadow_toggled,
+            text=self._("machine_from_header"),
+            variable=self.machine_from_header_var,
+            command=self._schedule_filter_ini_save,
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            opts,
+            text=self._("o9_system_programs_role"),
+            variable=self.o9_system_programs_role_var,
+            command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
 
         # Desktop / tray / autostart
@@ -2639,9 +2842,6 @@ class IndexerApp(tk.Tk):
                 style="Muted.TLabel",
             ).pack(anchor=tk.W)
 
-        foot = ttk.Frame(body)
-        foot.pack(fill=tk.X, pady=(8, 0))
-
         def _on_close() -> None:
             self._refresh_indeks_status_line()
             dlg.destroy()
@@ -2655,27 +2855,32 @@ class IndexerApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_reports_title"))
         dlg.transient(self)
-        dlg.minsize(360, 240)
-        body = ttk.Frame(dlg, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            dlg,
+            min_width=400,
+            min_height=280,
+            width=440,
+            height=320,
+            scrollable=False,
+        )
+        body, foot = shell.body, shell.footer
         ttk.Label(
             body,
             text=self._("indeks_win_reports_intro"),
             style="Muted.TLabel",
-            wraplength=320,
+            wraplength=400,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 10))
         for label_key, cmd in (
             ("quality_dashboard", self._open_quality_dashboard),
             ("scan_report", self._open_scan_report),
+            ("header_tokens_button", self._open_unassigned_header_tokens),
             ("scan_history", self._open_scan_history),
             ("duplicates", self._open_duplicates),
         ):
             ttk.Button(body, text=self._(label_key), command=cmd).pack(
                 fill=tk.X, pady=2
             )
-        foot = ttk.Frame(body)
-        foot.pack(fill=tk.X, pady=(12, 0))
         ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
@@ -2746,14 +2951,19 @@ class IndexerApp(tk.Tk):
             text=self._("newest_only"),
             variable=self.newest_only_var,
         ).grid(row=0, column=7, sticky=tk.E, padx=4)
+        ttk.Checkbutton(
+            filt,
+            text=self._("only_green"),
+            variable=self.only_green_var,
+        ).grid(row=0, column=8, sticky=tk.E, padx=4)
         self.extract_btn = self._make_primary_button(
             filt, self._("extract_selected"), self._extract_selected
         )
-        self.extract_btn.grid(row=0, column=8, padx=4)
+        self.extract_btn.grid(row=0, column=9, padx=4)
         filt.columnconfigure(1, weight=1)
 
         row2 = ttk.Frame(filt)
-        row2.grid(row=1, column=0, columnspan=9, sticky=tk.EW, pady=(6, 0))
+        row2.grid(row=1, column=0, columnspan=10, sticky=tk.EW, pady=(6, 0))
         ttk.Button(
             row2, text=self._("open_folder"), command=self._open_selected_folder
         ).pack(side=tk.LEFT)
@@ -2781,162 +2991,150 @@ class IndexerApp(tk.Tk):
             ttk.Button(
                 row2, text=self._("compare"), command=self._compare_selected
             ).pack(side=tk.LEFT, padx=4)
-            self._more_filters_btn = ttk.Button(
-                row2,
-                text=self._("more_filters"),
-                command=self._toggle_more_filters,
-            )
-            self._more_filters_btn.pack(side=tk.LEFT, padx=8)
+        # More filters: indexer + floor client (same expand panel)
+        self._more_filters_btn = ttk.Button(
+            row2,
+            text=self._("more_filters"),
+            command=self._toggle_more_filters,
+        )
+        self._more_filters_btn.pack(side=tk.LEFT, padx=8)
 
-            self._more_filters_frame = ttk.Frame(filt)
-            adv = self._more_filters_frame
-            ttk.Label(adv, text=self._("source_type")).grid(
-                row=0, column=0, sticky=tk.W, pady=2
-            )
-            self.type_combo = ttk.Combobox(
-                adv,
-                textvariable=self.source_type_var,
-                values=[self._all_token()],
-                state="readonly",
-                width=22,
-            )
-            self.type_combo.grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
+        self._more_filters_frame = ttk.Frame(filt)
+        adv = self._more_filters_frame
 
-            ttk.Label(adv, text=self._("control")).grid(
-                row=0, column=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.control_combo = ttk.Combobox(
-                adv,
-                textvariable=self.control_var,
-                values=[self._all_token()],
-                state="readonly",
-                width=14,
-            )
-            self.control_combo.grid(row=0, column=3, sticky=tk.W, padx=4, pady=2)
+        # Row A — Classification
+        ttk.Label(
+            adv, text=self._("more_filters_classification"), style="Muted.TLabel"
+        ).grid(row=0, column=0, columnspan=12, sticky=tk.W, pady=(0, 2))
+        ttk.Label(adv, text=self._("source_type")).grid(
+            row=1, column=0, sticky=tk.W, pady=2
+        )
+        self.type_combo = ttk.Combobox(
+            adv,
+            textvariable=self.source_type_var,
+            values=[self._all_token()],
+            state="readonly",
+            width=22,
+        )
+        self.type_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("filter_status")).grid(
-                row=0, column=4, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.provenance_combo = ttk.Combobox(
-                adv,
-                textvariable=self.provenance_var,
-                values=self._status_filter_labels(),
-                state="readonly",
-                width=18,
-            )
-            self.provenance_combo.grid(row=0, column=5, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("control")).grid(
+            row=1, column=2, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.control_combo = ttk.Combobox(
+            adv,
+            textvariable=self.control_var,
+            values=[self._all_token()],
+            state="readonly",
+            width=14,
+        )
+        self.control_combo.grid(row=1, column=3, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("filter_role")).grid(
-                row=0, column=6, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.role_combo = ttk.Combobox(
-                adv,
-                textvariable=self.role_var,
-                values=self._role_filter_labels(),
-                state="readonly",
-                width=18,
-            )
-            self.role_combo.grid(row=0, column=7, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("filter_status")).grid(
+            row=1, column=4, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.provenance_combo = ttk.Combobox(
+            adv,
+            textvariable=self.provenance_var,
+            values=self._status_filter_labels(),
+            state="readonly",
+            width=18,
+        )
+        self.provenance_combo.grid(row=1, column=5, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("filter_odbiorca")).grid(
-                row=0, column=8, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.odbiorca_combo = ttk.Combobox(
-                adv,
-                textvariable=self.odbiorca_var,
-                values=self._odbiorca_filter_labels(),
-                state="readonly",
-                width=16,
-            )
-            self.odbiorca_combo.grid(row=0, column=9, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("filter_role")).grid(
+            row=1, column=6, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.role_combo = ttk.Combobox(
+            adv,
+            textvariable=self.role_var,
+            values=self._role_filter_labels(),
+            state="readonly",
+            width=18,
+        )
+        self.role_combo.grid(row=1, column=7, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("programmer")).grid(
-                row=1, column=0, sticky=tk.W, pady=2
-            )
-            self.programmer_combo = ttk.Combobox(
-                adv,
-                textvariable=self.programmer_var,
-                values=[self._all_token()],
-                state="readonly",
-                width=14,
-            )
-            self.programmer_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("filter_odbiorca")).grid(
+            row=1, column=8, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.odbiorca_combo = ttk.Combobox(
+            adv,
+            textvariable=self.odbiorca_var,
+            values=self._odbiorca_filter_labels(),
+            state="readonly",
+            width=16,
+        )
+        self.odbiorca_combo.grid(row=1, column=9, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("preset")).grid(
-                row=1, column=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            preset_row = ttk.Frame(adv)
-            preset_row.grid(row=1, column=3, columnspan=5, sticky=tk.W, padx=4, pady=2)
-            self.preset_combo = ttk.Combobox(
-                preset_row,
-                textvariable=self.preset_var,
-                values=[],
-                state="readonly",
-                width=22,
-            )
-            self.preset_combo.pack(side=tk.LEFT)
-            ttk.Button(
-                preset_row, text=self._("load"), command=self._load_selected_preset
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Button(
-                preset_row,
-                text=self._("save_current"),
-                command=self._save_current_preset,
-            ).pack(side=tk.LEFT, padx=2)
-            ttk.Button(
-                preset_row,
-                text=self._("delete"),
-                command=self._delete_selected_preset,
-            ).pack(side=tk.LEFT, padx=2)
+        # Row B — Views
+        ttk.Label(
+            adv, text=self._("more_filters_views"), style="Muted.TLabel"
+        ).grid(row=2, column=0, columnspan=12, sticky=tk.W, pady=(6, 2))
+        ttk.Label(adv, text=self._("preset")).grid(
+            row=3, column=0, sticky=tk.W, pady=2
+        )
+        preset_row = ttk.Frame(adv)
+        preset_row.grid(row=3, column=1, columnspan=7, sticky=tk.W, padx=4, pady=2)
+        self.preset_combo = ttk.Combobox(
+            preset_row,
+            textvariable=self.preset_var,
+            values=[],
+            state="readonly",
+            width=22,
+        )
+        self.preset_combo.pack(side=tk.LEFT)
+        ttk.Button(
+            preset_row, text=self._("load"), command=self._load_selected_preset
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            preset_row,
+            text=self._("save_current"),
+            command=self._save_current_preset,
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            preset_row,
+            text=self._("delete"),
+            command=self._delete_selected_preset,
+        ).pack(side=tk.LEFT, padx=2)
 
-            # Size / file-date ranges (#10) — Full more-filters only
-            ttk.Label(adv, text=self._("size_from")).grid(
-                row=2, column=0, sticky=tk.W, pady=2
-            )
-            size_row = ttk.Frame(adv)
-            size_row.grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
-            ttk.Entry(size_row, textvariable=self.size_min_var, width=10).pack(
-                side=tk.LEFT
-            )
-            ttk.Label(size_row, text=self._("size_to_sep")).pack(side=tk.LEFT)
-            ttk.Entry(size_row, textvariable=self.size_max_var, width=10).pack(
-                side=tk.LEFT
-            )
-            ttk.Label(adv, text=self._("size_hint"), style="Muted.TLabel").grid(
-                row=2, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
+        # Row C — Ranges (size / file-date)
+        ttk.Label(
+            adv, text=self._("more_filters_ranges"), style="Muted.TLabel"
+        ).grid(row=4, column=0, columnspan=12, sticky=tk.W, pady=(6, 2))
+        ttk.Label(adv, text=self._("size_from")).grid(
+            row=5, column=0, sticky=tk.W, pady=2
+        )
+        size_row = ttk.Frame(adv)
+        size_row.grid(row=5, column=1, sticky=tk.W, padx=4, pady=2)
+        ttk.Entry(size_row, textvariable=self.size_min_var, width=10).pack(
+            side=tk.LEFT
+        )
+        ttk.Label(size_row, text=self._("size_to_sep")).pack(side=tk.LEFT)
+        ttk.Entry(size_row, textvariable=self.size_max_var, width=10).pack(
+            side=tk.LEFT
+        )
+        ttk.Label(adv, text=self._("size_hint"), style="Muted.TLabel").grid(
+            row=5, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
+        )
 
-            ttk.Label(adv, text=self._("mtime_from")).grid(
-                row=3, column=0, sticky=tk.W, pady=2
-            )
-            mtime_row = ttk.Frame(adv)
-            mtime_row.grid(row=3, column=1, sticky=tk.W, padx=4, pady=2)
-            self._date_entry(mtime_row, self.mtime_from_var).pack(side=tk.LEFT)
-            ttk.Label(mtime_row, text=self._("mtime_to_sep")).pack(side=tk.LEFT)
-            self._date_entry(mtime_row, self.mtime_to_var).pack(side=tk.LEFT)
-            ttk.Label(adv, text=self._("mtime_hint"), style="Muted.TLabel").grid(
-                row=3, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
+        ttk.Label(adv, text=self._("mtime_from")).grid(
+            row=6, column=0, sticky=tk.W, pady=2
+        )
+        mtime_row = ttk.Frame(adv)
+        mtime_row.grid(row=6, column=1, sticky=tk.W, padx=4, pady=2)
+        self._date_entry(mtime_row, self.mtime_from_var).pack(side=tk.LEFT)
+        ttk.Label(mtime_row, text=self._("mtime_to_sep")).pack(side=tk.LEFT)
+        self._date_entry(mtime_row, self.mtime_to_var).pack(side=tk.LEFT)
+        ttk.Label(adv, text=self._("mtime_hint"), style="Muted.TLabel").grid(
+            row=6, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
+        )
 
-            self._apply_more_filters_visibility()
-        else:
-            for attr in (
-                "type_combo",
-                "control_combo",
-                "provenance_combo",
-                "role_combo",
-                "programmer_combo",
-                "preset_combo",
-                "_more_filters_frame",
-                "_more_filters_btn",
-            ):
-                if hasattr(self, attr):
-                    delattr(self, attr)
+        self._apply_more_filters_visibility()
 
 
     def _build_results_preview(self, parent, pad: dict, *, simple: bool) -> None:
         """Full-width results table; preview opens in a popup (with find)."""
-        cols = RESULT_COLUMNS
+        cols = RESULT_DATA_COLUMNS
         wrap = ttk.Frame(parent)
         wrap.pack(fill=tk.BOTH, expand=True, **pad)
 
@@ -2955,15 +3153,19 @@ class IndexerApp(tk.Tk):
         tree_frame = ttk.Frame(wrap)
         tree_frame.pack(fill=tk.BOTH, expand=True)
         self._results_pane = None  # legacy paned split removed
+        # show tree+#0 for multi-colour Flag PhotoImage (data columns lack images)
         self.tree = ttk.Treeview(
-            tree_frame, columns=cols, show="headings", selectmode="extended"
+            tree_frame,
+            columns=cols,
+            show="tree headings",
+            selectmode="extended",
         )
         headings = {
             "flag": self._("col_flag"),
+            "role": self._("col_role"),
             "src": self._("col_src"),
             "program": self._("col_program"),
             "part": self._("col_part"),
-            "programmer": self._("col_programmer"),
             "machine": self._("col_machine"),
             "odbiorca": self._("col_odbiorca"),
             "date": self._("col_date"),
@@ -2978,7 +3180,21 @@ class IndexerApp(tk.Tk):
             getattr(self, "_column_widths", None) or {},
             RESULT_COLUMNS,
         )
-        for key, label in headings.items():
+        flag_w = int(self._column_widths.get("flag", DEFAULT_COLUMN_WIDTHS.get("flag", 80)))
+        self.tree.heading(
+            "#0",
+            text=headings["flag"],
+            command=lambda: self._on_sort_column("flag"),
+        )
+        self.tree.column(
+            "#0",
+            width=flag_w,
+            stretch=False,
+            minwidth=MIN_COLUMN_WIDTH,
+            anchor=tk.CENTER,
+        )
+        for key in cols:
+            label = headings[key]
             self.tree.heading(
                 key, text=label, command=lambda c=key: self._on_sort_column(c)
             )
@@ -3014,6 +3230,12 @@ class IndexerApp(tk.Tk):
         self.tree.bind("<B1-Motion>", self._on_tree_col_drag, add="+")
         self.tree.bind("<ButtonRelease-1>", self._on_tree_col_release, add="+")
         self.tree.bind("<Configure>", self._on_tree_configure_fill, add="+")
+        # Flag-column hover tip (Work results only)
+        self.tree.bind("<Motion>", self._on_tree_flag_motion, add="+")
+        self.tree.bind("<Leave>", self._on_tree_flag_leave, add="+")
+        self.tree.bind("<MouseWheel>", self._hide_flag_tip, add="+")
+        self.tree.bind("<Button-4>", self._hide_flag_tip, add="+")
+        self.tree.bind("<Button-5>", self._hide_flag_tip, add="+")
         if sys.platform == "darwin":
             self.tree.bind("<Button-2>", self._on_tree_context)
             self.tree.bind("<Control-Button-1>", self._on_tree_context)
@@ -3053,29 +3275,35 @@ class IndexerApp(tk.Tk):
             pass
 
     def _pack_results_colour_legend(self, parent) -> None:
-        """Status + role colour chips beside the results toolbar."""
+        """Status + override-role colour chips beside the results toolbar."""
         roles: list[tuple[str, str]] = []
         catalog = getattr(self, "_colour_catalog", None)
         if catalog is not None:
-            for c in list(catalog.colours)[:6]:
-                roles.append((c.swatch, c.label(self._lang)))
+            roles = override_role_legend_items(catalog.colours, self._lang)
         pack_compact_colour_legend(
             parent,
             on_machine_text=self._("status_on_machine"),
             not_run_text=self._("status_unknown"),
             role_items=roles or None,
-            roles_caption=self._("colour_legend_roles") if roles else "",
+            roles_caption=self._("colour_legend_overrides") if roles else "",
         ).pack(side=tk.RIGHT)
 
     def _visible_result_columns(self) -> list[str]:
+        """Data columns currently shown (Flag is #0 — not in this list)."""
         hidden = {
             c for c in getattr(self, "_hidden_columns", set()) if c in RESULT_COLUMNS
         }
-        visible = [c for c in RESULT_COLUMNS if c not in hidden]
-        if not visible:
+        visible = [c for c in RESULT_DATA_COLUMNS if c not in hidden]
+        if not visible and "flag" in hidden:
+            visible = ["program"]
+            self._hidden_columns = set(hidden) - {"program"}
+        elif not visible:
             visible = ["program"]
             self._hidden_columns = set(hidden) - {"program"}
         return visible
+
+    def _flag_column_visible(self) -> bool:
+        return "flag" not in getattr(self, "_hidden_columns", set())
 
     def _apply_column_visibility(self) -> None:
         if not hasattr(self, "tree"):
@@ -3092,7 +3320,21 @@ class IndexerApp(tk.Tk):
         if not hasattr(self, "tree"):
             return
         widths = getattr(self, "_column_widths", None) or DEFAULT_COLUMN_WIDTHS
-        for key in RESULT_COLUMNS:
+        # Flag lives in #0
+        if self._flag_column_visible():
+            fw = int(widths.get("flag", DEFAULT_COLUMN_WIDTHS.get("flag", 80)))
+            try:
+                self.tree.column(
+                    "#0", width=fw, stretch=False, minwidth=MIN_COLUMN_WIDTH
+                )
+            except tk.TclError:
+                pass
+        else:
+            try:
+                self.tree.column("#0", width=0, stretch=False, minwidth=0)
+            except tk.TclError:
+                pass
+        for key in RESULT_DATA_COLUMNS:
             w = int(widths.get(key, DEFAULT_COLUMN_WIDTHS.get(key, 100)))
             try:
                 self.tree.column(
@@ -3121,7 +3363,10 @@ class IndexerApp(tk.Tk):
         total = self._tree_usable_width()
         if total <= 0:
             return
-        visible = self._visible_result_columns()
+        visible = list(self._visible_result_columns())
+        if self._flag_column_visible():
+            # Include flag so redistribute accounts for #0 width
+            visible = ["flag", *visible]
         if not visible:
             return
         current = getattr(self, "_column_widths", None) or {}
@@ -3131,9 +3376,10 @@ class IndexerApp(tk.Tk):
         merged.update(filled)
         self._column_widths = merge_widths(merged, RESULT_COLUMNS)
         for key, w in filled.items():
+            col = "#0" if key == "flag" else key
             try:
                 self.tree.column(
-                    key, width=int(w), stretch=False, minwidth=MIN_COLUMN_WIDTH
+                    col, width=int(w), stretch=False, minwidth=MIN_COLUMN_WIDTH
                 )
             except tk.TclError:
                 pass
@@ -3188,8 +3434,13 @@ class IndexerApp(tk.Tk):
         except ValueError:
             return None
         visible = self._displaycolumns_list()
-        left = display_index_to_id(visible, idx)
-        right = display_index_to_id(visible, idx + 1)
+        # #0 = Flag tree column; #1+ = data displaycolumns
+        if idx == 0:
+            left = "flag"
+            right = display_index_to_id(visible, 1)
+        else:
+            left = display_index_to_id(visible, idx)
+            right = display_index_to_id(visible, idx + 1)
         if left is None or right is None:
             # Last separator with no right neighbor — let fill absorb on release
             if left is None:
@@ -3232,9 +3483,10 @@ class IndexerApp(tk.Tk):
         for key in (left, right) if right else (left,):
             if not key:
                 continue
+            col = "#0" if key == "flag" else key
             try:
                 self.tree.column(
-                    key,
+                    col,
                     width=int(self._column_widths[key]),
                     stretch=False,
                     minwidth=MIN_COLUMN_WIDTH,
@@ -3403,6 +3655,11 @@ class IndexerApp(tk.Tk):
         ttk.Button(foot, text=self._("close"), command=self._close_preview_popup).pack(
             side=tk.RIGHT
         )
+        ttk.Button(
+            foot,
+            text=self._("ctx_extract_to"),
+            command=self._extract_to_folder,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
 
         def _on_configure(_event=None) -> None:
             try:
@@ -3537,10 +3794,14 @@ class IndexerApp(tk.Tk):
                 self._persist_extra_roots()
             self._refresh_preset_combo()
             self._update_folders_summary()
-            # INI is primary for language/schedule; YAML only fills blank last-run.
+            # INI is primary; legacy ui_settings may seed safety last-run once.
             settings = load_ui_settings(ui_settings_path_for_target(path))
-            if not self._schedule_last_run and settings.get("schedule_last_run"):
-                self._schedule_last_run = settings.get("schedule_last_run") or None
+            if (
+                not self._watch_safety_last_run
+                and self._watch_safety != SCHEDULE_OFF
+                and settings.get("schedule_last_run")
+            ):
+                self._watch_safety_last_run = settings.get("schedule_last_run") or None
             self._load_colour_catalog()
             self._apply_indexer_settings_from_target(path, persist_local=True)
             self._save_instance_ini()
@@ -3569,7 +3830,10 @@ class IndexerApp(tk.Tk):
         self.target_var.set(str(db.parent))
         self._load_extra_roots_into_list()
         self._load_colour_catalog()
-        self.status_var.set(self._("status_using_db", path=db))
+        if getattr(self, "_colours_sidecar_missing", False):
+            self.status_var.set(self._("warn_colours_sidecar_missing"))
+        else:
+            self.status_var.set(self._("status_using_db", path=db))
         self._refresh_filter_choices()
         self._clear_filters()
         self._update_folders_summary()
@@ -3581,12 +3845,17 @@ class IndexerApp(tk.Tk):
         self._save_instance_ini()
         self._persist_indexer_settings()
         self._sync_folder_watch()
-        self._arm_schedule_timer()
+        self._arm_safety_timer()
 
     def _scan_root_specs(self) -> list[ScanRootSpec]:
         if hasattr(self, "extra_list"):
+            n = self.extra_list.size()
+            hidden = list(self._hidden_root_specs)
+            # Disc labels share one glyph; trust in-memory specs when sizes match.
+            if len(hidden) == n:
+                return hidden
             specs: list[ScanRootSpec] = []
-            for i in range(self.extra_list.size()):
+            for i in range(n):
                 parsed = parse_root_label(self.extra_list.get(i))
                 if parsed is not None:
                     specs.append(parsed)
@@ -3599,7 +3868,7 @@ class IndexerApp(tk.Tk):
         if not hasattr(self, "extra_list"):
             return
         self.extra_list.delete(0, tk.END)
-        for spec in specs:
+        for i, spec in enumerate(specs):
             self.extra_list.insert(
                 tk.END,
                 format_root_label(
@@ -3608,6 +3877,12 @@ class IndexerApp(tk.Tk):
                     yellow_tag=self._("tag_yellow"),
                 ),
             )
+            try:
+                self.extra_list.itemconfig(
+                    i, foreground=status_swatch(spec.provenance)
+                )
+            except tk.TclError:
+                pass
 
     def _load_extra_roots_into_list(self) -> None:
         target = self.target_var.get().strip()
@@ -3680,21 +3955,20 @@ class IndexerApp(tk.Tk):
     def _remove_extra_roots(self) -> None:
         if not hasattr(self, "extra_list"):
             return
-        sel = list(self.extra_list.curselection())
+        sel = set(self.extra_list.curselection())
         if not sel:
             return
-        for i in reversed(sel):
-            self.extra_list.delete(i)
+        specs = [
+            s for i, s in enumerate(self._scan_root_specs()) if i not in sel
+        ]
+        self._fill_extra_list(specs)
         self._persist_extra_roots()
         self._sync_folder_watch()
 
-    def _schedule_unit_labels(self) -> list[str]:
+    def _safety_unit_labels(self) -> list[str]:
         return [
-            self._("schedule_off"),
-            self._("schedule_unit_seconds"),
             self._("schedule_unit_minutes"),
             self._("schedule_unit_hours"),
-            self._("schedule_unit_days"),
         ]
 
     def _unit_code_from_label(self, label: str) -> Optional[str]:
@@ -3704,11 +3978,9 @@ class IndexerApp(tk.Tk):
             self._("schedule_unit_seconds"): UNIT_SECONDS,
             self._("schedule_unit_minutes"): UNIT_MINUTES,
             self._("schedule_unit_hours"): UNIT_HOURS,
-            self._("schedule_unit_days"): UNIT_DAYS,
         }
         if raw in mapping:
             return mapping[raw]
-        # English/raw fallbacks
         low = raw.casefold()
         if low in ("off", "wyłączony", "wylaczony"):
             return None
@@ -3719,7 +3991,8 @@ class IndexerApp(tk.Tk):
         if low.startswith("hour") or low.startswith("godz"):
             return UNIT_HOURS
         if low.startswith("day") or low.startswith("dni") or low.startswith("dzie"):
-            return UNIT_DAYS
+            # Safety UI is minutes/hours; days from migration shown as hours.
+            return UNIT_HOURS
         return UNIT_MINUTES
 
     def _unit_label_from_code(self, unit: Optional[str]) -> str:
@@ -3729,144 +4002,256 @@ class IndexerApp(tk.Tk):
             UNIT_SECONDS: self._("schedule_unit_seconds"),
             UNIT_MINUTES: self._("schedule_unit_minutes"),
             UNIT_HOURS: self._("schedule_unit_hours"),
-            UNIT_DAYS: self._("schedule_unit_days"),
         }.get(unit, self._("schedule_off"))
 
-    def _sync_schedule_widgets(self) -> None:
-        parsed = parse_schedule(self._schedule)
+    def _sync_watch_quiet_widgets(self) -> None:
+        self.watch_coalesce_var.set(str(self._watch_coalesce_s))
+        parsed = parse_schedule(self._watch_safety)
         if parsed is None:
-            self.schedule_amount_var.set("1")
-            self.schedule_unit_var.set(self._("schedule_off"))
-            self.schedule_var.set(SCHEDULE_OFF)
+            self.watch_safety_enabled_var.set(False)
+            self.watch_safety_amount_var.set("1")
+            self.watch_safety_unit_var.set(self._("schedule_unit_hours"))
             return
         amount, unit = parsed
-        self.schedule_amount_var.set(str(amount))
-        self.schedule_unit_var.set(self._unit_label_from_code(unit))
-        self.schedule_var.set(self._schedule)
+        if unit == "d":
+            amount = max(1, amount * 24)
+            unit = UNIT_HOURS
+        self.watch_safety_enabled_var.set(True)
+        self.watch_safety_amount_var.set(str(amount))
+        self.watch_safety_unit_var.set(self._unit_label_from_code(unit))
 
-    def _collect_schedule_from_widgets(self) -> str:
-        unit = self._unit_code_from_label(self.schedule_unit_var.get())
-        if unit is None:
+    def _collect_watch_safety_from_widgets(self) -> str:
+        if not bool(self.watch_safety_enabled_var.get()):
             return SCHEDULE_OFF
-        raw_amount = self.schedule_amount_var.get().strip()
+        unit = self._unit_code_from_label(self.watch_safety_unit_var.get())
+        if unit is None or unit == UNIT_SECONDS:
+            unit = UNIT_HOURS
+        raw_amount = self.watch_safety_amount_var.get().strip()
         try:
             amount = int(float(raw_amount.replace(",", ".")))
         except ValueError:
             amount = 1
-        return format_schedule(amount, unit)
+        return normalize_watch_safety(format_schedule(amount, unit))
 
-    def _on_schedule_amount_typed(self, *_args) -> None:
-        """Debounce amount edits so the countdown recalculates while typing."""
-        if self._schedule_amount_debounce_id is not None:
+    def _set_watch_opts_enabled(self, enabled: bool) -> None:
+        state = tk.NORMAL if enabled else tk.DISABLED
+        for w in getattr(self, "_watch_opts_widgets", []) or []:
             try:
-                self.after_cancel(self._schedule_amount_debounce_id)
+                if isinstance(w, ttk.Combobox):
+                    w.configure(state="readonly" if enabled else tk.DISABLED)
+                elif isinstance(w, ttk.Entry):
+                    w.configure(state=state)
+                elif isinstance(w, ttk.Checkbutton):
+                    w.configure(state=state)
+                elif isinstance(w, ttk.Label):
+                    # Labels have no disable on all themes; leave visible.
+                    pass
             except tk.TclError:
                 pass
-        self._schedule_amount_debounce_id = self.after(
-            400, self._on_schedule_widgets_changed
+
+    def _on_watch_coalesce_typed(self, *_args) -> None:
+        if self._coalesce_amount_debounce_id is not None:
+            try:
+                self.after_cancel(self._coalesce_amount_debounce_id)
+            except tk.TclError:
+                pass
+        self._coalesce_amount_debounce_id = self.after(
+            400, self._on_watch_coalesce_changed
         )
 
-    def _on_schedule_widgets_changed(self, *_args) -> None:
-        if self._schedule_amount_debounce_id is not None:
+    def _on_watch_coalesce_changed(self, *_args) -> None:
+        if self._coalesce_amount_debounce_id is not None:
             try:
-                self.after_cancel(self._schedule_amount_debounce_id)
+                self.after_cancel(self._coalesce_amount_debounce_id)
             except tk.TclError:
                 pass
-            self._schedule_amount_debounce_id = None
-        new_code = self._collect_schedule_from_widgets()
-        old_code = self._schedule
-        # Amount/unit change: restart the interval from *now* so next-run
-        # updates immediately instead of staying anchored to an old last_run.
-        if new_code != old_code and new_code != SCHEDULE_OFF:
-            from datetime import datetime, timezone
+            self._coalesce_amount_debounce_id = None
+        self._set_watch_coalesce_s(self.watch_coalesce_var.get())
 
-            self._schedule_last_run = format_iso_datetime(
-                datetime.now(timezone.utc)
-            )
-        self._set_schedule(new_code)
-
-    def _set_schedule(self, schedule: str, *, persist: bool = True) -> None:
-        code = normalize_schedule(schedule)
-        self._schedule = code
-        self._sync_schedule_widgets()
+    def _set_watch_coalesce_s(self, value, *, persist: bool = True) -> None:
+        self._watch_coalesce_s = clamp_watch_coalesce_s(value)
+        self.watch_coalesce_var.set(str(self._watch_coalesce_s))
         if persist:
-            self._persist_ui_settings()
             self._save_instance_ini()
             if not getattr(self, "_applying_indexer_settings", False):
                 self._persist_indexer_settings()
-        self._update_schedule_status()
-        self._arm_schedule_timer()
-
-    def _update_schedule_status(self) -> None:
-        if not hasattr(self, "schedule_status_var"):
-            return
-        if self._schedule == SCHEDULE_OFF:
-            self.schedule_status_var.set(self._("schedule_idle"))
-            self._refresh_indeks_status_line()
-            return
-        if self._scan_busy:
-            self.schedule_status_var.set(self._("schedule_running"))
-            self._refresh_indeks_status_line()
-            return
-        rem = seconds_until_next(self._schedule, self._schedule_last_run)
-        if rem is None:
-            self.schedule_status_var.set(self._("schedule_idle"))
-            self._refresh_indeks_status_line()
-            return
-        if rem <= 0.5:
-            self.schedule_status_var.set(self._("schedule_due_now"))
-            self._refresh_indeks_status_line()
-            return
-        self.schedule_status_var.set(
-            self._("schedule_countdown", countdown=format_countdown(rem))
-        )
         self._refresh_indeks_status_line()
 
-    def _arm_schedule_timer(self) -> None:
-        if self._schedule_after_id is not None:
+    def _on_watch_safety_amount_typed(self, *_args) -> None:
+        if self._safety_amount_debounce_id is not None:
             try:
-                self.after_cancel(self._schedule_after_id)
+                self.after_cancel(self._safety_amount_debounce_id)
             except tk.TclError:
                 pass
-            self._schedule_after_id = None
-        # Floor client (can_index=no) — no auto-index timer.
-        if self._is_simple():
-            return
-        if self._schedule != SCHEDULE_OFF:
-            self._schedule_after_id = self.after(
-                schedule_poll_ms(self._schedule), self._schedule_tick
+        self._safety_amount_debounce_id = self.after(
+            400, self._on_watch_safety_widgets_changed
+        )
+
+    def _on_watch_safety_widgets_changed(self, *_args) -> None:
+        if self._safety_amount_debounce_id is not None:
+            try:
+                self.after_cancel(self._safety_amount_debounce_id)
+            except tk.TclError:
+                pass
+            self._safety_amount_debounce_id = None
+        # First enable → suggest 1 hour
+        if bool(self.watch_safety_enabled_var.get()) and self._watch_safety == SCHEDULE_OFF:
+            parsed_default = parse_schedule(DEFAULT_WATCH_SAFETY_WHEN_ENABLED)
+            if parsed_default is not None:
+                amt, unit = parsed_default
+                self.watch_safety_amount_var.set(str(amt))
+                self.watch_safety_unit_var.set(self._unit_label_from_code(unit))
+            elif not (self.watch_safety_amount_var.get() or "").strip():
+                self.watch_safety_amount_var.set("1")
+                self.watch_safety_unit_var.set(self._("schedule_unit_hours"))
+        new_code = self._collect_watch_safety_from_widgets()
+        if (
+            new_code != self._watch_safety
+            and new_code != SCHEDULE_OFF
+            and bool(self.watch_safety_enabled_var.get())
+        ):
+            from datetime import datetime, timezone
+
+            self._watch_safety_last_run = format_iso_datetime(
+                datetime.now(timezone.utc)
             )
+        self._set_watch_safety(new_code)
 
-    def _schedule_tick(self) -> None:
-        self._schedule_after_id = None
-        try:
-            self._update_schedule_status()
-            self._maybe_run_scheduled_scan()
-        finally:
-            self._arm_schedule_timer()
-            # Refresh again after possible scan start so "indexing now" shows.
-            self._update_schedule_status()
+    def _set_watch_safety(self, safety: str, *, persist: bool = True) -> None:
+        code = normalize_watch_safety(safety)
+        self._watch_safety = code
+        self._sync_watch_quiet_widgets()
+        if persist:
+            self._save_instance_ini()
+            if not getattr(self, "_applying_indexer_settings", False):
+                self._persist_indexer_settings()
+        self._refresh_indeks_status_line()
+        self._arm_safety_timer()
 
-    def _maybe_run_scheduled_scan(self) -> None:
-        if self._is_simple():
+    def _watch_safety_status_bit(self) -> str:
+        if self._watch_safety == SCHEDULE_OFF:
+            return self._("watch_status_safety_off")
+        if self._scan_busy:
+            return self._("watch_status_safety_on", interval=self._watch_safety)
+        rem = seconds_until_next(self._watch_safety, self._watch_safety_last_run)
+        if rem is None:
+            return self._("watch_status_safety_off")
+        if rem <= 0.5:
+            return self._("watch_status_safety_on", interval=self._watch_safety)
+        return self._(
+            "watch_status_safety_due", countdown=format_countdown(rem)
+        )
+
+    def _quiet_active(self) -> bool:
+        import time
+
+        deadline = self._watch_quiet_until
+        if deadline is None:
+            return False
+        return time.monotonic() < deadline
+
+    def _start_watch_quiet(self) -> None:
+        """Quiet window starts when a Watch-triggered scan starts (wall-clock gap)."""
+        import time
+
+        self._watch_quiet_until = time.monotonic() + float(self._watch_coalesce_s)
+        self._arm_coalesce_timer()
+
+    def _arm_coalesce_timer(self) -> None:
+        if self._coalesce_after_id is not None:
+            try:
+                self.after_cancel(self._coalesce_after_id)
+            except tk.TclError:
+                pass
+            self._coalesce_after_id = None
+        if not self._watch_enabled or self._is_simple():
             return
-        if self._schedule == SCHEDULE_OFF or self._scan_busy:
+        import time
+
+        if self._watch_quiet_until is None:
+            return
+        rem_ms = int(max(0.0, (self._watch_quiet_until - time.monotonic()) * 1000)) + 20
+        self._coalesce_after_id = self.after(rem_ms, self._on_coalesce_expired)
+
+    def _on_coalesce_expired(self) -> None:
+        self._coalesce_after_id = None
+        if self._quiet_active():
+            self._arm_coalesce_timer()
+            return
+        self._watch_quiet_until = None
+        if self._scan_busy or not self._watch_enabled or self._is_simple():
+            return
+        if self._watch_rescan_pending or self._watch_safety_pending:
+            self._watch_rescan_pending = False
+            was_safety = self._watch_safety_pending
+            self._watch_safety_pending = False
+            self._begin_watch_triggered_scan(safety=was_safety)
+
+    def _begin_watch_triggered_scan(self, *, safety: bool = False) -> None:
+        """Start incremental scan under Watch; quiet begins at scan start."""
+        if self._scan_busy or not self._watch_enabled or self._is_simple():
             return
         if not self._folders_ready():
             return
-        if not is_schedule_due(self._schedule, self._schedule_last_run):
-            return
-        self.status_var.set(self._("schedule_running"))
-        self.schedule_status_var.set(self._("schedule_running"))
-        self._start_scan(auto=True)
-
-    def _mark_schedule_ran(self) -> None:
         from datetime import datetime, timezone
 
-        self._schedule_last_run = format_iso_datetime(datetime.now(timezone.utc))
-        self._persist_ui_settings()
+        self._start_watch_quiet()
+        self._last_watch_scan_at = datetime.now(timezone.utc)
+        self._refresh_watch_strip()
+        if safety:
+            self.status_var.set(self._("watch_safety_trigger"))
+        else:
+            self.status_var.set(self._("watch_trigger"))
+        self._start_scan(auto=True)
+
+    def _arm_safety_timer(self) -> None:
+        if self._safety_after_id is not None:
+            try:
+                self.after_cancel(self._safety_after_id)
+            except tk.TclError:
+                pass
+            self._safety_after_id = None
+        if self._is_simple() or not self._watch_enabled:
+            return
+        if self._watch_safety == SCHEDULE_OFF:
+            self._refresh_indeks_status_line()
+            return
+        self._safety_after_id = self.after(
+            schedule_poll_ms(self._watch_safety), self._safety_tick
+        )
+
+    def _safety_tick(self) -> None:
+        self._safety_after_id = None
+        try:
+            self._refresh_indeks_status_line()
+            self._maybe_run_safety_scan()
+        finally:
+            self._arm_safety_timer()
+            self._refresh_indeks_status_line()
+
+    def _maybe_run_safety_scan(self) -> None:
+        if self._is_simple() or not self._watch_enabled:
+            return
+        if self._watch_safety == SCHEDULE_OFF or self._scan_busy:
+            return
+        if not self._folders_ready():
+            return
+        if not is_schedule_due(self._watch_safety, self._watch_safety_last_run):
+            return
+        if self._quiet_active():
+            self._watch_safety_pending = True
+            self._arm_coalesce_timer()
+            return
+        self._begin_watch_triggered_scan(safety=True)
+
+    def _mark_safety_ran(self) -> None:
+        from datetime import datetime, timezone
+
+        self._watch_safety_last_run = format_iso_datetime(
+            datetime.now(timezone.utc)
+        )
         self._save_instance_ini()
-        self._update_schedule_status()
+        self._refresh_indeks_status_line()
 
     def _watch_mode_label(self, mode: str) -> str:
         code = normalize_watch_mode(mode)
@@ -4096,10 +4481,17 @@ class IndexerApp(tk.Tk):
 
     def _on_watch_toggled(self) -> None:
         self._watch_enabled = bool(self.watch_var.get()) and not self._is_simple()
+        self._set_watch_opts_enabled(bool(self.watch_var.get()))
         self._save_instance_ini()
         if not getattr(self, "_applying_indexer_settings", False):
             self._persist_indexer_settings()
         self._sync_folder_watch()
+        self._arm_safety_timer()
+        if not self._watch_enabled:
+            self._watch_quiet_until = None
+            self._watch_rescan_pending = False
+            self._watch_safety_pending = False
+        self._refresh_indeks_status_line()
 
     def _stop_folder_watch(self, *, release: bool = False) -> None:
         if self._folder_watcher is not None:
@@ -4113,6 +4505,8 @@ class IndexerApp(tk.Tk):
             if target and we_hold_lock(target):
                 release_lock(target)
         self._update_watch_status()
+        self._arm_safety_timer()
+        self._refresh_indeks_status_line()
 
     def _sync_folder_watch(self, *, initial: bool = False) -> None:
         """Start/stop watcher for indexer (can_index=yes) based on checkbox + folders + lock."""
@@ -4187,6 +4581,8 @@ class IndexerApp(tk.Tk):
                 self._folder_watcher.seed()
         self._update_watch_status()
         self._save_instance_ini()
+        self._arm_safety_timer()
+        self._refresh_indeks_status_line()
 
     def _on_watch_change_thread(self) -> None:
         """Called from watcher thread — marshal onto Tk."""
@@ -4198,15 +4594,13 @@ class IndexerApp(tk.Tk):
     def _on_watch_change(self) -> None:
         if self._is_simple() or not self._watch_enabled:
             return
-        if self._scan_busy:
+        if self._scan_busy or self._quiet_active():
             self._watch_rescan_pending = True
+            if self._quiet_active() and not self._scan_busy:
+                self.status_var.set(self._("watch_coalesce_pending"))
+                self._arm_coalesce_timer()
             return
-        from datetime import datetime, timezone
-
-        self._last_watch_scan_at = datetime.now(timezone.utc)
-        self._refresh_watch_strip()
-        self.status_var.set(self._("watch_trigger"))
-        self._start_scan(auto=True)
+        self._begin_watch_triggered_scan(safety=False)
 
     def _db_path(self) -> Optional[Path]:
         target = self.target_var.get().strip()
@@ -4500,7 +4894,7 @@ class IndexerApp(tk.Tk):
         self.status_var.set(
             self._("schedule_running") if auto else self._("scan_scanning")
         )
-        self._update_schedule_status()
+        self._refresh_indeks_status_line()
         self._show_progress(True)
         self._maybe_auto_collapse_folders()
         if self._is_simple() or auto:
@@ -4624,6 +5018,8 @@ class IndexerApp(tk.Tk):
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
                     odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+                    role_from_header=bool(self.role_from_header_var.get()),
+                    machine_from_header=bool(self.machine_from_header_var.get()),
                     o9_system_programs_role=bool(
                         self.o9_system_programs_role_var.get()
                     ),
@@ -4640,6 +5036,8 @@ class IndexerApp(tk.Tk):
                     tree_map=tree_map,
                     odbiorca_map=odbiorca_map,
                     odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
+                    role_from_header=bool(self.role_from_header_var.get()),
+                    machine_from_header=bool(self.machine_from_header_var.get()),
                     o9_system_programs_role=bool(
                         self.o9_system_programs_role_var.get()
                     ),
@@ -4684,6 +5082,16 @@ class IndexerApp(tk.Tk):
                 append_scan_history(target, entry)
             except Exception:  # noqa: BLE001
                 log.exception("append scan history failed")
+            # Header-token teach list cache (O-line tokens; full rebuild each scan).
+            try:
+                build_and_save_header_token_freq(
+                    target,
+                    result.instances,
+                    run_id=run_id,
+                    full_scan=cache is None,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("build header token frequency cache failed")
             excel_note = ""
             if write_excel:
                 xlsx = target / "gcode_index.xlsx"
@@ -4726,13 +5134,22 @@ class IndexerApp(tk.Tk):
                     path=n_odb_p,
                     header=n_odb_h,
                 )
+            n_role_h = int(getattr(result, "roles_from_header", 0) or 0)
+            role_h_note = (
+                self._("scan_note_role_header", n=n_role_h) if n_role_h else ""
+            )
+            n_mach_h = int(getattr(result, "machine_from_header", 0) or 0)
+            mach_h_note = (
+                self._("scan_note_machine_header", n=n_mach_h) if n_mach_h else ""
+            )
             n_o9 = int(getattr(result, "o9_system_programs", 0) or 0)
             o9_note = (
                 self._("scan_note_o9_system", n=n_o9) if n_o9 else ""
             )
             extra = (
                 f"{unk_note}{local_note}{flag_note}"
-                f"{cache_note}{mode_note}{auto_note}{odb_note}{o9_note}"
+                f"{cache_note}{mode_note}{auto_note}{odb_note}"
+                f"{role_h_note}{mach_h_note}{o9_note}"
             )
             msg = self._(
                 "scan_done_status",
@@ -4770,7 +5187,7 @@ class IndexerApp(tk.Tk):
         if ok:
             self.progress_var.set(100.0)
             self.progress_label_var.set(self._("scan_done"))
-            self._mark_schedule_ran()
+            self._mark_safety_ran()
             if auto:
                 from datetime import datetime, timezone
 
@@ -4787,7 +5204,7 @@ class IndexerApp(tk.Tk):
         else:
             self.progress_var.set(0.0)
             self.progress_label_var.set("")
-        self._update_schedule_status()
+        self._refresh_indeks_status_line()
         self.status_var.set(message)
         # Hide progress bar shortly after finish to free vertical space
         self.after(1200, lambda: self._show_progress(False) if not self._scan_busy else None)
@@ -4872,6 +5289,79 @@ class IndexerApp(tk.Tk):
 
     def _show_scan_report(self, report: ScanReport) -> None:
         ScanReportDialog(self, report=report)
+
+    def _open_unassigned_header_tokens(self) -> None:
+        """Scan-report teach list: O-line tokens with no machine/role/odbiorca alias."""
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showinfo(
+                self._("header_tokens_dialog_title"),
+                self._("header_tokens_need_target"),
+            )
+            return
+        Path(target).mkdir(parents=True, exist_ok=True)
+        cache_path = header_token_freq_path_for_target(target)
+        cached = load_header_token_freq(cache_path)
+        if cached is None or not cached.tokens:
+            messagebox.showinfo(
+                self._("header_tokens_dialog_title"),
+                self._(
+                    "header_tokens_need_scan",
+                    filename=HEADER_TOKEN_FREQ_FILENAME,
+                ),
+            )
+            return
+        try:
+            aliases = self._load_alias_map()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(self._("header_tokens_dialog_title"), str(exc))
+            return
+        colour_path = folder_colour_aliases_path_for_target(target)
+        catalog = load_colour_catalog(colour_path)
+        colour_map = FolderColourAliasMap(
+            catalog.rules, known_ids=catalog.colour_ids
+        )
+        odb_path = odbiorcy_path_for_target(target)
+        odb_catalog = load_odbiorca_catalog(odb_path)
+        odbiorca_map = odb_catalog.alias_map()
+        entries = filter_unassigned_header_tokens(
+            cached.tokens,
+            aliases=aliases,
+            colour_map=colour_map,
+            odbiorca_map=odbiorca_map,
+        )
+        if not entries:
+            messagebox.showinfo(
+                self._("header_tokens_dialog_title"),
+                self._("header_tokens_empty"),
+            )
+            return
+        dlg = FolderNameBrowserDialog(
+            self,
+            roots=[],
+            entries=entries,
+            aliases=aliases,
+            machine_choices=[
+                display_for_machine(UNKNOWN_ID, UNKNOWN_LABEL),
+                *aliases.known_machine_displays(),
+            ],
+            local_aliases_path=local_aliases_path_for_target(target),
+            colour_save_path=colour_path,
+            catalog=catalog,
+            odbiorca_save_path=odb_path,
+            odbiorca_catalog=odb_catalog,
+            title_key="header_tokens_dialog_title",
+            intro_key="header_tokens_intro",
+            drop_when_assigned=True,
+        )
+        self.wait_window(dlg)
+        if dlg.changed:
+            self._load_colour_catalog()
+            self._odbiorca_catalog_cache = getattr(
+                dlg, "_odbiorca_catalog", odb_catalog
+            )
+            self._refresh_filter_choices()
+            self.status_var.set(self._("header_tokens_status_saved"))
 
     def _open_quality_dashboard(self) -> None:
         db_path = self._db_path()
@@ -5047,7 +5537,6 @@ class IndexerApp(tk.Tk):
             "machines": list(seed),
             "source_types": [],
             "control_families": [],
-            "programmers": [],
         }
         if db_path is not None and db_path.is_file():
             try:
@@ -5070,11 +5559,6 @@ class IndexerApp(tk.Tk):
             self.type_combo["values"] = [self._all_token(), *vals["source_types"]]
         if hasattr(self, "control_combo"):
             self.control_combo["values"] = [self._all_token(), *vals["control_families"]]
-        if hasattr(self, "programmer_combo"):
-            self.programmer_combo["values"] = [
-                self._all_token(),
-                *vals.get("programmers", []),
-            ]
         if hasattr(self, "odbiorca_combo"):
             labels = self._odbiorca_filter_labels(db_ids=vals.get("odbiorcy") or [])
             cur = self.odbiorca_var.get()
@@ -5135,7 +5619,6 @@ class IndexerApp(tk.Tk):
             source_type=self.source_type_var.get().strip() or ALL,
             control=self.control_var.get().strip() or ALL,
             provenance=self.provenance_var.get().strip() or ALL,
-            programmer=self.programmer_var.get().strip() or ALL,
             role=self.role_var.get().strip() or ALL,
             odbiorca=(
                 (self.odbiorca_var.get().strip() or ALL)
@@ -5143,6 +5626,7 @@ class IndexerApp(tk.Tk):
                 else ALL
             ),
             newest_only=bool(self.newest_only_var.get()),
+            only_green=bool(self.only_green_var.get()),
         )
 
     def _apply_filter_preset(self, preset: FilterPreset) -> None:
@@ -5158,13 +5642,13 @@ class IndexerApp(tk.Tk):
             self.source_type_var.set(preset.source_type or ALL)
             self.control_var.set(preset.control or ALL)
             self.provenance_var.set(preset.provenance or ALL)
-            self.programmer_var.set(preset.programmer or ALL)
             role_raw = getattr(preset, "role", "") or ALL
             self.role_var.set(role_raw if role_raw else ALL)
             if hasattr(self, "odbiorca_var"):
                 odb_raw = getattr(preset, "odbiorca", "") or ALL
                 self.odbiorca_var.set(odb_raw if odb_raw else ALL)
             self.newest_only_var.set(bool(preset.newest_only))
+            self.only_green_var.set(bool(getattr(preset, "only_green", False)))
             wanted = {m.strip() for m in (preset.machines or []) if m.strip()}
             self._machine_sel = {
                 n for n in self._machine_names if n in wanted
@@ -5276,8 +5760,8 @@ class IndexerApp(tk.Tk):
                 self.role_var.set(self._all_token())
             if hasattr(self, "odbiorca_var"):
                 self.odbiorca_var.set(self._all_token())
-            self.programmer_var.set(self._all_token())
             self.newest_only_var.set(False)
+            self.only_green_var.set(False)
             self._sort_col = None
             self._sort_reverse = False
             self._refresh_heading_labels()
@@ -5422,11 +5906,6 @@ class IndexerApp(tk.Tk):
         provenance = self._status_filter_value()
         role = self._role_filter_value()
         odbiorca = self._odbiorca_filter_value()
-        programmer = self.programmer_var.get().strip()
-        if self._is_all_token(programmer):
-            programmer_filter = None
-        else:
-            programmer_filter = programmer
 
         try:
             conn = open_db(db_path)
@@ -5446,7 +5925,6 @@ class IndexerApp(tk.Tk):
                     provenance=provenance,
                     role=role,
                     odbiorca=odbiorca,
-                    programmer=programmer_filter,
                     newest_only=bool(self.newest_only_var.get()),
                     include_unknown=self._effective_include_unknown(),
                     limit=BROWSE_LIMIT,
@@ -5460,6 +5938,28 @@ class IndexerApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001
             self.status_var.set(self._("search_error", error=exc))
             return
+
+        if bool(self.only_green_var.get()):
+            catalog = getattr(self, "_colour_catalog", ColourCatalog())
+            override_ids = catalog.override_role_ids()
+            filtered: list = []
+            for r in rows:
+                keys = r.keys() if hasattr(r, "keys") else ()
+                prov = (
+                    str(r["provenance"] or PROVENANCE_BACKUP)
+                    if "provenance" in keys
+                    else PROVENANCE_BACKUP
+                )
+                role_raw = (
+                    str(r["role"]).strip() if "role" in keys and r["role"] else None
+                )
+                if is_flag_green(
+                    prov,
+                    roles_from_db(role_raw),
+                    override_role_ids=override_ids,
+                ):
+                    filtered.append(r)
+            rows = filtered
 
         self._fill_tree(rows)
         missing_n = int(getattr(self, "_missing_source_count", 0) or 0)
@@ -5488,10 +5988,10 @@ class IndexerApp(tk.Tk):
             bits.append(f"status={provenance}")
         if role:
             bits.append(f"role={role}")
-        if programmer_filter:
-            bits.append(f"programmer={programmer_filter}")
         if self.newest_only_var.get():
             bits.append(self._("status_newest_only"))
+        if self.only_green_var.get():
+            bits.append(self._("status_only_green"))
         if self._sort_col:
             arrow = "↓" if self._sort_reverse else "↑"
             bits.append(f"sort={self._sort_col}{arrow}")
@@ -5504,10 +6004,11 @@ class IndexerApp(tk.Tk):
     def _load_colour_catalog(self) -> None:
         target = self.target_var.get().strip()
         if target:
-            self._colour_catalog = load_colour_catalog(
-                folder_colour_aliases_path_for_target(target)
-            )
+            path = folder_colour_aliases_path_for_target(target)
+            self._colours_sidecar_missing = not colour_aliases_sidecar_present(target)
+            self._colour_catalog = load_colour_catalog(path)
         else:
+            self._colours_sidecar_missing = False
             self._colour_catalog = ColourCatalog()
         self._configure_colour_tags()
         if hasattr(self, "provenance_combo"):
@@ -5524,6 +6025,16 @@ class IndexerApp(tk.Tk):
                 self.role_var.set(self._all_token())
         if hasattr(self, "tree") and getattr(self, "_result_rows", None) is not None:
             self._redraw_tree()
+        self._maybe_warn_colours_sidecar()
+
+    def _maybe_warn_colours_sidecar(self) -> None:
+        """Surface missing folder_colour_aliases.yaml in the status bar."""
+        if not getattr(self, "_colours_sidecar_missing", False):
+            return
+        try:
+            self.status_var.set(self._("warn_colours_sidecar_missing"))
+        except Exception:  # noqa: BLE001
+            pass
 
     def _configure_colour_tags(self) -> None:
         if not hasattr(self, "tree"):
@@ -5599,21 +6110,38 @@ class IndexerApp(tk.Tk):
         return status_dot(prov)
 
     def _flag_badge_and_tag(self, prov: str, role: Optional[str] = None) -> tuple[str, str]:
-        """Return Flag-column text + tree tag (swatch colour, not emoji)."""
+        """Return Flag-column text fallback + tree tag (row colour = primary disc)."""
         status = prov or PROVENANCE_BACKUP
         tags = roles_from_db(role)
-        overshadow = bool(
-            getattr(self, "role_colours_overshadow_status_var", None)
-            and self.role_colours_overshadow_status_var.get()
-        )
-        return flag_text(status, tags), flag_tag(
-            status, tags, role_overshadow_status=overshadow
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        override_ids = catalog.override_role_ids()
+        return flag_text(status, tags, override_role_ids=override_ids), flag_tag(
+            status, tags, override_role_ids=override_ids
         )
 
-    def _on_role_overshadow_toggled(self) -> None:
-        self._schedule_filter_ini_save()
-        if hasattr(self, "tree") and getattr(self, "_result_rows", None) is not None:
-            self._redraw_tree()
+    def _flag_discs_for_row(
+        self, prov: str, role: Optional[str] = None
+    ) -> list[tuple[str, str]]:
+        """Ordered ``(id, hex)`` discs for the multi-colour Flag image."""
+        status = prov or PROVENANCE_BACKUP
+        tags = roles_from_db(role)
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        swatches = {c.id: c.swatch for c in catalog.colours}
+        return flag_discs(
+            status,
+            tags,
+            override_role_ids=catalog.override_role_ids(),
+            role_swatches=swatches,
+        )
+
+    def _role_cell_text(self, role: Optional[str] = None) -> str:
+        """Role / Funkcja column: labels for all roles (override and not)."""
+        tags = roles_from_db(role)
+        if not tags:
+            return ""
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        lang = getattr(self, "_lang", "pl")
+        return ", ".join(catalog.label_for(t, lang) for t in tags)
 
     def _provenance_filter_value(self) -> Optional[str]:
         return self._status_filter_value()
@@ -5697,13 +6225,184 @@ class IndexerApp(tk.Tk):
         self._result_rows = list(rows)
         self._redraw_tree()
 
+    def _hide_flag_tip(self, _event=None) -> None:
+        """Cancel delayed tip and destroy any open Flag tooltip window."""
+        after_id = getattr(self, "_flag_tip_after_id", None)
+        if after_id is not None:
+            try:
+                self.after_cancel(after_id)
+            except tk.TclError:
+                pass
+            self._flag_tip_after_id = None
+        win = getattr(self, "_flag_tip_win", None)
+        if win is not None:
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+            self._flag_tip_win = None
+        self._flag_tip_row = None
+
+    def _on_tree_flag_leave(self, _event=None) -> None:
+        self._hide_flag_tip()
+
+    def _on_tree_flag_motion(self, event) -> None:
+        """Schedule Flag-column tip after a short dwell; hide otherwise."""
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return
+        # Column-separator drag — don't fight resize
+        if getattr(self, "_col_resize", None):
+            self._hide_flag_tip()
+            return
+        try:
+            region = tree.identify_region(event.x, event.y)
+            row_id = tree.identify_row(event.y)
+            col_spec = tree.identify_column(event.x)
+        except tk.TclError:
+            self._hide_flag_tip()
+            return
+        if region not in ("cell", "tree") or not row_id or not col_spec:
+            self._hide_flag_tip()
+            return
+        # Flag is Treeview #0 (image); data columns are #1+
+        if str(col_spec) == "#0":
+            col_id = "flag"
+        else:
+            try:
+                idx = int(str(col_spec)[1:])
+            except ValueError:
+                self._hide_flag_tip()
+                return
+            col_id = display_index_to_id(self._displaycolumns_list(), idx)
+        if col_id != "flag":
+            self._hide_flag_tip()
+            return
+        # Same Flag cell — keep existing tip / pending after
+        if (
+            getattr(self, "_flag_tip_row", None) == row_id
+            and (
+                getattr(self, "_flag_tip_win", None) is not None
+                or getattr(self, "_flag_tip_after_id", None) is not None
+            )
+        ):
+            return
+        self._hide_flag_tip()
+        self._flag_tip_row = row_id
+        try:
+            self._flag_tip_after_id = self.after(
+                500, lambda r=row_id, x=event.x_root, y=event.y_root: self._show_flag_tip(r, x, y)
+            )
+        except tk.TclError:
+            self._flag_tip_after_id = None
+
+    def _live_tree_map(self) -> FolderTreeMap:
+        target = self.target_var.get().strip()
+        if not target:
+            return FolderTreeMap()
+        try:
+            return load_folder_tree_map(tree_map_path_for_target(target))
+        except Exception:
+            return FolderTreeMap()
+
+    def _show_flag_tip(self, row_id: str, x_root: int, y_root: int) -> None:
+        self._flag_tip_after_id = None
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return
+        try:
+            idx = int(row_id)
+        except ValueError:
+            return
+        rows = getattr(self, "_result_rows", None) or []
+        if idx < 0 or idx >= len(rows):
+            return
+        row = rows[idx]
+        keys = row.keys() if hasattr(row, "keys") else ()
+        prov = ""
+        if "provenance" in keys:
+            prov = str(row["provenance"] or PROVENANCE_BACKUP)
+        role = None
+        if "role" in keys and row["role"]:
+            role = str(row["role"]).strip() or None
+        source_path = str(row["source_path"] or "") if "source_path" in keys else ""
+        scan_root = None
+        if "scan_root" in keys and row["scan_root"]:
+            scan_root = str(row["scan_root"])
+        program_number = ""
+        if "program_number" in keys and row["program_number"]:
+            program_number = str(row["program_number"])
+        catalog = getattr(self, "_colour_catalog", ColourCatalog())
+        try:
+            o9_on = bool(self.o9_system_programs_role_var.get())
+        except Exception:
+            o9_on = True
+        text = format_flag_tooltip(
+            provenance=prov or PROVENANCE_BACKUP,
+            source_path=source_path,
+            scan_root=scan_root,
+            program_number=program_number,
+            role_csv=role,
+            catalog=catalog,
+            colour_map=catalog.alias_map(),
+            tree_map=self._live_tree_map(),
+            o9_enabled=o9_on,
+            role_from_header=bool(self.role_from_header_var.get()),
+            byte_start=(
+                int(row["byte_start"])
+                if "byte_start" in keys and row["byte_start"] is not None
+                else None
+            ),
+            lang=getattr(self, "_lang", "pl"),
+        )
+        self._hide_flag_tip()
+        self._flag_tip_row = row_id
+        try:
+            win = tk.Toplevel(self)
+            win.wm_overrideredirect(True)
+            try:
+                win.attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            lbl = tk.Label(
+                win,
+                text=text,
+                justify=tk.LEFT,
+                relief=tk.SOLID,
+                borderwidth=1,
+                background="#ffffe0",
+                foreground="#1a1a1a",
+                padx=8,
+                pady=6,
+                wraplength=400,
+                font=("Segoe UI", 9) if sys.platform == "win32" else None,
+            )
+            lbl.pack()
+            # Place near pointer; clamp to screen
+            win.update_idletasks()
+            tw = win.winfo_reqwidth()
+            th = win.winfo_reqheight()
+            sw = win.winfo_screenwidth()
+            sh = win.winfo_screenheight()
+            px = min(max(0, int(x_root) + 12), max(0, sw - tw - 4))
+            py = min(max(0, int(y_root) + 12), max(0, sh - th - 4))
+            win.geometry(f"+{px}+{py}")
+            self._flag_tip_win = win
+        except tk.TclError:
+            self._flag_tip_win = None
+
     def _redraw_tree(self) -> None:
+        self._hide_flag_tip()
+        cache = getattr(self, "_flag_photos", None)
+        if cache is not None:
+            cache.clear()
         self.tree.delete(*self.tree.get_children())
         badge_missing = self._("badge_missing")
         badge_ok = self._("badge_ok")
         backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
         remaps = self._active_path_remaps()
         missing_n = 0
+        max_discs = 1
         for i, r in enumerate(self._result_rows):
             date = format_display_date(r["backup_date"])
             machine = r["machine_label"] or r["machine_id"] or ""
@@ -5712,9 +6411,6 @@ class IndexerApp(tk.Tk):
             size_val = ""
             if "source_size" in keys:
                 size_val = format_display_size(r["source_size"])
-            prog_flag = ""
-            if "programmer" in keys and r["programmer"]:
-                prog_flag = str(r["programmer"])
             prov = ""
             if "provenance" in keys:
                 prov = str(r["provenance"] or PROVENANCE_BACKUP)
@@ -5724,7 +6420,17 @@ class IndexerApp(tk.Tk):
             odbiorca_lab = ""
             if "odbiorca_id" in keys and r["odbiorca_id"]:
                 odbiorca_lab = self._odbiorca_label(str(r["odbiorca_id"]))
-            flag, tag = self._flag_badge_and_tag(prov, role)
+            _flag_fallback, tag = self._flag_badge_and_tag(prov, role)
+            discs = self._flag_discs_for_row(prov, role)
+            max_discs = max(max_discs, len(discs))
+            hexes = [hx for _id, hx in discs]
+            photo = None
+            if cache is not None:
+                try:
+                    photo = cache.photo_for(hexes)
+                except Exception:  # noqa: BLE001
+                    photo = None
+            role_cell = self._role_cell_text(role)
             missing = self._row_source_missing(
                 r, backup_root=backup or None, path_remaps=remaps
             )
@@ -5732,16 +6438,14 @@ class IndexerApp(tk.Tk):
                 missing_n += 1
             src_badge = badge_missing if missing else badge_ok
             tags = ("source_missing",) if missing else (tag,)
-            self.tree.insert(
-                "",
-                tk.END,
-                iid=str(i),
-                values=(
-                    flag,
+            insert_kw: dict = {
+                "iid": str(i),
+                "text": "",
+                "values": (
+                    role_cell,
                     src_badge,
                     r["program_number"] or "",
                     r["part_number"] or "",
-                    prog_flag,
                     machine,
                     odbiorca_lab,
                     date,
@@ -5751,11 +6455,35 @@ class IndexerApp(tk.Tk):
                     r["source_path"] or "",
                     format_location(r),
                 ),
-                tags=tags,
-            )
+                "tags": tags,
+            }
+            if photo is not None:
+                insert_kw["image"] = photo
+            else:
+                # Pillow/Tk unavailable — one glyph only (never multi-glyph text)
+                insert_kw["text"] = _flag_fallback
+            self.tree.insert("", tk.END, **insert_kw)
         self._missing_source_count = missing_n
+        # Widen Flag #0 if this page needs more discs than the stored width
+        need_w, _ = flag_image_size(max_discs)
+        need_w = max(need_w + 8, MIN_COLUMN_WIDTH)
+        cur = int(
+            (getattr(self, "_column_widths", {}) or {}).get(
+                "flag", DEFAULT_COLUMN_WIDTHS.get("flag", 80)
+            )
+        )
+        if need_w > cur and self._flag_column_visible():
+            self._column_widths["flag"] = need_w
+            try:
+                self.tree.column(
+                    "#0", width=need_w, stretch=False, minwidth=MIN_COLUMN_WIDTH
+                )
+            except tk.TclError:
+                pass
         self._refresh_heading_labels()
         self._refresh_preview()
+        if getattr(self, "_colours_sidecar_missing", False):
+            self._maybe_warn_colours_sidecar()
 
     def _row_source_missing(
         self,
@@ -5797,9 +6525,14 @@ class IndexerApp(tk.Tk):
         for key, base in self._heading_labels.items():
             if self._sort_col == key:
                 mark = " ▼" if self._sort_reverse else " ▲"
-                self.tree.heading(key, text=base + mark)
+                text = base + mark
             else:
-                self.tree.heading(key, text=base)
+                text = base
+            col = "#0" if key == "flag" else key
+            try:
+                self.tree.heading(col, text=text)
+            except tk.TclError:
+                pass
 
     def _on_sort_column(self, column: str) -> None:
         """Toggle asc/desc sort when a results-table heading is clicked (#3)."""
@@ -6318,8 +7051,14 @@ class PrepareIndexerDialog(tk.Toplevel):
         self.title(_tr(master, "prepare_indexer_title"))
         self.transient(master)
         self.grab_set()
-        self.minsize(560, 420)
-        self.geometry("640x520")
+        shell = install_dialog_shell(
+            self,
+            min_width=560,
+            min_height=420,
+            width=640,
+            height=520,
+            scrollable=True,
+        )
         self.result: Optional[dict] = None
         self._app = master
 
@@ -6329,12 +7068,12 @@ class PrepareIndexerDialog(tk.Toplevel):
         has_pack = pack is not None
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "prepare_indexer_intro"),
             wraplength=600,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self, padding=12)
+        body = ttk.Frame(shell.body)
         body.pack(fill=tk.BOTH, expand=True)
         body.columnconfigure(1, weight=1)
 
@@ -6404,7 +7143,8 @@ class PrepareIndexerDialog(tk.Toplevel):
             summary = _tr(
                 master,
                 "prepare_indexer_pack_summary",
-                schedule=pack.schedule,
+                coalesce=pack.watch_coalesce_s,
+                safety=pack.watch_safety,
                 watch=("yes" if pack.watch_folders else "no"),
                 mode=pack.watch_mode,
             )
@@ -6428,18 +7168,24 @@ class PrepareIndexerDialog(tk.Toplevel):
         row += 1
         ttk.Label(
             body,
+            text=_tr(master, "prepare_indexer_flag_pack"),
+            wraplength=560,
+        ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(4, 2))
+        row += 1
+        ttk.Label(
+            body,
             text=_tr(master, "prepare_indexer_floor_hint"),
             style="Muted.TLabel",
             wraplength=560,
         ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(4, 0))
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
         ttk.Button(
-            btns, text=_tr(master, "cancel"), command=self.destroy
+            shell.footer, text=_tr(master, "cancel"), command=self.destroy
         ).pack(side=tk.RIGHT)
         ttk.Button(
-            btns, text=_tr(master, "prepare_indexer_apply"), command=self._ok
+            shell.footer,
+            text=_tr(master, "prepare_indexer_apply"),
+            command=self._ok,
         ).pack(side=tk.RIGHT, padx=8)
 
     def _pick_backup(self) -> None:
@@ -6801,7 +7547,19 @@ class ScanReportDialog(tk.Toplevel):
 
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "close"), command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(
+            btns,
+            text=_tr(master, "header_tokens_button"),
+            command=self._open_header_tokens,
+        ).pack(side=tk.LEFT)
+        ttk.Button(btns, text=_tr(master, "close"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+
+    def _open_header_tokens(self) -> None:
+        opener = getattr(self.master, "_open_unassigned_header_tokens", None)
+        if callable(opener):
+            opener()
 
 
 class DuplicatesDialog(tk.Toplevel):
@@ -6880,12 +7638,17 @@ class DuplicatesDialog(tk.Toplevel):
         gsb.pack(side=tk.RIGHT, fill=tk.Y)
         self.group_list.bind("<<ListboxSelect>>", self._on_group_select)
 
-        cols = ("flag", "program", "machine", "date", "size", "sha", "path")
+        cols = ("program", "machine", "date", "size", "sha", "path")
+        self._dup_flag_photos = FlagPhotoCache(self)
         self.member_tree = ttk.Treeview(
-            bottom, columns=cols, show="headings", selectmode="browse", height=10
+            bottom,
+            columns=cols,
+            show="tree headings",
+            selectmode="browse",
+            height=10,
         )
         headings = {
-            "flag": (_tr(master, "col_flag"), 72),
+            "flag": (_tr(master, "col_flag"), 80),
             "program": (_tr(master, "col_program"), 90),
             "machine": (_tr(master, "col_machine"), 120),
             "date": (_tr(master, "col_date"), 100),
@@ -6893,7 +7656,12 @@ class DuplicatesDialog(tk.Toplevel):
             "sha": (_tr(master, "col_sha"), 120),
             "path": (_tr(master, "col_path"), 280),
         }
-        for key, (label, width) in headings.items():
+        self.member_tree.heading("#0", text=headings["flag"][0])
+        self.member_tree.column(
+            "#0", width=headings["flag"][1], stretch=False, minwidth=40, anchor=tk.CENTER
+        )
+        for key in cols:
+            label, width = headings[key]
             self.member_tree.heading(key, text=label)
             self.member_tree.column(
                 key, width=width, stretch=(key == "path"), minwidth=40
@@ -6932,7 +7700,21 @@ class DuplicatesDialog(tk.Toplevel):
     def _flag_for(self, prov: str, role: str | None = None) -> tuple[str, str]:
         status = prov or PROVENANCE_BACKUP
         tags = roles_from_db(role)
-        return flag_text(status, tags), flag_tag(status, tags)
+        override_ids = self._catalog.override_role_ids()
+        return flag_text(status, tags, override_role_ids=override_ids), flag_tag(
+            status, tags, override_role_ids=override_ids
+        )
+
+    def _flag_discs_for(self, prov: str, role: str | None = None) -> list[tuple[str, str]]:
+        status = prov or PROVENANCE_BACKUP
+        tags = roles_from_db(role)
+        swatches = {c.id: c.swatch for c in self._catalog.colours}
+        return flag_discs(
+            status,
+            tags,
+            override_role_ids=self._catalog.override_role_ids(),
+            role_swatches=swatches,
+        )
 
     def _rebuild_group_list(self) -> None:
         only = bool(self._conflicts_only.get())
@@ -6991,6 +7773,9 @@ class DuplicatesDialog(tk.Toplevel):
             self._banner.pack_forget()
 
     def _on_group_select(self, *_args) -> None:
+        cache = getattr(self, "_dup_flag_photos", None)
+        if cache is not None:
+            cache.clear()
         self.member_tree.delete(*self.member_tree.get_children())
         sel = self.group_list.curselection()
         if not sel:
@@ -7046,13 +7831,18 @@ class DuplicatesDialog(tk.Toplevel):
             if "role" in keys and m["role"]:
                 role = str(m["role"]).strip() or None
             badge, tag = self._flag_for(prov, role)
-            self.member_tree.insert(
-                "",
-                tk.END,
-                iid=str(i),
-                tags=(tag,),
-                values=(
-                    badge,
+            discs = self._flag_discs_for(prov, role)
+            photo = None
+            if cache is not None:
+                try:
+                    photo = cache.photo_for([hx for _id, hx in discs])
+                except Exception:  # noqa: BLE001
+                    photo = None
+            insert_kw: dict = {
+                "iid": str(i),
+                "text": "" if photo is not None else badge,
+                "tags": (tag,),
+                "values": (
                     m["program_number"] or "",
                     machine,
                     format_display_date(m["backup_date"]),
@@ -7060,7 +7850,10 @@ class DuplicatesDialog(tk.Toplevel):
                     sha_short,
                     m["source_path"] or "",
                 ),
-            )
+            }
+            if photo is not None:
+                insert_kw["image"] = photo
+            self.member_tree.insert("", tk.END, **insert_kw)
 
     def _show_in_results(self) -> None:
         sel = self.group_list.curselection()
@@ -7083,7 +7876,7 @@ class FolderTreeMapDialog(tk.Toplevel):
     tags replace that union for the matched prefix.
 
     Right-click a folder → alias that **name** everywhere as machine or role
-    (exact normalized spelling for roles).
+    (same token-boundary match as machines: exact token / within-token fuzzy; reindex after upgrade).
     """
 
     _PLACEHOLDER = "__lazy__"
@@ -7105,10 +7898,16 @@ class FolderTreeMapDialog(tk.Toplevel):
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "map_tree_dialog_title"))
-        self.minsize(720, 480)
-        self.geometry("900x580")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=720,
+            min_height=480,
+            width=900,
+            height=580,
+            scrollable=False,
+        )
         self.saved = False
         self.aliases_changed = False
         self._save_path = Path(save_path)
@@ -7158,13 +7957,13 @@ class FolderTreeMapDialog(tk.Toplevel):
         self._selected_path: Optional[Path] = None
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "map_tree_intro"),
             wraplength=860,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
         body.columnconfigure(0, weight=3)
         body.columnconfigure(1, weight=2)
         body.rowconfigure(0, weight=1)
@@ -7248,18 +8047,16 @@ class FolderTreeMapDialog(tk.Toplevel):
             abtns, text=_tr(master, "map_tree_clear_node"), command=self._clear_node
         ).pack(side=tk.LEFT, padx=6)
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
         ttk.Label(
-            btns,
+            shell.footer,
             text=_tr(master, "tree_alias_hint"),
             style="Muted.TLabel",
             wraplength=520,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "map_tree_save"), command=self._save).pack(
+        ttk.Button(shell.footer, text=_tr(master, "map_tree_save"), command=self._save).pack(
             side=tk.RIGHT, padx=8
         )
 
@@ -7861,11 +8658,18 @@ def _pick_from_list(
     dlg.title(title)
     dlg.transient(parent)
     dlg.grab_set()
-    dlg.minsize(360, 280)
+    shell = install_dialog_shell(
+        dlg,
+        min_width=360,
+        min_height=280,
+        width=400,
+        height=340,
+        scrollable=False,
+    )
     result: dict[str, Optional[str]] = {"value": None}
-    ttk.Label(dlg, text=prompt, wraplength=340).pack(fill=tk.X, padx=12, pady=(12, 6))
-    lb = tk.Listbox(dlg, exportselection=False, height=12)
-    lb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+    ttk.Label(shell.body, text=prompt, wraplength=360).pack(fill=tk.X, pady=(0, 6))
+    lb = tk.Listbox(shell.body, exportselection=False, height=12)
+    lb.pack(fill=tk.BOTH, expand=True, pady=4)
     for v in values:
         lb.insert(tk.END, v)
     if values:
@@ -7880,10 +8684,12 @@ def _pick_from_list(
     def _cancel() -> None:
         dlg.destroy()
 
-    btns = ttk.Frame(dlg)
-    btns.pack(fill=tk.X, padx=12, pady=12)
-    ttk.Button(btns, text=_tr(parent, "cancel"), command=_cancel).pack(side=tk.RIGHT)
-    ttk.Button(btns, text=_tr(parent, "save"), command=_ok).pack(side=tk.RIGHT, padx=8)
+    ttk.Button(shell.footer, text=_tr(parent, "cancel"), command=_cancel).pack(
+        side=tk.RIGHT
+    )
+    ttk.Button(shell.footer, text=_tr(parent, "save"), command=_ok).pack(
+        side=tk.RIGHT, padx=8
+    )
     lb.bind("<Double-Button-1>", lambda _e: _ok())
     parent.wait_window(dlg)
     return result["value"]
@@ -7899,6 +8705,9 @@ class FolderNameBrowserDialog(tk.Toplevel):
     Primary bind surface for machine / role / odbiorca name aliases. Creates
     catalogue entries from a folder spelling when needed. Does not write
     ``machine_folders.yaml`` (still readable by the scanner).
+
+    Also reused for the unassigned O-line header-token teach list (scan report)
+    via ``title_key`` / ``intro_key`` / ``drop_when_assigned``.
     """
 
     def __init__(
@@ -7914,13 +8723,22 @@ class FolderNameBrowserDialog(tk.Toplevel):
         catalog: ColourCatalog,
         odbiorca_save_path: Path | None = None,
         odbiorca_catalog: OdbiorcaCatalog | None = None,
+        title_key: str = "name_browser_dialog_title",
+        intro_key: str = "name_browser_intro",
+        drop_when_assigned: bool = False,
     ) -> None:
         super().__init__(master)
-        self.title(_tr(master, "name_browser_dialog_title"))
-        self.minsize(780, 480)
-        self.geometry("940x560")
+        self.title(_tr(master, title_key))
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=780,
+            min_height=480,
+            width=940,
+            height=560,
+            scrollable=False,
+        )
         self.changed = False
         self._roots = list(roots)
         self._entries = list(entries)
@@ -7938,15 +8756,17 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._odbiorca_catalog = odbiorca_catalog or OdbiorcaCatalog()
         self._odbiorca_map = self._odbiorca_catalog.alias_map()
         self._iid_by_key: dict[str, str] = {}
+        self._drop_when_assigned = bool(drop_when_assigned)
+        self._title_key = title_key
 
         ttk.Label(
-            self,
-            text=_tr(master, "name_browser_intro"),
+            shell.body,
+            text=_tr(master, intro_key),
             wraplength=900,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        filt = ttk.Frame(self)
-        filt.pack(fill=tk.X, padx=12, pady=(0, 4))
+        filt = ttk.Frame(shell.body)
+        filt.pack(fill=tk.X, pady=(0, 4))
         ttk.Label(filt, text=_tr(master, "name_browser_filter")).pack(side=tk.LEFT)
         self._filter_var = tk.StringVar()
         self._filter_var.trace_add("write", lambda *_a: self._refresh_rows())
@@ -7956,8 +8776,8 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._count_var = tk.StringVar()
         ttk.Label(filt, textvariable=self._count_var).pack(side=tk.RIGHT)
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
         cols = ("name", "count", "chips")
         self._tree = ttk.Treeview(
             body, columns=cols, show="headings", selectmode="browse"
@@ -7977,19 +8797,14 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self._tree.bind("<Control-Button-1>", self._on_row_context)
         self._tree.bind("<Double-Button-1>", self._on_row_context)
 
-        hint = ttk.Frame(self)
-        hint.pack(fill=tk.X, padx=12, pady=(4, 0))
         ttk.Label(
-            hint,
+            shell.footer,
             text=_tr(master, "name_browser_context_hint"),
             style="Muted.TLabel",
-            wraplength=900,
-        ).pack(side=tk.LEFT)
-
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
+            wraplength=700,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(
-            btns, text=_tr(master, "close"), command=self.destroy
+            shell.footer, text=_tr(master, "close"), command=self.destroy
         ).pack(side=tk.RIGHT)
 
         self._refresh_rows()
@@ -8045,6 +8860,14 @@ class FolderNameBrowserDialog(tk.Toplevel):
             bits.append(_tr(self.master, "name_browser_chip_odbiorca", value=o))
         return " · ".join(bits) if bits else "—"
 
+    def _entry_is_assigned(self, name: str) -> bool:
+        return token_has_alias(
+            name,
+            aliases=self._aliases,
+            colour_map=self._colour_map,
+            odbiorca_map=self._odbiorca_map,
+        )
+
     def _refresh_rows(self) -> None:
         needle = (self._filter_var.get() or "").strip().casefold()
         for iid in self._tree.get_children():
@@ -8067,6 +8890,10 @@ class FolderNameBrowserDialog(tk.Toplevel):
         )
 
     def _refresh_row(self, entry: FolderNameFreq) -> None:
+        if self._drop_when_assigned and self._entry_is_assigned(entry.name):
+            self._entries = [e for e in self._entries if e.key != entry.key]
+            self._refresh_rows()
+            return
         if entry.key not in self._iid_by_key:
             self._refresh_rows()
             return
@@ -8378,7 +9205,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
         self.wait_window(form)
         if not form.result:
             return
-        role_id, label_pl, label_en, swatch = form.result
+        role_id, label_pl, label_en, swatch, can_override = form.result
         if role_id in self._catalog.colour_ids:
             messagebox.showerror(
                 _tr(self.master, "name_hub_role_new_title", name=name),
@@ -8432,6 +9259,7 @@ class FolderNameBrowserDialog(tk.Toplevel):
             meaning_en="",
             badge="●",
             builtin=False,
+            can_override_main_state_colour=bool(can_override),
         )
         colours = list(self._catalog.colours) + [new_def]
         self._colour_map.upsert_exact_role(name, new_def.id)
@@ -8887,9 +9715,16 @@ class _NameHubRoleForm(tk.Toplevel):
         self.title(title)
         self.transient(master)
         self.grab_set()
-        self.result: Optional[tuple[str, str, str, str]] = None
-        body = ttk.Frame(self, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        self.result: Optional[tuple[str, str, str, str, bool]] = None
+        shell = install_dialog_shell(
+            self,
+            min_width=440,
+            min_height=320,
+            width=480,
+            height=380,
+            scrollable=True,
+        )
+        body = shell.body
         ttk.Label(body, text=_tr(master, "folder_colour_id")).grid(row=0, column=0, sticky=tk.W)
         self.id_var = tk.StringVar(value=prefill_id)
         ttk.Entry(body, textvariable=self.id_var, width=36).grid(
@@ -8918,19 +9753,23 @@ class _NameHubRoleForm(tk.Toplevel):
         _build_swatch_picker_ui(
             colour_box, tr_master=master, swatch_var=self.swatch_var
         )
+        self.override_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text=_tr(master, "folder_colour_can_override"),
+            variable=self.override_var,
+        ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
         ttk.Label(
             body,
             text=_tr(master, "name_hub_role_alias_note", alias=alias),
             style="Muted.TLabel",
             wraplength=420,
-        ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+        ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
         body.columnconfigure(1, weight=1)
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+        ttk.Button(shell.footer, text=_tr(master, "ok"), command=self._ok).pack(
             side=tk.RIGHT, padx=8
         )
 
@@ -8948,6 +9787,7 @@ class _NameHubRoleForm(tk.Toplevel):
             self.pl_var.get().strip() or cid,
             self.en_var.get().strip() or self.pl_var.get().strip() or cid,
             normalize_hex_colour(self.swatch_var.get()),
+            bool(self.override_var.get()),
         )
         self.destroy()
 
@@ -8969,8 +9809,15 @@ class _NameHubOdbiorcaForm(tk.Toplevel):
         self.transient(master)
         self.grab_set()
         self.result: Optional[tuple[str, str, str]] = None
-        body = ttk.Frame(self, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            self,
+            min_width=420,
+            min_height=240,
+            width=460,
+            height=280,
+            scrollable=False,
+        )
+        body = shell.body
         ttk.Label(body, text=_tr(master, "odbiorca_id")).grid(row=0, column=0, sticky=tk.W)
         self.id_var = tk.StringVar(value=prefill_id)
         ttk.Entry(body, textvariable=self.id_var, width=36).grid(
@@ -8997,12 +9844,10 @@ class _NameHubOdbiorcaForm(tk.Toplevel):
             wraplength=420,
         ).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
         body.columnconfigure(1, weight=1)
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+        ttk.Button(shell.footer, text=_tr(master, "ok"), command=self._ok).pack(
             side=tk.RIGHT, padx=8
         )
 
@@ -9025,15 +9870,26 @@ class _NameHubOdbiorcaForm(tk.Toplevel):
 
 
 class FolderColourAliasDialog(tk.Toplevel):
-    """Manage folder roles + folder-name → role/exclude aliases."""
+    """Manage folder roles + per-role (and exclude) folder-name aliases.
+
+    Machine-style layout: select a role on the left, edit meta + nested
+    **Aliasy folderów** on the right. Exclude aliases live in a footer strip
+    under the role list (not a second tab).
+    """
 
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
         self.title(_tr(master, "folder_colours_dialog_title"))
-        self.minsize(740, 520)
-        self.geometry("820x560")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=780,
+            min_height=520,
+            width=900,
+            height=600,
+            scrollable=False,
+        )
         self.saved = False
         self._save_path = Path(save_path)
         self._catalog = load_colour_catalog(self._save_path)
@@ -9041,72 +9897,101 @@ class FolderColourAliasDialog(tk.Toplevel):
         # Guard: programmatic selection_set must not re-enter <<ListboxSelect>>
         self._selecting_colour = False
         self._selected_colour_id: Optional[str] = None
+        # Indices into catalog.rules for the currently shown role / exclude lists
+        self._role_alias_rule_idxs: list[int] = []
+        self._exclude_rule_idxs: list[int] = []
 
+        intro_row = ttk.Frame(shell.body)
+        intro_row.pack(fill=tk.X, pady=(0, 6))
         ttk.Label(
-            self,
+            intro_row,
             text=_tr(master, "folder_colours_intro"),
-            wraplength=740,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
-
-        nb = ttk.Notebook(self)
-        nb.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
-        self._tab_colours = ttk.Frame(nb, padding=6)
-        self._tab_aliases = ttk.Frame(nb, padding=6)
-        nb.add(self._tab_colours, text=_tr(master, "folder_colours_tab_colours"))
-        nb.add(self._tab_aliases, text=_tr(master, "folder_colours_tab_aliases"))
-        self._build_colours_tab()
-        self._build_aliases_tab()
-
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=8)
-        ttk.Button(btns, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
-            side=tk.RIGHT, padx=6
-        )
-        self._refresh_colour_list()
-        self._refresh_alias_list()
-        self._sync_alias_colour_choices()
-
-    # --- colours tab ---------------------------------------------------------
-
-    def _build_colours_tab(self) -> None:
-        body = self._tab_colours
-        body.rowconfigure(1, weight=1)
-        body.columnconfigure(1, weight=1)
-
-        explain = ttk.LabelFrame(
-            body, text=_tr(self.master, "filter_status"), padding=6
-        )
-        explain.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        pack_status_legend(
-            explain,
-            on_machine_text=_tr(self.master, "status_on_machine"),
-            not_run_text=_tr(self.master, "status_unknown"),
-            explain_text=_tr(self.master, "folder_colour_status_explain"),
             wraplength=720,
-        ).pack(fill=tk.X)
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(
+            intro_row,
+            text=_tr(master, "folder_colours_status_flag_help"),
+            command=self._open_status_flag_help,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
 
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        # --- Left: roles + exclude strip --------------------------------------
         left = ttk.Frame(body)
-        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
-        left.rowconfigure(0, weight=1)
-        self._colour_list = tk.Listbox(left, exportselection=False, width=28)
-        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._colour_list.yview)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.rowconfigure(0, weight=3)
+        left.rowconfigure(2, weight=1)
+        left.columnconfigure(0, weight=1)
+
+        roles_box = ttk.LabelFrame(
+            left, text=_tr(master, "folder_colours_roles_list"), padding=6
+        )
+        roles_box.grid(row=0, column=0, sticky="nsew")
+        roles_box.rowconfigure(0, weight=1)
+        roles_box.columnconfigure(0, weight=1)
+        roles_pane = ttk.Frame(roles_box)
+        roles_pane.grid(row=0, column=0, sticky="nsew")
+        roles_pane.rowconfigure(0, weight=1)
+        roles_pane.columnconfigure(0, weight=1)
+        self._colour_list = tk.Listbox(roles_pane, exportselection=False, width=28)
+        sb = ttk.Scrollbar(
+            roles_pane, orient=tk.VERTICAL, command=self._colour_list.yview
+        )
         self._colour_list.configure(yscrollcommand=sb.set)
         self._colour_list.grid(row=0, column=0, sticky="nsew")
         sb.grid(row=0, column=1, sticky="ns")
         self._colour_list.bind("<<ListboxSelect>>", self._on_colour_select)
-        cbtns = ttk.Frame(left)
-        cbtns.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        ttk.Button(cbtns, text=_tr(self.master, "folder_colour_add"), command=self._add_colour).pack(
-            side=tk.LEFT
-        )
+        cbtns = ttk.Frame(roles_box)
+        cbtns.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(
-            cbtns, text=_tr(self.master, "folder_colour_remove"), command=self._remove_colour
+            cbtns, text=_tr(master, "folder_colour_add"), command=self._add_colour
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            cbtns,
+            text=_tr(master, "folder_colour_remove"),
+            command=self._remove_colour,
         ).pack(side=tk.LEFT, padx=6)
 
-        right = ttk.LabelFrame(body, text=_tr(self.master, "folder_colour_edit"), padding=6)
-        right.grid(row=1, column=1, sticky="nsew")
+        excl = ttk.LabelFrame(
+            left, text=_tr(master, "folder_colours_exclude_title"), padding=6
+        )
+        excl.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+        excl.rowconfigure(0, weight=1)
+        excl.columnconfigure(0, weight=1)
+        excl_pane = ttk.Frame(excl)
+        excl_pane.grid(row=0, column=0, sticky="nsew")
+        excl_pane.rowconfigure(0, weight=1)
+        excl_pane.columnconfigure(0, weight=1)
+        self._exclude_list = tk.Listbox(excl_pane, exportselection=False, height=4)
+        excl_sb = ttk.Scrollbar(
+            excl_pane, orient=tk.VERTICAL, command=self._exclude_list.yview
+        )
+        self._exclude_list.configure(yscrollcommand=excl_sb.set)
+        self._exclude_list.grid(row=0, column=0, sticky="nsew")
+        excl_sb.grid(row=0, column=1, sticky="ns")
+        excl_btns = ttk.Frame(excl)
+        excl_btns.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Button(
+            excl_btns, text=_tr(master, "alias_add"), command=self._add_exclude_alias
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            excl_btns,
+            text=_tr(master, "alias_remove"),
+            command=self._remove_exclude_alias,
+        ).pack(side=tk.LEFT, padx=6)
+
+        # --- Right: role meta + nested aliases --------------------------------
+        right = ttk.LabelFrame(
+            body, text=_tr(master, "folder_colour_edit"), padding=6
+        )
+        right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(1, weight=1)
+        right.rowconfigure(9, weight=1)
+
         self._cid_var = tk.StringVar()
         self._label_pl_var = tk.StringVar()
         self._label_en_var = tk.StringVar()
@@ -9114,6 +9999,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._badge_var = tk.StringVar(value="●")
         self._meaning_pl_var = tk.StringVar()
         self._meaning_en_var = tk.StringVar()
+        self._override_var = tk.BooleanVar(value=False)
 
         rows = [
             ("folder_colour_id", self._cid_var),
@@ -9121,15 +10007,14 @@ class FolderColourAliasDialog(tk.Toplevel):
             ("folder_colour_label_en", self._label_en_var),
         ]
         for i, (key, var) in enumerate(rows):
-            ttk.Label(right, text=_tr(self.master, key)).grid(row=i, column=0, sticky=tk.W)
+            ttk.Label(right, text=_tr(master, key)).grid(row=i, column=0, sticky=tk.W)
             state = "readonly" if key == "folder_colour_id" else "normal"
             ttk.Entry(right, textvariable=var, state=state).grid(
                 row=i, column=1, sticky=tk.EW, padx=4, pady=2
             )
 
-        # Colour: primary = clickable swatch + presets; hex is optional readout
         colour_row = 3
-        ttk.Label(right, text=_tr(self.master, "folder_colour_swatch")).grid(
+        ttk.Label(right, text=_tr(master, "folder_colour_swatch")).grid(
             row=colour_row, column=0, sticky=tk.NW, pady=(6, 0)
         )
         colour_box = ttk.Frame(right)
@@ -9141,39 +10026,100 @@ class FolderColourAliasDialog(tk.Toplevel):
             after_set=lambda: self._persist_swatch_if_editing(),
         )
 
-        ttk.Label(right, text=_tr(self.master, "folder_colour_badge")).grid(
+        ttk.Label(right, text=_tr(master, "folder_colour_badge")).grid(
             row=4, column=0, sticky=tk.W
         )
         ttk.Entry(right, textvariable=self._badge_var).grid(
             row=4, column=1, sticky=tk.EW, padx=4, pady=2
         )
 
-        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_pl")).grid(
-            row=5, column=0, sticky=tk.NW
-        )
-        self._meaning_pl = tk.Text(right, height=3, width=40, wrap=tk.WORD)
-        self._meaning_pl.grid(row=5, column=1, sticky=tk.EW, padx=4, pady=2)
-        ttk.Label(right, text=_tr(self.master, "folder_colour_meaning_en")).grid(
+        ttk.Checkbutton(
+            right,
+            text=_tr(master, "folder_colour_can_override"),
+            variable=self._override_var,
+            command=lambda: self._persist_swatch_if_editing(),
+        ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(4, 2))
+
+        ttk.Label(right, text=_tr(master, "folder_colour_meaning_pl")).grid(
             row=6, column=0, sticky=tk.NW
         )
-        self._meaning_en = tk.Text(right, height=3, width=40, wrap=tk.WORD)
-        self._meaning_en.grid(row=6, column=1, sticky=tk.EW, padx=4, pady=2)
+        self._meaning_pl = tk.Text(right, height=2, width=40, wrap=tk.WORD)
+        self._meaning_pl.grid(row=6, column=1, sticky=tk.EW, padx=4, pady=2)
+        ttk.Label(right, text=_tr(master, "folder_colour_meaning_en")).grid(
+            row=7, column=0, sticky=tk.NW
+        )
+        self._meaning_en = tk.Text(right, height=2, width=40, wrap=tk.WORD)
+        self._meaning_en.grid(row=7, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(
-            right, text=_tr(self.master, "folder_colour_update"), command=self._apply_colour_fields
-        ).grid(row=7, column=1, sticky=tk.E, pady=(8, 0))
+            right,
+            text=_tr(master, "folder_colour_update"),
+            command=self._apply_colour_fields,
+        ).grid(row=8, column=1, sticky=tk.E, pady=(8, 0))
+
+        alias_frame = ttk.LabelFrame(
+            right, text=_tr(master, "alias_folder_aliases"), padding=4
+        )
+        alias_frame.grid(row=9, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        alias_frame.rowconfigure(0, weight=1)
+        alias_frame.columnconfigure(0, weight=1)
+        alias_pane = ttk.Frame(alias_frame)
+        alias_pane.grid(row=0, column=0, sticky="nsew")
+        alias_pane.rowconfigure(0, weight=1)
+        alias_pane.columnconfigure(0, weight=1)
+        self._alias_list = tk.Listbox(alias_pane, exportselection=False)
+        alias_sb = ttk.Scrollbar(
+            alias_pane, orient=tk.VERTICAL, command=self._alias_list.yview
+        )
+        self._alias_list.configure(yscrollcommand=alias_sb.set)
+        self._alias_list.grid(row=0, column=0, sticky="nsew")
+        alias_sb.grid(row=0, column=1, sticky="ns")
+        alias_btns = ttk.Frame(alias_frame)
+        alias_btns.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Button(
+            alias_btns, text=_tr(master, "alias_add"), command=self._add_role_alias
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            alias_btns,
+            text=_tr(master, "alias_remove"),
+            command=self._remove_role_alias,
+        ).pack(side=tk.LEFT, padx=6)
+
+        ttk.Label(
+            shell.footer,
+            text=_tr(master, "folder_colours_saves_to", path=self._save_path.name),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT)
+        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(
+            shell.footer, text=_tr(master, "cancel"), command=self.destroy
+        ).pack(side=tk.RIGHT, padx=6)
+
+        self._refresh_colour_list()
+        self._refresh_exclude_list()
+        if self._catalog.colours:
+            self._fill_colour_detail(self._catalog.colours[0])
+            self._refresh_role_alias_list()
+
+    def _open_status_flag_help(self) -> None:
+        """Open packaged indexer manual (Status + Flag doctrine lives there)."""
+        ManualViewerDialog(
+            self,
+            title=_tr(self.master, "help_manual_full").rstrip("…").rstrip("."),
+            body=read_manual(self._lang, "full"),
+            close_label=_tr(self.master, "close"),
+        )
 
     def _set_swatch_colour(self, hex_colour: str) -> None:
         self._swatch_var.set(normalize_hex_colour(hex_colour))
         self._persist_swatch_if_editing()
 
     def _persist_swatch_if_editing(self) -> None:
-        # Persist into the in-memory catalogue immediately so a later Save
-        # (or row switch) cannot drop a colour pick that never hit Apply.
         if self._cid_var.get().strip():
             self._apply_colour_fields(silent=True)
 
     def _colour_row_label(self, c: ColourDef) -> str:
-        # Disc takes Listbox item foreground (swatch); avoid emoji glyphs.
         return f"{DOT}  {c.label(self._lang)}  ({c.id})"
 
     def _refresh_colour_list(self, *, select_id: Optional[str] = None) -> None:
@@ -9207,6 +10153,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._label_en_var.set(c.label_en)
         self._swatch_var.set(c.swatch)
         self._badge_var.set(c.badge)
+        self._override_var.set(bool(c.can_override_main_state_colour))
         self._meaning_pl.delete("1.0", tk.END)
         self._meaning_pl.insert("1.0", c.meaning_pl)
         self._meaning_en.delete("1.0", tk.END)
@@ -9216,8 +10163,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         """Write detail pane into the catalogue for ``cid``.
 
         Returns True when the Listbox display string (label/swatch) may have
-        changed. Does **not** touch Listbox selection — callers that switch
-        rows must keep the clicked index (same class of bug as Maszyny).
+        changed. Does **not** touch Listbox selection.
         """
         idx = None
         for i, c in enumerate(self._catalog.colours):
@@ -9233,6 +10179,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         new_badge = self._badge_var.get()
         new_mpl = self._meaning_pl.get("1.0", tk.END).strip()
         new_men = self._meaning_en.get("1.0", tk.END).strip()
+        new_override = bool(self._override_var.get())
         display_changed = (
             old.label_pl != new_pl
             or old.label_en != new_en
@@ -9243,6 +10190,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             and old.badge == new_badge
             and old.meaning_pl == new_mpl
             and old.meaning_en == new_men
+            and bool(old.can_override_main_state_colour) == new_override
         ):
             return False
         updated = ColourDef(
@@ -9254,6 +10202,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             meaning_en=new_men,
             badge=new_badge,
             builtin=old.builtin,
+            can_override_main_state_colour=new_override,
         )
         colours = list(self._catalog.colours)
         colours[idx] = updated
@@ -9275,9 +10224,6 @@ class FolderColourAliasDialog(tk.Toplevel):
             return
         prev_id = self._selected_colour_id or self._cid_var.get().strip()
         display_changed = False
-        # Detail pane still shows *prev* — flush it before switching.
-        # Critical: do NOT call _apply_colour_fields here; that reloaded the
-        # list and re-selected ``prev``, pinning the highlight on the old row.
         if prev_id:
             display_changed = self._flush_colour_fields(prev_id)
         if display_changed:
@@ -9285,27 +10231,23 @@ class FolderColourAliasDialog(tk.Toplevel):
             self._refresh_colour_list(select_id=new_c.id)
             filled = self._catalog.get(new_c.id) or new_c
             self._fill_colour_detail(filled)
-            self._sync_alias_colour_choices()
+            self._refresh_role_alias_list()
             return
         self._selected_colour_id = new_c.id
         self._fill_colour_detail(new_c)
+        self._refresh_role_alias_list()
 
     def _apply_colour_fields(self, silent: bool = False) -> None:
         cid = self._cid_var.get().strip() or (self._selected_colour_id or "")
         if not cid:
-            if not silent:
-                return
             return
         display_changed = self._flush_colour_fields(cid)
         merged = self._catalog.get(cid)
         if merged is not None:
             self._swatch_var.set(merged.swatch)
             self._selected_colour_id = cid
-        # Explicit Apply always refreshes the left list; silent flush only when
-        # the display string may have changed (label/swatch).
         if display_changed or not silent:
             self._refresh_colour_list(select_id=cid)
-            self._sync_alias_colour_choices()
 
     def _add_colour(self) -> None:
         base = "custom"
@@ -9323,6 +10265,7 @@ class FolderColourAliasDialog(tk.Toplevel):
             meaning_en="",
             badge="●",
             builtin=False,
+            can_override_main_state_colour=False,
         )
         prev = self._selected_colour_id or self._cid_var.get().strip()
         if prev:
@@ -9332,7 +10275,7 @@ class FolderColourAliasDialog(tk.Toplevel):
         self._selected_colour_id = cid
         self._refresh_colour_list(select_id=cid)
         self._fill_colour_detail(new)
-        self._sync_alias_colour_choices()
+        self._refresh_role_alias_list()
 
     def _remove_colour(self) -> None:
         sel = self._colour_list.curselection()
@@ -9365,150 +10308,117 @@ class FolderColourAliasDialog(tk.Toplevel):
             self._label_en_var.set("")
             self._swatch_var.set("#888888")
             self._badge_var.set("●")
+            self._override_var.set(False)
             self._meaning_pl.delete("1.0", tk.END)
             self._meaning_en.delete("1.0", tk.END)
-        self._refresh_alias_list()
-        self._sync_alias_colour_choices()
+        self._refresh_role_alias_list()
+        self._refresh_exclude_list()
 
-    # --- aliases tab ---------------------------------------------------------
+    # --- nested aliases for selected role ------------------------------------
 
-    def _build_aliases_tab(self) -> None:
-        body = self._tab_aliases
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(0, weight=1)
-        list_frame = ttk.Frame(body)
-        list_frame.grid(row=0, column=0, sticky="nsew")
-        list_frame.rowconfigure(0, weight=1)
-        list_frame.columnconfigure(0, weight=1)
-        self._alias_list = tk.Listbox(list_frame, exportselection=False)
-        sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._alias_list.yview)
-        self._alias_list.configure(yscrollcommand=sb.set)
-        self._alias_list.grid(row=0, column=0, sticky="nsew")
-        sb.grid(row=0, column=1, sticky="ns")
-        self._alias_list.bind("<<ListboxSelect>>", self._on_alias_select)
-
-        edit = ttk.Frame(body)
-        edit.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        edit.columnconfigure(1, weight=1)
-        ttk.Label(edit, text=_tr(self.master, "folder_colour_alias")).grid(
-            row=0, column=0, sticky=tk.W
-        )
-        self._alias_var = tk.StringVar()
-        ttk.Entry(edit, textvariable=self._alias_var).grid(
-            row=0, column=1, sticky=tk.EW, padx=4, pady=2
-        )
-        ttk.Label(edit, text=_tr(self.master, "folder_colour_value")).grid(
-            row=1, column=0, sticky=tk.W
-        )
-        self._alias_colour_var = tk.StringVar()
-        self._alias_colour_combo = ttk.Combobox(
-            edit, textvariable=self._alias_colour_var, state="readonly", width=40
-        )
-        self._alias_colour_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
-        abtns = ttk.Frame(body)
-        abtns.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        ttk.Button(
-            abtns, text=_tr(self.master, "folder_colour_add"), command=self._add_alias
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            abtns, text=_tr(self.master, "folder_colour_update"), command=self._update_alias
-        ).pack(side=tk.LEFT, padx=6)
-        ttk.Button(
-            abtns, text=_tr(self.master, "folder_colour_remove"), command=self._remove_alias
-        ).pack(side=tk.LEFT, padx=6)
-
-    def _alias_colour_choices(self) -> list[tuple[str, str]]:
-        """Return (label, colour_id_or_exclude) pairs."""
-        out = [(c.label(self._lang) + f" ({c.id})", c.id) for c in self._catalog.colours]
-        out.append((_tr(self.master, "flag_exclude"), COLOUR_EXCLUDE))
-        return out
-
-    def _sync_alias_colour_choices(self) -> None:
-        pairs = self._alias_colour_choices()
-        self._alias_colour_labels = [p[0] for p in pairs]
-        self._alias_colour_ids = [p[1] for p in pairs]
-        self._alias_colour_combo["values"] = self._alias_colour_labels
-        if not self._alias_colour_var.get() and self._alias_colour_labels:
-            # default to red/personal seed if present
-            for lab, cid in pairs:
-                if cid == ROLE_PERSONAL:
-                    self._alias_colour_var.set(lab)
-                    break
-            else:
-                self._alias_colour_var.set(self._alias_colour_labels[0])
-
-    def _label_for_colour_id(self, colour: str) -> str:
-        if colour == COLOUR_EXCLUDE:
-            return _tr(self.master, "flag_exclude")
-        for lab, cid in self._alias_colour_choices():
-            if cid == colour:
-                return lab
-        return colour
-
-    def _colour_id_from_alias_label(self, label: str) -> str:
-        for lab, cid in self._alias_colour_choices():
-            if lab == label:
-                return cid
-        low = (label or "").casefold()
-        if any(x in low for x in ("exclude", "pomiń", "pomin", "skip", "nie indeks")):
-            return COLOUR_EXCLUDE
-        return normalize_colour_id(label, known_ids=self._catalog.colour_ids)
-
-    def _format_alias_row(self, rule: FolderColourRule) -> str:
-        return f"{rule.alias}  →  {self._label_for_colour_id(rule.colour)}"
-
-    def _refresh_alias_list(self) -> None:
+    def _refresh_role_alias_list(self) -> None:
         self._alias_list.delete(0, tk.END)
-        for rule in self._catalog.rules:
-            self._alias_list.insert(tk.END, self._format_alias_row(rule))
-
-    def _on_alias_select(self, _evt=None) -> None:
-        sel = self._alias_list.curselection()
-        if not sel:
+        self._role_alias_rule_idxs = []
+        cid = self._selected_colour_id
+        if not cid:
             return
-        rule = self._catalog.rules[int(sel[0])]
-        self._alias_var.set(rule.alias)
-        self._alias_colour_var.set(self._label_for_colour_id(rule.colour))
+        for i, rule in enumerate(self._catalog.rules):
+            if rule.colour == cid:
+                self._alias_list.insert(tk.END, rule.alias)
+                self._role_alias_rule_idxs.append(i)
 
-    def _add_alias(self) -> None:
-        alias = self._alias_var.get().strip()
-        if not alias:
+    def _add_role_alias(self) -> None:
+        cid = self._selected_colour_id
+        if not cid:
+            messagebox.showinfo(
+                _tr(self.master, "alias_add_title"),
+                _tr(self.master, "folder_colour_select_role"),
+                parent=self,
+            )
             return
-        colour = self._colour_id_from_alias_label(self._alias_colour_var.get())
-        rule = FolderColourRule(alias=alias, colour=colour)
+        self._apply_colour_fields(silent=True)
+        name = simpledialog.askstring(
+            _tr(self.master, "alias_add_title"),
+            _tr(self.master, "alias_add_prompt"),
+            parent=self,
+        )
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            return
+        rule = FolderColourRule(alias=name, colour=cid)
         rules = [r for r in self._catalog.rules if r.key != rule.key]
         rules.append(rule)
         self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
-        self._refresh_alias_list()
+        self._refresh_role_alias_list()
+        self._refresh_exclude_list()
 
-    def _update_alias(self) -> None:
-        sel = self._alias_list.curselection()
-        alias = self._alias_var.get().strip()
-        if not alias:
-            return
-        colour = self._colour_id_from_alias_label(self._alias_colour_var.get())
-        rule = FolderColourRule(alias=alias, colour=colour)
-        rules = list(self._catalog.rules)
-        if sel:
-            idx = int(sel[0])
-            rules = [r for i, r in enumerate(rules) if i != idx and r.key != rule.key]
-            rules.insert(min(idx, len(rules)), rule)
-        else:
-            rules = [r for r in rules if r.key != rule.key]
-            rules.append(rule)
-        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
-        self._refresh_alias_list()
-
-    def _remove_alias(self) -> None:
+    def _remove_role_alias(self) -> None:
         sel = self._alias_list.curselection()
         if not sel:
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_select_alias"),
+                parent=self,
+            )
             return
-        idx = int(sel[0])
+        local_idx = int(sel[0])
+        if local_idx < 0 or local_idx >= len(self._role_alias_rule_idxs):
+            return
+        rule_idx = self._role_alias_rule_idxs[local_idx]
         rules = list(self._catalog.rules)
-        del rules[idx]
+        del rules[rule_idx]
         self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
-        self._refresh_alias_list()
-        self._alias_var.set("")
+        self._refresh_role_alias_list()
+        self._refresh_exclude_list()
+
+    # --- exclude strip -------------------------------------------------------
+
+    def _refresh_exclude_list(self) -> None:
+        self._exclude_list.delete(0, tk.END)
+        self._exclude_rule_idxs = []
+        for i, rule in enumerate(self._catalog.rules):
+            if rule.colour == COLOUR_EXCLUDE:
+                self._exclude_list.insert(tk.END, rule.alias)
+                self._exclude_rule_idxs.append(i)
+
+    def _add_exclude_alias(self) -> None:
+        name = simpledialog.askstring(
+            _tr(self.master, "alias_add_title"),
+            _tr(self.master, "alias_add_prompt"),
+            parent=self,
+        )
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            return
+        rule = FolderColourRule(alias=name, colour=COLOUR_EXCLUDE)
+        rules = [r for r in self._catalog.rules if r.key != rule.key]
+        rules.append(rule)
+        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
+        self._refresh_exclude_list()
+        self._refresh_role_alias_list()
+
+    def _remove_exclude_alias(self) -> None:
+        sel = self._exclude_list.curselection()
+        if not sel:
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_select_alias"),
+                parent=self,
+            )
+            return
+        local_idx = int(sel[0])
+        if local_idx < 0 or local_idx >= len(self._exclude_rule_idxs):
+            return
+        rule_idx = self._exclude_rule_idxs[local_idx]
+        rules = list(self._catalog.rules)
+        del rules[rule_idx]
+        self._catalog = ColourCatalog(colours=list(self._catalog.colours), rules=rules)
+        self._refresh_exclude_list()
+        self._refresh_role_alias_list()
 
     def _save(self) -> None:
         self._apply_colour_fields()
@@ -9523,42 +10433,57 @@ class FolderColourAliasDialog(tk.Toplevel):
 
 
 class OdbiorcaCatalogDialog(tk.Toplevel):
-    """Edit odbiorca (recipient) catalogue saved as odbiorcy.yaml."""
+    """Edit odbiorca catalogue + per-recipient folder aliases (odbiorcy.yaml)."""
 
     def __init__(self, master: tk.Tk, *, save_path: Path) -> None:
         super().__init__(master)
         self.title(_tr(master, "odbiorcy_dialog_title"))
-        self.minsize(520, 360)
-        self.geometry("640x420")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=780,
+            min_height=480,
+            width=900,
+            height=560,
+            scrollable=False,
+        )
         self.saved = False
         self._save_path = Path(save_path)
         self.catalog = load_odbiorca_catalog(self._save_path)
         self._lang = getattr(master, "_lang", None) or "pl"
+        self._selecting = False
+        self._selected_oid: Optional[str] = None
+        self._alias_rule_idxs: list[int] = []
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "odbiorcy_intro"),
-            wraplength=600,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+            wraplength=860,
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
-        body.columnconfigure(1, weight=1)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=2)
         body.rowconfigure(0, weight=1)
 
-        left = ttk.Frame(body)
+        left = ttk.LabelFrame(body, text=_tr(master, "odbiorcy_list"), padding=6)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         left.rowconfigure(0, weight=1)
-        self._list = tk.Listbox(left, exportselection=False, width=28)
-        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._list.yview)
+        left.columnconfigure(0, weight=1)
+        list_pane = ttk.Frame(left)
+        list_pane.grid(row=0, column=0, sticky="nsew")
+        list_pane.rowconfigure(0, weight=1)
+        list_pane.columnconfigure(0, weight=1)
+        self._list = tk.Listbox(list_pane, exportselection=False, width=28)
+        sb = ttk.Scrollbar(list_pane, orient=tk.VERTICAL, command=self._list.yview)
         self._list.configure(yscrollcommand=sb.set)
         self._list.grid(row=0, column=0, sticky="nsew")
         sb.grid(row=0, column=1, sticky="ns")
         self._list.bind("<<ListboxSelect>>", self._on_select)
         lbtns = ttk.Frame(left)
-        lbtns.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+        lbtns.grid(row=1, column=0, sticky=tk.EW, pady=(6, 0))
         ttk.Button(lbtns, text=_tr(master, "odbiorca_add"), command=self._add).pack(
             side=tk.LEFT
         )
@@ -9569,10 +10494,13 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
         right = ttk.LabelFrame(body, text=_tr(master, "odbiorca_edit"), padding=6)
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(1, weight=1)
+        right.rowconfigure(4, weight=1)
         self._id_var = tk.StringVar()
         self._label_pl_var = tk.StringVar()
         self._label_en_var = tk.StringVar()
-        ttk.Label(right, text=_tr(master, "odbiorca_id")).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(right, text=_tr(master, "odbiorca_id")).grid(
+            row=0, column=0, sticky=tk.W
+        )
         ttk.Entry(right, textvariable=self._id_var).grid(
             row=0, column=1, sticky=tk.EW, padx=4, pady=2
         )
@@ -9592,36 +10520,102 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
             right, text=_tr(master, "folder_colour_update"), command=self._apply
         ).grid(row=3, column=1, sticky=tk.E, pady=(8, 0))
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=8)
-        ttk.Button(btns, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
-            side=tk.RIGHT, padx=6
+        alias_frame = ttk.LabelFrame(
+            right, text=_tr(master, "alias_folder_aliases"), padding=4
         )
-        self._refresh()
+        alias_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        alias_frame.rowconfigure(0, weight=1)
+        alias_frame.columnconfigure(0, weight=1)
+        alias_pane = ttk.Frame(alias_frame)
+        alias_pane.grid(row=0, column=0, sticky="nsew")
+        alias_pane.rowconfigure(0, weight=1)
+        alias_pane.columnconfigure(0, weight=1)
+        self._alias_list = tk.Listbox(alias_pane, exportselection=False)
+        alias_sb = ttk.Scrollbar(
+            alias_pane, orient=tk.VERTICAL, command=self._alias_list.yview
+        )
+        self._alias_list.configure(yscrollcommand=alias_sb.set)
+        self._alias_list.grid(row=0, column=0, sticky="nsew")
+        alias_sb.grid(row=0, column=1, sticky="ns")
+        alias_btns = ttk.Frame(alias_frame)
+        alias_btns.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Button(
+            alias_btns, text=_tr(master, "alias_add"), command=self._add_alias
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            alias_btns, text=_tr(master, "alias_remove"), command=self._remove_alias
+        ).pack(side=tk.LEFT, padx=6)
+
+        ttk.Label(
+            shell.footer,
+            text=_tr(master, "odbiorcy_saves_to", path=self._save_path.name),
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT)
+        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(
+            shell.footer, text=_tr(master, "cancel"), command=self.destroy
+        ).pack(side=tk.RIGHT, padx=6)
+        self._reload_list()
 
     def _row_label(self, o: OdbiorcaDef) -> str:
         return f"{o.label(self._lang)}  ({o.id})"
 
-    def _refresh(self) -> None:
+    def _reload_list(self, *, select_oid: Optional[str] = None) -> None:
+        keep = select_oid if select_oid is not None else self._selected_oid
         self._list.delete(0, tk.END)
-        for o in self.catalog.odbiorcy:
+        select_idx: Optional[int] = None
+        for i, o in enumerate(self.catalog.odbiorcy):
             self._list.insert(tk.END, self._row_label(o))
+            if keep and o.id == keep:
+                select_idx = i
+        self._selecting = True
+        try:
+            self._list.selection_clear(0, tk.END)
+            if select_idx is not None:
+                self._list.selection_set(select_idx)
+                self._list.activate(select_idx)
+                self._list.see(select_idx)
+                self._selected_oid = self.catalog.odbiorcy[select_idx].id
+                self._fill_detail(self.catalog.odbiorcy[select_idx])
+            elif self.catalog.odbiorcy:
+                self._list.selection_set(0)
+                self._list.activate(0)
+                self._selected_oid = self.catalog.odbiorcy[0].id
+                self._fill_detail(self.catalog.odbiorcy[0])
+            else:
+                self._selected_oid = None
+                self._clear_detail()
+        finally:
+            self._selecting = False
+        self._refresh_alias_list()
 
-    def _on_select(self, _evt=None) -> None:
-        sel = self._list.curselection()
-        if not sel:
-            return
-        o = self.catalog.odbiorcy[int(sel[0])]
+    def _clear_detail(self) -> None:
+        self._id_var.set("")
+        self._label_pl_var.set("")
+        self._label_en_var.set("")
+        self._alias_list.delete(0, tk.END)
+        self._alias_rule_idxs = []
+
+    def _fill_detail(self, o: OdbiorcaDef) -> None:
         self._id_var.set(o.id)
         self._label_pl_var.set(o.label_pl)
         self._label_en_var.set(o.label_en)
+        self._refresh_alias_list()
 
-    def _apply(self) -> None:
-        sel = self._list.curselection()
-        if not sel:
-            return
-        idx = int(sel[0])
+    def _flush_fields(self, oid: str) -> Optional[str]:
+        """Write detail pane into catalogue for ``oid``.
+
+        Returns the (possibly renamed) id, or None if validation failed.
+        """
+        idx = None
+        for i, o in enumerate(self.catalog.odbiorcy):
+            if o.id == oid:
+                idx = i
+                break
+        if idx is None:
+            return None
         old = self.catalog.odbiorcy[idx]
         new_id = normalize_odbiorca_id(self._id_var.get())
         if not new_id:
@@ -9630,7 +10624,16 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
                 _tr(self.master, "odbiorca_id_required"),
                 parent=self,
             )
-            return
+            return None
+        # Reject collision with another row
+        for j, o in enumerate(self.catalog.odbiorcy):
+            if j != idx and o.id == new_id:
+                messagebox.showwarning(
+                    _tr(self.master, "odbiorcy"),
+                    _tr(self.master, "odbiorca_id_exists", id=new_id),
+                    parent=self,
+                )
+                return None
         updated = OdbiorcaDef(
             id=new_id,
             label_pl=self._label_pl_var.get(),
@@ -9638,7 +10641,6 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
         )
         items = list(self.catalog.odbiorcy)
         items[idx] = updated
-        # If id changed, rewrite rules pointing at old id
         rules = list(self.catalog.rules)
         if old.id != updated.id:
             from gcode_index.odbiorca_aliases import OdbiorcaRule
@@ -9650,10 +10652,53 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
                 for r in rules
             ]
         self.catalog = OdbiorcaCatalog(odbiorcy=items, rules=rules)
-        self._refresh()
-        self._list.selection_set(idx)
+        return updated.id
+
+    def _on_select(self, _evt=None) -> None:
+        if self._selecting:
+            return
+        sel = self._list.curselection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.catalog.odbiorcy):
+            return
+        new_o = self.catalog.odbiorcy[idx]
+        if new_o.id == self._selected_oid:
+            return
+        prev = self._selected_oid
+        new_id_after_flush: Optional[str] = None
+        if prev:
+            new_id_after_flush = self._flush_fields(prev)
+            if new_id_after_flush is None:
+                # Validation failed — re-pin previous selection
+                self._reload_list(select_oid=prev)
+                return
+            # List labels may have changed; find the clicked row by id again
+            clicked_id = new_o.id
+            if prev != new_id_after_flush and clicked_id == prev:
+                clicked_id = new_id_after_flush
+            self._selected_oid = clicked_id
+            self._reload_list(select_oid=clicked_id)
+            return
+        self._selected_oid = new_o.id
+        self._fill_detail(new_o)
+
+    def _apply(self) -> None:
+        oid = self._selected_oid or self._id_var.get().strip()
+        if not oid:
+            return
+        new_id = self._flush_fields(oid)
+        if new_id is None:
+            return
+        self._selected_oid = new_id
+        self._reload_list(select_oid=new_id)
 
     def _add(self) -> None:
+        if self._selected_oid:
+            flushed = self._flush_fields(self._selected_oid)
+            if flushed is None:
+                return
         base = "odbiorca"
         n = 1
         ids = {o.id for o in self.catalog.odbiorcy}
@@ -9669,26 +10714,90 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
             odbiorcy=list(self.catalog.odbiorcy) + [new],
             rules=list(self.catalog.rules),
         )
-        self._refresh()
-        self._list.selection_set(tk.END)
-        self._on_select()
+        self._selected_oid = oid
+        self._reload_list(select_oid=oid)
 
     def _remove(self) -> None:
-        sel = self._list.curselection()
-        if not sel:
+        oid = self._selected_oid
+        if not oid:
             return
-        idx = int(sel[0])
-        oid = self.catalog.odbiorcy[idx].id
-        items = [o for i, o in enumerate(self.catalog.odbiorcy) if i != idx]
+        items = [o for o in self.catalog.odbiorcy if o.id != oid]
         rules = [r for r in self.catalog.rules if r.odbiorca_id != oid]
         self.catalog = OdbiorcaCatalog(odbiorcy=items, rules=rules)
-        self._refresh()
-        self._id_var.set("")
-        self._label_pl_var.set("")
-        self._label_en_var.set("")
+        self._selected_oid = items[0].id if items else None
+        self._reload_list(select_oid=self._selected_oid)
+
+    def _refresh_alias_list(self) -> None:
+        self._alias_list.delete(0, tk.END)
+        self._alias_rule_idxs = []
+        oid = self._selected_oid
+        if not oid:
+            return
+        for i, rule in enumerate(self.catalog.rules):
+            if rule.odbiorca_id == oid:
+                self._alias_list.insert(tk.END, rule.alias)
+                self._alias_rule_idxs.append(i)
+
+    def _add_alias(self) -> None:
+        oid = self._selected_oid
+        if not oid:
+            messagebox.showinfo(
+                _tr(self.master, "alias_add_title"),
+                _tr(self.master, "odbiorca_select_first"),
+                parent=self,
+            )
+            return
+        flushed = self._flush_fields(oid)
+        if flushed is None:
+            return
+        oid = flushed
+        self._selected_oid = oid
+        name = simpledialog.askstring(
+            _tr(self.master, "alias_add_title"),
+            _tr(self.master, "alias_add_prompt"),
+            parent=self,
+        )
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            return
+        from gcode_index.odbiorca_aliases import OdbiorcaRule
+
+        rule = OdbiorcaRule(alias=name, odbiorca_id=oid, exact=True)
+        rules = [r for r in self.catalog.rules if r.key != rule.key]
+        rules.append(rule)
+        self.catalog = OdbiorcaCatalog(
+            odbiorcy=list(self.catalog.odbiorcy), rules=rules
+        )
+        self._reload_list(select_oid=oid)
+
+    def _remove_alias(self) -> None:
+        sel = self._alias_list.curselection()
+        if not sel:
+            messagebox.showinfo(
+                _tr(self.master, "alias_remove_alias_title"),
+                _tr(self.master, "alias_select_alias"),
+                parent=self,
+            )
+            return
+        local_idx = int(sel[0])
+        if local_idx < 0 or local_idx >= len(self._alias_rule_idxs):
+            return
+        rule_idx = self._alias_rule_idxs[local_idx]
+        rules = list(self.catalog.rules)
+        del rules[rule_idx]
+        self.catalog = OdbiorcaCatalog(
+            odbiorcy=list(self.catalog.odbiorcy), rules=rules
+        )
+        self._refresh_alias_list()
 
     def _save(self) -> None:
-        self._apply()
+        if self._selected_oid:
+            flushed = self._flush_fields(self._selected_oid)
+            if flushed is None:
+                return
+            self._selected_oid = flushed
         try:
             save_odbiorca_catalog(self._save_path, self.catalog)
         except OSError as exc:
@@ -9696,7 +10805,6 @@ class OdbiorcaCatalogDialog(tk.Toplevel):
             return
         self.saved = True
         self.destroy()
-
 
 
 class AliasEditorDialog(tk.Toplevel):
@@ -9711,10 +10819,16 @@ class AliasEditorDialog(tk.Toplevel):
     ) -> None:
         super().__init__(master)
         self.title(_tr(master, "aliases_dialog_title"))
-        self.minsize(780, 480)
-        self.geometry("900x560")
         self.transient(master)
         self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=780,
+            min_height=480,
+            width=900,
+            height=560,
+            scrollable=False,
+        )
         self.saved = False
         self._aliases = aliases
         self._save_path = Path(save_path)
@@ -9730,13 +10844,13 @@ class AliasEditorDialog(tk.Toplevel):
         self._load_draft_from_aliases()
 
         ttk.Label(
-            self,
+            shell.body,
             text=_tr(master, "aliases_intro"),
             wraplength=860,
-        ).pack(fill=tk.X, padx=12, pady=(12, 6))
+        ).pack(fill=tk.X, pady=(0, 6))
 
-        body = ttk.Frame(self)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body = ttk.Frame(shell.body)
+        body.pack(fill=tk.BOTH, expand=True, pady=4)
         body.columnconfigure(0, weight=1)
         body.columnconfigure(1, weight=2)
         body.rowconfigure(0, weight=1)
@@ -9844,11 +10958,15 @@ class AliasEditorDialog(tk.Toplevel):
             right, text=_tr(master, "alias_apply_details"), command=self._apply_machine_details
         ).grid(row=5, column=0, columnspan=2, sticky=tk.E, pady=(8, 0))
 
-        footer = ttk.Frame(self)
-        footer.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Label(footer, text=_tr(master, "alias_saves_to", path=self._save_path.name)).pack(side=tk.LEFT)
-        ttk.Button(footer, text=_tr(master, "cancel"), command=self.destroy).pack(side=tk.RIGHT)
-        ttk.Button(footer, text=_tr(master, "save"), command=self._save).pack(side=tk.RIGHT, padx=8)
+        ttk.Label(
+            shell.footer, text=_tr(master, "alias_saves_to", path=self._save_path.name)
+        ).pack(side=tk.LEFT)
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(shell.footer, text=_tr(master, "save"), command=self._save).pack(
+            side=tk.RIGHT, padx=8
+        )
 
         # Select first machine (if any) and show its details — do not clear
         # the detail pane afterward (that left highlight vs fields out of sync).
@@ -10178,9 +11296,15 @@ class MachineForm(tk.Toplevel):
         self.transient(master)
         self.grab_set()
         self.result: Optional[tuple[str, str, str, str, str]] = None
-
-        body = ttk.Frame(self, padding=12)
-        body.pack(fill=tk.BOTH, expand=True)
+        shell = install_dialog_shell(
+            self,
+            min_width=440,
+            min_height=300,
+            width=480,
+            height=340,
+            scrollable=True,
+        )
+        body = shell.body
         ttk.Label(body, text=_tr(master, "machine_form_id")).grid(
             row=0, column=0, sticky=tk.W
         )
@@ -10237,12 +11361,10 @@ class MachineForm(tk.Toplevel):
         ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
         body.columnconfigure(1, weight=1)
 
-        btns = ttk.Frame(self)
-        btns.pack(fill=tk.X, padx=12, pady=12)
-        ttk.Button(btns, text=_tr(master, "cancel"), command=self.destroy).pack(
+        ttk.Button(shell.footer, text=_tr(master, "cancel"), command=self.destroy).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btns, text=_tr(master, "ok"), command=self._ok).pack(
+        ttk.Button(shell.footer, text=_tr(master, "ok"), command=self._ok).pack(
             side=tk.RIGHT, padx=8
         )
 

@@ -5,8 +5,15 @@ compat; content is roles, not green/yellow status).
 
 **Status** (🟢 on-machine / 🟡 status unknown) comes from scan roots only and is
 stored on ``program_instances.provenance`` (``backup`` / ``extra``). Folder
-aliases never override status. Yellow status must never be labelled as a role
-(e.g. fixture).
+aliases never change that DB field. Yellow status must never be labelled as a
+role (e.g. fixture).
+
+**Display:** Flag always shows status 🟢/🟡 (or a role with
+``can_override_main_state_colour`` replacing it — prototype defaults on), then
+**one disc per distinct function colour**. Same-colour doubles are forbidden.
+``folder_colour_aliases.yaml`` beside the DB is **mandatory** for truthful
+function colours (clients fall back to baked seeds when the sidecar is missing).
+Role text column is optional; Flag tip explains reasons.
 
 **Role** is the editable catalogue (prototype, personal, system_programs,
 fixture, …) plus path aliases. Schema (v3)::
@@ -14,6 +21,7 @@ fixture, …) plus path aliases. Schema (v3)::
     colours:   # role definitions (id kept as ``colours`` key for YAML compat)
       - id: prototype
         label_pl: Prototyp
+        can_override_main_state_colour: true
         …
       - id: personal
         …
@@ -39,7 +47,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 import yaml
 
-from gcode_index.aliases import normalize_folder_name
+from gcode_index.aliases import best_fuzzy_key, normalize_folder_name
 from gcode_index.models import (
     COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
@@ -58,9 +66,6 @@ from gcode_index.models import (
 )
 
 FOLDER_COLOUR_ALIASES_FILENAME = "folder_colour_aliases.yaml"
-
-_MIN_SUBSTRING_ALIAS_LEN = 4
-_MIN_PREFIX_ALIAS_LEN = 3
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
@@ -194,9 +199,30 @@ def normalize_hex_colour(raw: str | None, *, fallback: str = "#888888") -> str:
     return fallback
 
 
+def default_can_override_main_state_colour(role_id: str | None) -> bool:
+    """Seed default: only prototype overrides the green/yellow status disc."""
+    key = (role_id or "").strip().casefold()
+    return key == ROLE_PROTOTYPE
+
+
+def _as_bool(raw: Any, *, default: bool = False) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return default
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    s = str(raw).strip().casefold()
+    if s in {"1", "true", "yes", "on", "y"}:
+        return True
+    if s in {"0", "false", "no", "off", "n", ""}:
+        return False
+    return default
+
+
 @dataclass
 class ColourDef:
-    """One user-visible provenance colour."""
+    """One user-visible folder role (function)."""
 
     id: str
     label_pl: str = ""
@@ -206,6 +232,8 @@ class ColourDef:
     meaning_en: str = ""
     badge: str = "●"
     builtin: bool = False
+    # When True: Flag shows this role's disc (and row colour) instead of status.
+    can_override_main_state_colour: bool = False
 
     def __post_init__(self) -> None:
         raw_id = (self.id or "").strip()
@@ -223,6 +251,9 @@ class ColourDef:
         self.meaning_pl = (self.meaning_pl or "").strip()
         self.meaning_en = (self.meaning_en or "").strip()
         self.badge = (self.badge or "●").strip() or "●"
+        self.can_override_main_state_colour = bool(
+            self.can_override_main_state_colour
+        )
 
     def label(self, lang: str = "pl") -> str:
         if str(lang).casefold().startswith("en"):
@@ -244,6 +275,9 @@ class ColourDef:
             "meaning_en": self.meaning_en,
             "badge": self.badge,
             "builtin": bool(self.builtin),
+            "can_override_main_state_colour": bool(
+                self.can_override_main_state_colour
+            ),
         }
 
 
@@ -255,10 +289,11 @@ def default_colours() -> list[ColourDef]:
             label_pl="Prototyp",
             label_en="Prototype",
             swatch="#2980B9",
-            meaning_pl="Prototyp / program roboczy",
-            meaning_en="Prototype / work-in-progress program",
+            meaning_pl="Prototyp / program roboczy (może zastąpić kolor statusu)",
+            meaning_en="Prototype / work-in-progress (may override status colour)",
             badge="●",
             builtin=True,
+            can_override_main_state_colour=True,
         ),
         ColourDef(
             id=ROLE_PERSONAL,
@@ -269,6 +304,7 @@ def default_colours() -> list[ColourDef]:
             meaning_en="Operator personal folder",
             badge="●",
             builtin=True,
+            can_override_main_state_colour=False,
         ),
         ColourDef(
             id=ROLE_SYSTEM_PROGRAMS,
@@ -279,6 +315,7 @@ def default_colours() -> list[ColourDef]:
             meaning_en="System / control programs",
             badge="●",
             builtin=True,
+            can_override_main_state_colour=False,
         ),
         ColourDef(
             id=ROLE_FIXTURE,
@@ -289,6 +326,7 @@ def default_colours() -> list[ColourDef]:
             meaning_en="Fixture / workholding / helper",
             badge="●",
             builtin=True,
+            can_override_main_state_colour=False,
         ),
     ]
 
@@ -300,8 +338,11 @@ default_roles = default_colours
 class FolderColourRule:
     """One folder-name alias → role id or exclude.
 
-    ``exact=True`` (tree menu): match only the normalized spelling — no fuzzy
-    substring/prefix. Legacy rules default to ``exact=False`` (fuzzy allowed).
+    Matching uses token-boundary rules (exact full normalize / exact token
+    or consecutive tokens, then fuzzy only within one token: substring ≥4 /
+    prefix ≥3 with residual ≤2). The ``exact`` field is retained for YAML
+    round-trip / legacy sidecars but is **ignored** at match time (0.2.103+;
+    token-boundary 0.2.105+).
     """
 
     alias: str
@@ -383,6 +424,12 @@ class ColourCatalog:
         c = self.get(colour_id)
         return c.meaning(lang) if c is not None else ""
 
+    def override_role_ids(self) -> frozenset[str]:
+        """Role ids whose Flag disc may replace green/yellow status."""
+        return frozenset(
+            c.id for c in self.colours if c.can_override_main_state_colour
+        )
+
     def alias_map(self) -> "FolderColourAliasMap":
         return FolderColourAliasMap(self.rules, known_ids=self.colour_ids)
 
@@ -391,8 +438,9 @@ def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]
     """Ensure role seeds exist; strip status ids; demote old seeds to customs.
 
     - New seeds (prototype / personal / system_programs / fixture) are builtins.
-    - User label / meaning / **swatch** edits on seeds are preserved (swatch is
-      only reset when missing or when it is a status green/yellow hex).
+    - User label / meaning / **swatch** / override-flag edits on seeds are
+      preserved (swatch is only reset when missing or when it is a status
+      green/yellow hex).
     - Legacy seeds (production / wip / test) are kept when present but not
       auto-added and not builtin — user customs are never wiped.
     """
@@ -425,6 +473,9 @@ def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]
                 meaning_en=c.meaning_en if c.meaning_en else d.meaning_en,
                 badge=c.badge or d.badge,
                 builtin=True,
+                can_override_main_state_colour=bool(
+                    c.can_override_main_state_colour
+                ),
             )
         elif c.id in ROLE_LEGACY_IDS:
             # Former builtins — keep data, no longer locked seeds
@@ -437,6 +488,9 @@ def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]
                 meaning_en=c.meaning_en,
                 badge=c.badge,
                 builtin=False,
+                can_override_main_state_colour=bool(
+                    c.can_override_main_state_colour
+                ),
             )
         else:
             by_id[c.id] = ColourDef(
@@ -448,6 +502,9 @@ def _merge_with_defaults(colours: Sequence[ColourDef] | None) -> list[ColourDef]
                 meaning_en=c.meaning_en,
                 badge=c.badge,
                 builtin=False,
+                can_override_main_state_colour=bool(
+                    c.can_override_main_state_colour
+                ),
             )
         order.append(c.id)
     for did, d in defaults.items():
@@ -468,6 +525,15 @@ def folder_colour_aliases_path_for_target(target: Path | str) -> Path:
     return Path(target) / FOLDER_COLOUR_ALIASES_FILENAME
 
 
+def colour_aliases_sidecar_present(target: Path | str) -> bool:
+    """True when ``folder_colour_aliases.yaml`` exists next to the database.
+
+    Floor / Work Flag colours need this pack file for shop-edited swatches and
+    override flags. Missing → software seed catalogue only (warning in GUI).
+    """
+    return folder_colour_aliases_path_for_target(target).is_file()
+
+
 def _parse_colour_def(item: Any) -> Optional[ColourDef]:
     if isinstance(item, ColourDef):
         return item
@@ -477,6 +543,14 @@ def _parse_colour_def(item: Any) -> Optional[ColourDef]:
     if not cid:
         return None
     label = str(item.get("label") or "").strip()
+    norm_id = normalize_colour_id(cid)
+    if "can_override_main_state_colour" in item:
+        can_override = _as_bool(item.get("can_override_main_state_colour"))
+    elif "can_override_status" in item:
+        can_override = _as_bool(item.get("can_override_status"))
+    else:
+        # Legacy YAML without the key: seed default (prototype on, others off)
+        can_override = default_can_override_main_state_colour(norm_id)
     return ColourDef(
         id=cid,
         label_pl=str(item.get("label_pl") or label or ""),
@@ -486,6 +560,7 @@ def _parse_colour_def(item: Any) -> Optional[ColourDef]:
         meaning_en=str(item.get("meaning_en") or item.get("description_en") or item.get("description") or ""),
         badge=str(item.get("badge") or item.get("emoji") or "●"),
         builtin=bool(item.get("builtin", False)),
+        can_override_main_state_colour=can_override,
     )
 
 
@@ -569,10 +644,14 @@ def save_colour_catalog(path: Path | str, catalog: ColourCatalog) -> Path:
     payload = {
         "_comment": (
             "Folder roles + path aliases (v3). "
+            "MANDATORY beside gcode_index.sqlite for truthful Flag colours on every client. "
             "Status (🟢 on-machine / 🟡 status unknown) comes from scan roots, not these rules. "
+            "Flag: status disc (or role with can_override_main_state_colour — prototype on) "
+            "plus one disc per distinct function colour (no same-colour doubles). "
             "Seed roles: prototype (blue), personal (red), system_programs (orange), fixture (purple). "
             "Yellow/green are status only — never role labels (yellow ≠ fixture). "
-            "rules: folder-name alias → role id or exclude; deepest segment wins."
+            "rules: folder-name alias → role id or exclude; deepest segment wins. "
+            "Tip path reasons also need folder_tree_map.yaml when Mapuj drzewo is used."
         ),
         "colours": [c.to_dict() for c in cat.colours],
         "rules": [r.to_dict() for r in cat.rules],
@@ -643,42 +722,28 @@ class FolderColourAliasMap:
     def __len__(self) -> int:
         return len(self._rules)
 
-    def match_segment(self, folder_raw: str) -> Optional[str]:
+    def match_segment_rule(self, folder_raw: str) -> Optional[FolderColourRule]:
+        """Winning alias rule for ``folder_raw`` (exact key, else token fuzzy).
+
+        Same match order as ``match_segment`` / scan. Use this when the tip or
+        UI needs the alias spelling and exact-vs-fuzzy, not only the role id.
+        """
         key = normalize_folder_name(folder_raw)
         if not key:
             return None
         exact = self._by_key.get(key)
         if exact is not None:
-            return exact.colour
-        fuzzy = self._lookup_fuzzy(key)
-        return fuzzy.colour if fuzzy is not None else None
+            return exact
+        return self._lookup_fuzzy(folder_raw)
 
-    def _lookup_fuzzy(self, key: str) -> Optional[FolderColourRule]:
-        best: Optional[FolderColourRule] = None
-        best_len = -1
-        for rule in self._rules:
-            if rule.exact:
-                continue  # tree-created / exact-only — no fuzzy blast radius
-            ak = rule.key
-            if len(ak) < _MIN_SUBSTRING_ALIAS_LEN:
-                continue
-            if ak in key and len(ak) > best_len:
-                best = rule
-                best_len = len(ak)
-        if best is not None:
-            return best
-        best = None
-        best_len = -1
-        for rule in self._rules:
-            if rule.exact:
-                continue
-            ak = rule.key
-            if len(ak) < _MIN_PREFIX_ALIAS_LEN:
-                continue
-            if key.startswith(ak) and len(ak) > best_len:
-                best = rule
-                best_len = len(ak)
-        return best
+    def match_segment(self, folder_raw: str) -> Optional[str]:
+        rule = self.match_segment_rule(folder_raw)
+        return rule.colour if rule is not None else None
+
+    def _lookup_fuzzy(self, folder_raw: str) -> Optional[FolderColourRule]:
+        # ``exact`` flag is ignored — token-boundary fuzzy (0.2.105+).
+        best = best_fuzzy_key(folder_raw, self._by_key)
+        return self._by_key.get(best) if best else None
 
     def resolve_path_parts(self, parts: Sequence[str]) -> Optional[str]:
         """Deepest-wins single role (legacy). Prefer ``resolve_path_parts_roles``."""
@@ -736,7 +801,11 @@ class FolderColourAliasMap:
         return self.resolve_path_parts_roles(parts)
 
     def upsert_exact_role(self, alias: str, role_id: str) -> FolderColourRule:
-        """Replace or add an exact name→role rule (tree menu)."""
+        """Replace or add a name→role rule (tree / Nazwy folderów).
+
+        Still named ``upsert_exact_role`` for call-site compat; the stored
+        ``exact`` flag is ignored when matching (machine-style fuzzy).
+        """
         alias = (alias or "").strip()
         colour = normalize_colour_id(role_id, known_ids=self._known)
         new = FolderColourRule(alias=alias, colour=colour, exact=True)

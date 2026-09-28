@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import yaml
 
@@ -15,11 +15,28 @@ LOCAL_ALIASES_FILENAME = "aliases.local.yaml"
 
 
 def normalize_folder_name(raw: str) -> str:
-    """Lowercase, strip spaces/-/_, then strip remaining punctuation."""
+    """Lowercase, strip spaces/-/_, then strip remaining punctuation.
+
+    Used for **exact** full-string equality and as the stored alias key.
+    Fuzzy matching no longer runs against this concatenated form — see
+    ``folder_name_tokens`` / ``match_tier_in_raw``.
+    """
     s = raw.strip().lower()
     s = s.replace(" ", "").replace("-", "").replace("_", "")
     s = _PUNCT_RE.sub("", s)
     return s
+
+
+def folder_name_tokens(raw: str) -> list[str]:
+    """Split a folder name or O-line ``(…)`` body into match tokens.
+
+    Separators: space, ``_``, ``-``, and any other non ``[a-z0-9]`` punctuation.
+    Each token is lowercased alphanumerics only (empty pieces dropped).
+    """
+    s = (raw or "").strip().lower()
+    if not s:
+        return []
+    return [p for p in _PUNCT_RE.split(s) if p]
 
 
 def default_aliases_path() -> Path:
@@ -50,8 +67,107 @@ def local_aliases_path_for_target(target: Path | str) -> Path:
 
 
 # Substring / prefix fallbacks (avoid tiny keys like "sl" matching both SL-10 and SL-20).
-_MIN_SUBSTRING_ALIAS_LEN = 4
-_MIN_PREFIX_ALIAS_LEN = 3
+# Shared by machines, roles, recipients, and O-line header matchers.
+# Fuzzy runs **within a single token** only (not the fully stripped mash).
+MIN_SUBSTRING_ALIAS_LEN = 4
+MIN_PREFIX_ALIAS_LEN = 3
+# Prefix within a token only when the leftover suffix is short (VF2→VF2S = +1;
+# blocks pat→pattyn = +3). Substring ≥4 is unchanged.
+MAX_PREFIX_RESIDUAL = 2
+# Back-compat private aliases used inside this module historically.
+_MIN_SUBSTRING_ALIAS_LEN = MIN_SUBSTRING_ALIAS_LEN
+_MIN_PREFIX_ALIAS_LEN = MIN_PREFIX_ALIAS_LEN
+
+# Score tiers for exact-then-fuzzy (higher wins; then longer needle).
+FUZZY_TIER_EXACT = 2
+FUZZY_TIER_SUBSTRING = 1
+FUZZY_TIER_PREFIX = 0
+
+
+def fuzzy_match_tier(needle: str, haystack: str) -> Optional[int]:
+    """Within-token fuzzy: exact → substring (≥4) → prefix (≥3, residual ≤2).
+
+    ``needle`` and ``haystack`` are single already-normalized tokens (or a
+    single-token haystack). Prefer ``match_tier_in_raw`` for folder / O-line
+    bodies so multi-token names are split first. Returns a tier, or ``None``.
+    """
+    if not needle or not haystack:
+        return None
+    if needle == haystack:
+        return FUZZY_TIER_EXACT
+    if len(needle) >= MIN_SUBSTRING_ALIAS_LEN and needle in haystack:
+        return FUZZY_TIER_SUBSTRING
+    if (
+        len(needle) >= MIN_PREFIX_ALIAS_LEN
+        and haystack.startswith(needle)
+        and 0 < (len(haystack) - len(needle)) <= MAX_PREFIX_RESIDUAL
+    ):
+        return FUZZY_TIER_PREFIX
+    return None
+
+
+def match_tier_in_raw(needle: str, raw: str) -> Optional[int]:
+    """Best tier for ``needle`` against a folder name or O-line ``(…)`` body.
+
+    1. Exact full ``normalize_folder_name`` equality (space/_/- equivalent).
+    2. Exact single token, or consecutive tokens whose concat equals needle.
+    3. Fuzzy **only within one token** (substring ≥4 / prefix ≥3 residual ≤2).
+
+    Never runs fuzzy against the fully concatenated stripped string.
+    """
+    if not needle:
+        return None
+    hay = normalize_folder_name(raw)
+    if hay and needle == hay:
+        return FUZZY_TIER_EXACT
+    tokens = folder_name_tokens(raw)
+    if not tokens:
+        return None
+    # Exact token or consecutive-token span (multi-word aliases like Acme Sp).
+    for i in range(len(tokens)):
+        acc = ""
+        for j in range(i, len(tokens)):
+            acc += tokens[j]
+            if acc == needle:
+                return FUZZY_TIER_EXACT
+            if len(acc) > len(needle):
+                break
+    best: Optional[int] = None
+    for tok in tokens:
+        tier = fuzzy_match_tier(needle, tok)
+        if tier is None or tier == FUZZY_TIER_EXACT:
+            # Exact already handled above; skip None.
+            continue
+        if best is None or tier > best:
+            best = tier
+    return best
+
+
+def best_fuzzy_key(raw_haystack: str, keys: Iterable[str]) -> Optional[str]:
+    """Best normalized alias key for a raw folder / comment body.
+
+    Exact full-normalize dict lookup is the caller's job when a key map
+    exists. Here: exact token / consecutive-token span, then within-token
+    substring (≥4), then within-token prefix (≥3, residual ≤2). Longest
+    needle wins within the best tier. ``keys`` are already-normalized.
+    """
+    if not (raw_haystack or "").strip():
+        return None
+    key_list = [k for k in keys if k]
+    if not key_list:
+        return None
+    best_key = ""
+    best_tier = -1
+    for ak in key_list:
+        tier = match_tier_in_raw(ak, raw_haystack)
+        if tier is None:
+            continue
+        # Skip full-normalize exact — caller already tried dict lookup; still
+        # allow token/sequence exact (same tier value) and fuzzy tiers.
+        if tier > best_tier or (tier == best_tier and len(ak) > len(best_key)):
+            best_tier = tier
+            best_key = ak
+    return best_key or None
 
 
 def _machines_from_yaml_data(data: Any) -> dict[str, dict[str, Any]]:
@@ -162,24 +278,9 @@ class AliasMap:
             mapped=True,
         )
 
-    def _lookup_fuzzy(self, key: str) -> Optional[dict[str, Any]]:
-        """Longest alias contained in key, else longest alias that is a prefix of key."""
-        best_key = ""
-        for ak in self._machines:
-            if len(ak) < _MIN_SUBSTRING_ALIAS_LEN:
-                continue
-            if ak in key and len(ak) > len(best_key):
-                best_key = ak
-        if best_key:
-            return self._machines[best_key]
-
-        # Prefix: "VF2S" / "VF2 old" → vf2; prefer longer (vf2nowa before vf2)
-        best_key = ""
-        for ak in self._machines:
-            if len(ak) < _MIN_PREFIX_ALIAS_LEN:
-                continue
-            if key.startswith(ak) and len(ak) > len(best_key):
-                best_key = ak
+    def _lookup_fuzzy(self, machine_folder_raw: str) -> Optional[dict[str, Any]]:
+        """Token-boundary fuzzy: exact token/span, else within-token substring/prefix."""
+        best_key = best_fuzzy_key(machine_folder_raw, self._machines)
         if best_key:
             return self._machines[best_key]
         return None
@@ -188,7 +289,7 @@ class AliasMap:
         key = normalize_folder_name(machine_folder_raw)
         entry = self._machines.get(key)
         if entry is None:
-            entry = self._lookup_fuzzy(key)
+            entry = self._lookup_fuzzy(machine_folder_raw)
         if entry is None:
             return MachineInfo(
                 machine_id=f"unmapped:{machine_folder_raw}",

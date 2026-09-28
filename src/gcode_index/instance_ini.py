@@ -32,7 +32,14 @@ from gcode_index.operator_lock import (
     is_settings_locked,
     settings_locked_from_ini_value,
 )
-from gcode_index.schedule import SCHEDULE_OFF, normalize_schedule
+from gcode_index.schedule import (
+    DEFAULT_WATCH_COALESCE_S,
+    SCHEDULE_OFF,
+    clamp_watch_coalesce_s,
+    migrate_legacy_schedule,
+    normalize_schedule,
+    normalize_watch_safety,
+)
 
 INSTANCE_INI_FILENAME = "gcode-index.ini"
 ENV_INI_PATH = "GCODE_INDEX_INI"
@@ -53,20 +60,28 @@ class InstanceConfig:
     ui_mode: str = "simple"  # legacy mirror of can_index (simple|full)
     can_index: bool = False  # primary capability: indexer PC vs floor client
     settings_locked: bool = False  # deploy lock: force retrieve-only / block dangerous flips
+    # Legacy [ui] schedule — kept for one-time migrate; runtime uses watch_* below.
     schedule: str = SCHEDULE_OFF
     schedule_last_run: str = ""
     incremental: bool = True
     watch_folders: bool = False
     watch_mode: str = DEFAULT_WATCH_MODE  # hybrid | poll
+    # Min. quiet between Watch-triggered scans (seconds); coalesce pending changes.
+    watch_coalesce_s: int = DEFAULT_WATCH_COALESCE_S
+    # Optional forced incremental while Watch is on: off | 15m | 1h | …
+    watch_safety: str = SCHEDULE_OFF
+    watch_safety_last_run: str = ""
     also_excel: bool = False
     newest_only: bool = False
     include_unknown: bool = True  # sticky: keep MACHINE UNKNOWN when filtering machines
     # Match odbiorca aliases against header-window paren comments when folder/path unset
     odbiorca_from_header: bool = True
+    # Match role folder-aliases in header comments (accumulate after path/tree)
+    role_from_header: bool = True
+    # Match machine folder-aliases in header when still MACHINE UNKNOWN
+    machine_from_header: bool = True
     # Auto-tag O9000–O9099 program numbers with role system_programs
     o9_system_programs_role: bool = True
-    # When True, role/function colours colour the results row instead of status
-    role_colours_overshadow_status: bool = False
     search_auto_refresh: bool = False  # re-query when DB mtime changes
     search_auto_refresh_s: int = 20  # poll interval for DB mtime (seconds)
     geometry: str = "1320x820"
@@ -90,8 +105,10 @@ class InstanceConfig:
     filter_control: str = ""
     filter_status: str = ""  # backup|extra|"" 
     filter_role: str = ""  # role id or ""
-    filter_programmer: str = ""
     filter_odbiorca: str = ""  # odbiorca id | __missing__ | ""
+    # Work GUI: show only rows whose Flag disc is green (backup/trusted;
+    # hides yellow and overriding function colours such as prototype).
+    filter_only_green: bool = False
     # --- [session] chrome / layout ---
     sort_col: str = ""
     sort_reverse: bool = False
@@ -99,8 +116,10 @@ class InstanceConfig:
     folders_expanded: Optional[bool] = None  # None = auto heuristic
     pelny_view: str = "praca"  # praca | indeks
     preview_find: str = ""
-    # Comma-separated results-table column ids to hide (empty = show all)
-    hidden_columns: list[str] = field(default_factory=list)
+    # Comma-separated results-table column ids to hide.
+    # Default hides Role — Flag discs + tip carry function meaning (0.2.95+).
+    # Empty saved list = user chose show-all (key present); missing key → default.
+    hidden_columns: list[str] = field(default_factory=lambda: ["role"])
     # Results column widths: column_id → pixels
     column_widths: dict[str, int] = field(default_factory=dict)
     # Preview popup WxH[+X+Y]; empty = default
@@ -305,12 +324,14 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.odbiorca_from_header = _truthy(
             parser.get("scan", "odbiorca_from_header", fallback="yes"), default=True
         )
+        cfg.role_from_header = _truthy(
+            parser.get("scan", "role_from_header", fallback="yes"), default=True
+        )
+        cfg.machine_from_header = _truthy(
+            parser.get("scan", "machine_from_header", fallback="yes"), default=True
+        )
         cfg.o9_system_programs_role = _truthy(
             parser.get("scan", "o9_system_programs_role", fallback="yes"), default=True
-        )
-        cfg.role_colours_overshadow_status = _truthy(
-            parser.get("scan", "role_colours_overshadow_status", fallback="no"),
-            default=False,
         )
         cfg.watch_folders = _truthy(
             parser.get("scan", "watch_folders", fallback="no"), default=False
@@ -335,6 +356,38 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             )
         except ValueError:
             cfg.search_auto_refresh_s = 20
+
+    # Watch coalesce + safety: new keys, or one-time migrate from legacy [ui] schedule.
+    has_coalesce = parser.has_option("scan", "watch_coalesce_s") if parser.has_section("scan") else False
+    has_safety = parser.has_option("scan", "watch_safety") if parser.has_section("scan") else False
+    if has_coalesce or has_safety:
+        if has_coalesce:
+            cfg.watch_coalesce_s = clamp_watch_coalesce_s(
+                parser.get("scan", "watch_coalesce_s", fallback=str(DEFAULT_WATCH_COALESCE_S))
+            )
+        else:
+            cfg.watch_coalesce_s = DEFAULT_WATCH_COALESCE_S
+        if has_safety:
+            cfg.watch_safety = normalize_watch_safety(
+                parser.get("scan", "watch_safety", fallback=SCHEDULE_OFF)
+            )
+        else:
+            cfg.watch_safety = SCHEDULE_OFF
+        cfg.watch_safety_last_run = ""
+        if parser.has_section("scan"):
+            cfg.watch_safety_last_run = parser.get(
+                "scan", "watch_safety_last_run", fallback=""
+            ).strip()
+        if not cfg.watch_safety_last_run and cfg.watch_safety != SCHEDULE_OFF:
+            cfg.watch_safety_last_run = cfg.schedule_last_run
+    else:
+        coalesce_s, safety = migrate_legacy_schedule(cfg.schedule)
+        cfg.watch_coalesce_s = coalesce_s
+        cfg.watch_safety = safety
+        if safety != SCHEDULE_OFF and cfg.schedule_last_run:
+            cfg.watch_safety_last_run = cfg.schedule_last_run
+        else:
+            cfg.watch_safety_last_run = ""
 
     if parser.has_section("window"):
         geom = parser.get("window", "geometry", fallback=cfg.geometry).strip()
@@ -403,11 +456,11 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.filter_role = _filter_all_to_empty(
             parser.get("filters", "role", fallback="")
         )
-        cfg.filter_programmer = _filter_all_to_empty(
-            parser.get("filters", "programmer", fallback="")
-        )
         cfg.filter_odbiorca = _filter_all_to_empty(
             parser.get("filters", "odbiorca", fallback="")
+        )
+        cfg.filter_only_green = _truthy(
+            parser.get("filters", "only_green", fallback="no"), default=False
         )
 
     if parser.has_section("session"):
@@ -428,13 +481,19 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         if cfg.pelny_view == "index":
             cfg.pelny_view = "indeks"
         cfg.preview_find = parser.get("session", "preview_find", fallback="").strip()
-        hidden_raw = parser.get("session", "hidden_columns", fallback="").strip()
-        if hidden_raw:
-            cfg.hidden_columns = [
-                p.strip() for p in hidden_raw.replace(";", ",").split(",") if p.strip()
-            ]
+        if parser.has_option("session", "hidden_columns"):
+            hidden_raw = parser.get("session", "hidden_columns", fallback="").strip()
+            if hidden_raw:
+                cfg.hidden_columns = [
+                    p.strip()
+                    for p in hidden_raw.replace(";", ",").split(",")
+                    if p.strip()
+                ]
+            else:
+                # Explicit empty = show all columns (user cleared hides)
+                cfg.hidden_columns = []
         else:
-            cfg.hidden_columns = []
+            cfg.hidden_columns = ["role"]
         widths_raw = parser.get("session", "column_widths", fallback="").strip()
         cfg.column_widths = parse_column_widths(widths_raw) if widths_raw else {}
         session_prev = parser.get("session", "preview_geometry", fallback="").strip()
@@ -514,20 +573,29 @@ def save_instance_ini(
         watch_mode=normalize_watch_mode(
             str(kwargs.get("watch_mode", base.watch_mode) or DEFAULT_WATCH_MODE)
         ),
+        watch_coalesce_s=clamp_watch_coalesce_s(
+            kwargs.get("watch_coalesce_s", base.watch_coalesce_s)
+        ),
+        watch_safety=normalize_watch_safety(
+            str(kwargs.get("watch_safety", base.watch_safety) or SCHEDULE_OFF)
+        ),
+        watch_safety_last_run=str(
+            kwargs.get("watch_safety_last_run", base.watch_safety_last_run) or ""
+        ),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
         include_unknown=bool(kwargs.get("include_unknown", base.include_unknown)),
         odbiorca_from_header=bool(
             kwargs.get("odbiorca_from_header", base.odbiorca_from_header)
         ),
+        role_from_header=bool(
+            kwargs.get("role_from_header", base.role_from_header)
+        ),
+        machine_from_header=bool(
+            kwargs.get("machine_from_header", base.machine_from_header)
+        ),
         o9_system_programs_role=bool(
             kwargs.get("o9_system_programs_role", base.o9_system_programs_role)
-        ),
-        role_colours_overshadow_status=bool(
-            kwargs.get(
-                "role_colours_overshadow_status",
-                base.role_colours_overshadow_status,
-            )
         ),
         search_auto_refresh=bool(
             kwargs.get("search_auto_refresh", base.search_auto_refresh)
@@ -572,11 +640,11 @@ def save_instance_ini(
         filter_role=_filter_all_to_empty(
             str(kwargs.get("filter_role", base.filter_role) or "")
         ),
-        filter_programmer=_filter_all_to_empty(
-            str(kwargs.get("filter_programmer", base.filter_programmer) or "")
-        ),
         filter_odbiorca=_filter_all_to_empty(
             str(kwargs.get("filter_odbiorca", base.filter_odbiorca) or "")
+        ),
+        filter_only_green=bool(
+            kwargs.get("filter_only_green", base.filter_only_green)
         ),
         sort_col=str(kwargs.get("sort_col", base.sort_col) or ""),
         sort_reverse=bool(kwargs.get("sort_reverse", base.sort_reverse)),
@@ -617,7 +685,7 @@ def save_instance_ini(
 
 [capabilities]
 ; Primary capability flag for this PC (not a runtime UI toggle).
-; yes = indexer: scan / map / watch / schedule / folder setup available
+; yes = indexer: scan / map / watch / folder setup available
 ; no  = floor client: search + preview + extract only (open DB / remap / extract folder)
 ; Legacy [ui] mode=simple|full still loads when this key is absent (simple→no, full→yes).
 can_index = {yn(data.can_index)}
@@ -655,11 +723,11 @@ language = {data.language}
 ; Legacy mirror of [capabilities] can_index (simple = no, full = yes).
 ; Prefer can_index above; this is kept so older tools still read the file.
 mode = {data.ui_mode}
-; Auto-index while the GUI stays open (indexer only): off | 30s | 15m | 2h | 1d
-; Legacy hourly/daily/weekly still load as 1h / 1d / 7d
-schedule = {data.schedule}
-; Last successful auto/manual index time (UTC ISO). Leave blank to force soon.
-schedule_last_run = {data.schedule_last_run}
+; Legacy Auto-index keys (pre-0.2.107). Runtime no longer uses them — Watch
+; coalesce + safety live under [scan]. Kept as off so old readers stay quiet.
+; On load, non-off values migrate once into watch_coalesce_s / watch_safety.
+schedule = off
+schedule_last_run = 
 
 [scan]
 ; yes/no — skip unchanged files when re-indexing (indexer)
@@ -671,6 +739,14 @@ watch_folders = {yn(data.watch_folders)}
 ;   poll   = stamp-poll everywhere (safe fallback)
 ; Accepted aliases: auto/hybryda → hybrid; safe/stamp → poll
 watch_mode = {data.watch_mode}
+; Min. quiet between Watch-triggered scans (seconds, floor 15, default 45).
+; Changes during the quiet window coalesce into one follow-up scan.
+watch_coalesce_s = {data.watch_coalesce_s}
+; Optional safety rescan while Watch is on: off | 15m | 1h | 1d
+; Forced incremental even if quiet (missed events / flaky UNC). Not the quiet timer.
+watch_safety = {data.watch_safety}
+; Last successful scan time used for safety countdown (UTC ISO). Blank = due soon.
+watch_safety_last_run = {data.watch_safety_last_run}
 ; yes/no — also write gcode_index.xlsx after a scan (indexer)
 also_excel = {yn(data.also_excel)}
 ; yes/no — default "newest only" filter on startup
@@ -678,16 +754,26 @@ newest_only = {yn(data.newest_only)}
 ; yes/no — when filtering by machines, still show MACHINE UNKNOWN / unassigned
 ; Default yes. Floor clients (can_index=no / operator.lock) keep this on.
 include_unknown = {yn(data.include_unknown)}
-; yes/no — when folder/path left odbiorca empty, match aliases in header paren comments
-; (O-header window only — not the full toolpath body). Reindex to backfill.
+; yes/no — when folder/path left odbiorca empty, match aliases in paren comments
+; on the same line as the program number (O#####) only — not following lines / body.
+; Same token-boundary match as folder names (exact token / within-token fuzzy; not mash-prefix — pat≠pattyn). Reindex to backfill.
 odbiorca_from_header = {yn(data.odbiorca_from_header)}
+; yes/no — match role folder-aliases in O-number-line paren comments; accumulate into the
+; role set after name/path (before O9). Same token-boundary match as machines; exact flags ignored. Reindex after upgrade.
+; Never changes status / machine / odbiorca.
+role_from_header = {yn(data.role_from_header)}
+; yes/no — when machine is still MACHINE UNKNOWN, match machine folder-aliases on
+; the O-number line. Folder map / name alias / tree machine always win.
+machine_from_header = {yn(data.machine_from_header)}
 ; yes/no — auto-add role system_programs when program_number is O9000–O9099
 ; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
 ; old broad O9… tags outside that range. Does not change status / machine / odbiorca.
 o9_system_programs_role = {yn(data.o9_system_programs_role)}
-; yes/no — when yes, function/role colours overshadow green/yellow for the
-; results-row / primary flag colour. Default no: status (backup/extra) always wins.
-role_colours_overshadow_status = {yn(data.role_colours_overshadow_status)}
+; Flag: status disc (green/yellow) plus distinct-colour function discs from
+; roles in folder_colour_aliases.yaml (MANDATORY beside the DB for truthful
+; Flag colours). Prototype can_override_main_state_colour replaces status
+; (single blue). Same-colour doubles never shown. Role column optional
+; (default hidden). Old role_colours_overshadow_status key is ignored.
 ; yes/no — auto-refresh search results when the DB file changes (mtime)
 ; Useful on floor clients sharing a network DB — no need to retype search.
 search_auto_refresh = {yn(data.search_auto_refresh)}
@@ -745,10 +831,12 @@ control = {data.filter_control}
 status = {data.filter_status}
 ; Role catalogue id (prototype / personal / system_programs / fixture / …) or blank = all
 role = {data.filter_role}
-; Programmer flag (LP1 / MS1) or blank = all
-programmer = {data.filter_programmer}
 ; Odbiorca id, __missing__ = no recipient, or blank = all
 odbiorca = {data.filter_odbiorca}
+; yes/no — Work “Only green” / “Tylko zielone”: keep rows whose Flag disc is
+; green (backup/trusted). Hides yellow and overriding function colours
+; (e.g. prototype). Combines with other filters (AND). Default no.
+only_green = {yn(data.filter_only_green)}
 
 [session]
 ; Results sort column id (flag/program/part/machine/date/size/…) or blank
@@ -762,7 +850,8 @@ folders_expanded = {("" if data.folders_expanded is None else yn(bool(data.folde
 pelny_view = {data.pelny_view}
 ; Preview “find in program” last string (optional)
 preview_find = {data.preview_find}
-; Results columns to hide (comma-separated ids: flag,src,program,part,…)
+; Results columns to hide (comma-separated ids: flag,role,src,program,…).
+; Default when key missing: role (Flag discs + tip carry functions). Empty = show all.
 hidden_columns = {",".join(data.hidden_columns)}
 ; Results column widths (id=pixels, comma-separated). Blank = defaults.
 column_widths = {format_column_widths(data.column_widths, list(DEFAULT_COLUMN_WIDTHS))}
@@ -771,17 +860,18 @@ preview_geometry = {data.preview_geometry}
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (auto-loaded; do not delete):
+;   folder_colour_aliases.yaml — MANDATORY for Flag colours (roles + swatches + override)
+;   folder_tree_map.yaml       — Map tree…; also needed for Flag tip path reasons
+;   aliases.local.yaml         — Machines & aliases…
 ;   machine_folders.yaml       — legacy folder→machine map (still read by scanner)
 ;   odbiorcy.yaml              — recipient/customer catalogue + name aliases
-;   aliases.local.yaml         — Machines & aliases…
-;   folder_colour_aliases.yaml — Folder roles… (catalogue + name aliases)
-;   folder_tree_map.yaml       — Map tree… (path machine/tags/exclude)
 ;   extra_scan_roots.yaml      — mirror of green/yellow roots (INI is primary)
 ;   views.yaml                 — named find-bar views / presets (Save current…)
 ;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
-;   ui_settings.yaml           — schedule_last_run mirror (optional)
-;   indexer_settings.yaml      — shop scan/schedule/watch defaults (not can_index)
+;   ui_settings.yaml           — language / ui_mode mirror (optional)
+;   indexer_settings.yaml      — shop scan/watch/coalesce/safety defaults (never can_index)
 ;   scan_history.json          — scan run history
+; Do NOT put can_index in the data pack — each PC opts in via local ini.
 ; Ustawienia wracają po restarcie — everything above + this ini is reloaded on start.
 ; ------------------------------------------------------------
 """

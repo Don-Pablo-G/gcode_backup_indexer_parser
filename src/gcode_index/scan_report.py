@@ -389,7 +389,7 @@ def find_exact_duplicate_groups(
                        line_start, line_end, byte_start, byte_end, source_type,
                        folder_path, control_family, source_size, content_sha256,
                        program_sha256,
-                       provenance, role, scan_root, programmer
+                       provenance, role, scan_root
                 FROM program_instances
                 WHERE {sha_col} = ?
                 ORDER BY backup_date DESC, machine_id, program_number
@@ -574,7 +574,7 @@ def find_near_duplicate_groups(
                machine_folder_raw, date_folder_raw, backup_date, source_path,
                line_start, line_end, byte_start, byte_end, source_type,
                folder_path, control_family, source_size, content_sha256,
-               provenance, role, scan_root, programmer
+               provenance, role, scan_root
     """
     if has_prog:
         sel = sel.replace(

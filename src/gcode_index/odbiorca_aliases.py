@@ -15,7 +15,8 @@ Sidecar next to the database: ``odbiorcy.yaml``::
         odbiorca_id: acme
         exact: true
 
-Tree / Nazwy folderów create **exact** name rules (same safety as machine/role).
+Tree / Nazwy folderów write name rules (``exact`` kept for YAML compat but
+**ignored** at match time — same token-boundary match as roles/machines).
 Path tree map may override with ``odbiorca_id`` on a prefix (like ``machine_id``).
 """
 
@@ -28,7 +29,12 @@ from typing import Any, Iterable, Optional, Sequence
 
 import yaml
 
-from gcode_index.aliases import normalize_folder_name
+from gcode_index.aliases import (
+    MIN_PREFIX_ALIAS_LEN,
+    best_fuzzy_key,
+    match_tier_in_raw,
+    normalize_folder_name,
+)
 
 ODBIORCY_FILENAME = "odbiorcy.yaml"
 
@@ -77,6 +83,7 @@ class OdbiorcaDef:
 class OdbiorcaRule:
     alias: str
     odbiorca_id: str
+    # Legacy YAML field; ignored at match time (token-boundary match, 0.2.105+).
     exact: bool = True
 
     def __post_init__(self) -> None:
@@ -237,8 +244,15 @@ class OdbiorcaAliasMap:
         return cat.alias_map()
 
     def rule_for_name(self, folder_raw: str) -> Optional[OdbiorcaRule]:
+        """Winning alias rule for ``folder_raw`` (exact key, else token fuzzy)."""
         key = normalize_folder_name(folder_raw)
-        return self._by_key.get(key) if key else None
+        if not key:
+            return None
+        exact = self._by_key.get(key)
+        if exact is not None:
+            return exact
+        best = best_fuzzy_key(folder_raw, self._by_key)
+        return self._by_key.get(best) if best else None
 
     def match_segment(self, folder_raw: str) -> Optional[str]:
         rule = self.rule_for_name(folder_raw)
@@ -298,14 +312,17 @@ def parse_odbiorca_display(raw: str) -> tuple[str, str]:
     return normalize_odbiorca_id(s), s
 
 
-# --- Header-window odbiorca match (fill-if-empty at scan) -------------------
+# --- O-number-line header match (fill-if-empty at scan) ---------------------
 
-# Same spirit as other alias mins; short tokens (LP1, OK, …) are skipped.
-MIN_HEADER_ODBIORCA_NEEDLE = 3
-# Align with whole-file .nc O-header scan window.
+# Same floors as folder/machine fuzzy; short tokens (OK, …) skipped as needles.
+MIN_HEADER_ODBIORCA_NEEDLE = MIN_PREFIX_ALIAS_LEN
+# How far to *search* for the program-number line (O#####) after seek/start.
+# Comments are taken from that line only — not a multi-line window.
 HEADER_ODBIORCA_SCAN_LINES = 40
 
 _ALL_PARENS = re.compile(r"\(([^)]*)\)")
+# Same O-word lead-in locators use for program identity.
+_O_NUMBER_LINE = re.compile(r"^O(\d+)", re.IGNORECASE)
 
 
 def extract_header_paren_comments(
@@ -314,15 +331,16 @@ def extract_header_paren_comments(
     byte_start: Optional[int] = None,
     max_lines: int = HEADER_ODBIORCA_SCAN_LINES,
 ) -> list[str]:
-    """Paren comment texts from the header window (not the full body).
+    """Paren comment texts on the program-number (``O#####``) line only.
 
-    For whole-file programs ``byte_start`` is None → first ``max_lines`` lines.
-    For glued dumps, seek to ``byte_start`` and read ``max_lines`` from there.
+    Seeks to ``byte_start`` for glued dumps (or file start), then scans up to
+    ``max_lines`` looking for the first ``O#####…`` line. Returns every
+    ``(…)`` segment on that line. Comments on following lines or deeper in
+    the body are never returned — even if still within ``max_lines``.
     """
     p = Path(path)
     if not p.is_file():
         return []
-    comments: list[str] = []
     try:
         with open(p, "rb") as f:
             if byte_start is not None and byte_start > 0:
@@ -338,13 +356,18 @@ def extract_header_paren_comments(
                     line = raw.decode("ascii", errors="replace").rstrip("\r\n")
                 except Exception:
                     continue
+                stripped = line.lstrip(" \t")
+                if not _O_NUMBER_LINE.match(stripped):
+                    continue
+                comments: list[str] = []
                 for m in _ALL_PARENS.finditer(line):
                     text = (m.group(1) or "").strip()
                     if text:
                         comments.append(text)
+                return comments
     except OSError:
         return []
-    return comments
+    return []
 
 
 def match_odbiorca_in_comments(
@@ -355,8 +378,10 @@ def match_odbiorca_in_comments(
 ) -> Optional[str]:
     """Best single odbiorca_id from alias needles in comment texts.
 
-    Uses ``normalize_folder_name`` on both sides. Exact normalized equality beats
-    substring; longest needle wins. Aliases only (not catalogue labels).
+    Same token-boundary rule as folder names: exact full / exact token or
+    consecutive tokens, then fuzzy within one token (substring ≥4 / prefix
+    ≥3 residual ≤2). Longer / higher-tier needle wins. Aliases only (not
+    catalogue labels). The rule ``exact`` flag is ignored.
     """
     if not comments or odbiorca_map is None or len(odbiorca_map) == 0:
         return None
@@ -375,21 +400,17 @@ def match_odbiorca_in_comments(
         needles.append((key, len(key), oid))
     if not needles:
         return None
-    # Longer first so first exact/substring hit among equal scores is stable
     needles.sort(key=lambda t: (-t[1], t[0]))
 
-    best: Optional[tuple[int, int, str]] = None  # (exact, length, oid)
+    best: Optional[tuple[int, int, str]] = None  # (tier, length, oid)
     for raw in comments:
-        norm = normalize_folder_name(raw)
-        if not norm or len(norm) < min_needle:
+        if not (raw or "").strip():
             continue
         for key, length, oid in needles:
-            if key == norm:
-                cand = (1, length, oid)
-            elif key in norm:
-                cand = (0, length, oid)
-            else:
+            tier = match_tier_in_raw(key, raw)
+            if tier is None:
                 continue
+            cand = (tier, length, oid)
             if best is None or cand > best:
                 best = cand
     return best[2] if best else None
@@ -403,7 +424,7 @@ def match_odbiorca_from_header(
     min_needle: int = MIN_HEADER_ODBIORCA_NEEDLE,
     max_lines: int = HEADER_ODBIORCA_SCAN_LINES,
 ) -> Optional[str]:
-    """Resolve one odbiorca_id from header-window paren comments, or None."""
+    """Resolve one odbiorca_id from O-number-line paren comments, or None."""
     comments = extract_header_paren_comments(
         path, byte_start=byte_start, max_lines=max_lines
     )

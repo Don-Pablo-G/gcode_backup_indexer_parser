@@ -137,6 +137,14 @@ def scan_cmd(
     except Exception:  # noqa: BLE001
         odbiorca_from_header = True
     try:
+        role_from_header = bool(load_instance_ini().role_from_header)
+    except Exception:  # noqa: BLE001
+        role_from_header = True
+    try:
+        machine_from_header = bool(load_instance_ini().machine_from_header)
+    except Exception:  # noqa: BLE001
+        machine_from_header = True
+    try:
         o9_system_programs_role = bool(load_instance_ini().o9_system_programs_role)
     except Exception:  # noqa: BLE001
         o9_system_programs_role = True
@@ -169,6 +177,8 @@ def scan_cmd(
             tree_map=tree_map,
             odbiorca_map=odbiorca_map,
             odbiorca_from_header=odbiorca_from_header,
+            role_from_header=role_from_header,
+            machine_from_header=machine_from_header,
             o9_system_programs_role=o9_system_programs_role,
         )
     else:
@@ -182,6 +192,8 @@ def scan_cmd(
             tree_map=tree_map,
             odbiorca_map=odbiorca_map,
             odbiorca_from_header=odbiorca_from_header,
+            role_from_header=role_from_header,
+            machine_from_header=machine_from_header,
             o9_system_programs_role=o9_system_programs_role,
         )
     db.parent.mkdir(parents=True, exist_ok=True)
@@ -195,6 +207,17 @@ def scan_cmd(
         result=result,
     )
     conn.close()
+    try:
+        from gcode_index.header_token_freq import build_and_save_header_token_freq
+
+        build_and_save_header_token_freq(
+            db.parent,
+            result.instances,
+            run_id=run_id,
+            full_scan=cache is None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Warning: header token cache failed: {exc}", err=True)
     n_cached = sum(1 for fs in result.files_seen if fs.status == "cached")
     typer.echo(
         f"Wrote {len(result.instances)} instances, "
