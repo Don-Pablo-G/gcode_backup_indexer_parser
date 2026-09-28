@@ -18,7 +18,7 @@ Plików kopii zapasowej nigdy nie zmieniasz. Wydobycie zawsze zapisuje do osobne
 
 ## Pierwsze kroki
 
-1. W razie potrzeby ustaw język (**Język** → `pl` lub `en`).
+1. W razie potrzeby ustaw język (**Ustawienia** → **Język** → `pl` lub `en`).
 2. Sprawdź, że na tym PC w `gcode-index.ini` jest `can_index = no` (domyślnie dla kopii halowych).
 3. Kliknij zielony przycisk **Otwórz istniejącą bazę…** i wskaż `gcode_index.sqlite`.
 

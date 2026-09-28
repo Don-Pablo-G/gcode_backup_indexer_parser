@@ -79,6 +79,25 @@ target = /db
     cfg = load_instance_ini(path)
     assert cfg.autostart is False
     assert cfg.autostart_via == VIA_STARTUP
+    assert cfg.close_to_tray is False
+    assert cfg.minimize_to_tray is False
+
+
+def test_desktop_ini_preserves_explicit_yes(tmp_path: Path):
+    """Existing indexer installs that already had tray on keep yes after upgrade."""
+    path = tmp_path / "gcode-index.ini"
+    path.write_text(
+        """
+[desktop]
+autostart = yes
+autostart_via = startup
+close_to_tray = yes
+minimize_to_tray = yes
+""",
+        encoding="utf-8",
+    )
+    cfg = load_instance_ini(path)
+    assert cfg.autostart is True
     assert cfg.close_to_tray is True
     assert cfg.minimize_to_tray is True
 
@@ -95,3 +114,31 @@ def test_desktop_i18n_pl_en():
     assert "Obserwacja" in t("pl", "watch_strip")
     assert "Watch" in t("en", "watch_strip")
     assert "blokada" in t("pl", "watch_strip_lock_us").casefold()
+    assert t("pl", "menu_settings") == "Ustawienia"
+    assert t("en", "menu_settings") == "Settings"
+    assert "Ustawienia" in t("pl", "settings_open")
+    assert "Settings" in t("en", "settings_open")
+
+
+def test_tray_gates_not_tied_to_is_simple():
+    """Close/minimize→tray must work in all modes (no can_index / _is_simple gate)."""
+    from pathlib import Path
+
+    gui_path = Path(__file__).resolve().parents[1] / "src" / "gcode_index" / "gui.py"
+    text = gui_path.read_text(encoding="utf-8")
+
+    def _method_body(name: str) -> str:
+        marker = f"    def {name}("
+        start = text.index(marker)
+        rest = text[start + len(marker) :]
+        # Next top-level method at same indent
+        next_def = rest.find("\n    def ")
+        assert next_def > 0
+        return rest[:next_def]
+
+    close_src = _method_body("_on_close")
+    minimize_src = _method_body("_on_minimize_event")
+    assert "_is_simple" not in close_src
+    assert "_is_simple" not in minimize_src
+    assert "close_to_tray_var" in close_src
+    assert "minimize_to_tray_var" in minimize_src

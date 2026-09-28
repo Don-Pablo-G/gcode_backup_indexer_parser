@@ -112,7 +112,7 @@ Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / ex
 
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
 2. Click green **Run scan** / **Uruchom skan** (right side). Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
-3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch / tray), and **Reports…**.
+3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch), and **Reports…**. Desktop / tray / language live under the main **Settings** menu.
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**). From the report (or **Reports…**), **Unassigned header tokens…** lists frequent O-line comment tokens that still have no machine / function / recipient alias — right-click assign like **Folder names**. Excludes program numbers and tokens with more than 4 digit characters. Cache: `header_token_freq.json` beside the DB; a **full rescan** refreshes the list so taught tokens drop out.
 
 ### Watch folders
@@ -144,13 +144,14 @@ The watch status strip shows which method is active per root (e.g. `D:\CNC=event
 
 ### Autostart and tray (Windows)
 
-On the third toolbar row (Windows builds):
+Under the main menubar **Settings** / **Ustawienia** (all modes — floor and indexer):
 
-- **Start at Windows logon** — installs or removes either a Startup-folder shortcut or a Task Scheduler “at logon” entry (choose **Method**). Preference is saved in `gcode-index.ini` under `[desktop]`.
-- **Close to tray** — the window **X** hides to the system tray instead of quitting. Double-click the tray icon (or **Restore**) brings the window back; **Quit** on the tray menu exits for real.
-- **Minimize to tray** — iconify also hides to the tray.
+- **Start at Windows logon** — installs or removes either a Startup-folder shortcut or a Task Scheduler “at logon” entry (choose **Method**). Preference is saved in `gcode-index.ini` under `[desktop]`. Default **off** for new installs.
+- **Close to tray** — the window **X** hides to the system tray instead of quitting. Double-click the tray icon (or **Restore**) brings the window back; **Quit** on the tray menu exits for real. Default **off**.
+- **Minimize to tray** — iconify also hides to the tray. Default **off**.
+- **Language** — `pl` / `en` (moved here from the top chrome; same `[ui] language` key).
 
-Turn **Close to tray** off if you want **X** to quit. Floor clients always quit on close and have no tray/autostart controls.
+Turn **Close to tray** off if you want **X** to quit. Existing ini values are preserved on upgrade; only unset keys use the new off defaults.
 
 The GUI is **single-instance**: launching again (including while it sits in the tray) restores the existing window instead of starting a second process.
 
