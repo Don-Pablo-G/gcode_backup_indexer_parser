@@ -18,7 +18,7 @@ You never change the backup files. Extract always writes to a separate folder.
 
 ## First steps
 
-1. Set language if needed (**Język / Language** → `pl` or `en`).
+1. Set language if needed (**Settings** / **Ustawienia** → **Language** → `pl` or `en`).
 2. Confirm this PC’s `gcode-index.ini` has `can_index = no` (default for shop copies).
 3. Click the green **Open existing DB…** / **Otwórz istniejącą bazę…** and pick `gcode_index.sqlite`.
 

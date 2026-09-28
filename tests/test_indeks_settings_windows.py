@@ -132,3 +132,120 @@ def test_indeks_settings_windows_open(tmp_path: Path, monkeypatch):
                 pass
     finally:
         app.destroy()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DISPLAY") and os.name != "nt",
+    reason="No DISPLAY for Tk on this Linux host",
+)
+def test_main_settings_window_open_and_scan_watch_has_no_desktop(tmp_path: Path, monkeypatch):
+    """Settings holds tray/language; Scan & watch must not show Desktop group."""
+    from tests.tk_util import require_working_tk
+
+    require_working_tk()
+    ini = tmp_path / "gcode-index.ini"
+    save_instance_ini(
+        ini,
+        can_index=True,
+        backup=str(tmp_path / "backup"),
+        target=str(tmp_path / "db"),
+    )
+    monkeypatch.setenv("GCODE_INDEX_INI", str(ini))
+    from gcode_index.gui import IndexerApp
+    import tkinter as tk
+
+    app = IndexerApp()
+    try:
+        if app._is_simple():
+            app._can_index = True
+            app._rebuild(app._snapshot_ui())
+
+        app._open_settings_window()
+        app.update()
+        settings_labels: list[str] = []
+
+        def walk_labels(w, out: list[str]) -> None:
+            for child in w.winfo_children():
+                try:
+                    text = str(child.cget("text"))
+                except tk.TclError:
+                    text = ""
+                if text:
+                    out.append(text)
+                walk_labels(child, out)
+
+        settings_win = None
+        for w in app.winfo_children():
+            try:
+                if w.winfo_class() == "Toplevel" and str(w.title()) == app._(
+                    "settings_title"
+                ):
+                    settings_win = w
+                    break
+            except tk.TclError:
+                pass
+        assert settings_win is not None
+        walk_labels(settings_win, settings_labels)
+        assert app._("language") in settings_labels
+        assert app._("indeks_win_desktop") in settings_labels
+        settings_win.destroy()
+
+        app._show_pelny_view("indeks", force=True)
+        app._open_indeks_scan_watch_window()
+        app.update()
+        scan_labels: list[str] = []
+        for w in app.winfo_children():
+            try:
+                if w.winfo_class() == "Toplevel" and str(w.title()) == app._(
+                    "indeks_win_scan_watch_title"
+                ):
+                    walk_labels(w, scan_labels)
+            except tk.TclError:
+                pass
+        assert app._("indeks_win_scan_options") in scan_labels
+        assert app._("indeks_win_desktop") not in scan_labels
+        assert app._("close_to_tray") not in scan_labels
+    finally:
+        for w in list(app.winfo_children()):
+            try:
+                if w.winfo_class() == "Toplevel":
+                    w.destroy()
+            except Exception:
+                pass
+        app.destroy()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DISPLAY") and os.name != "nt",
+    reason="No DISPLAY for Tk on this Linux host",
+)
+def test_floor_settings_window_opens(tmp_path: Path, monkeypatch):
+    """Floor clients (can_index=no) also get the Settings menu window."""
+    from tests.tk_util import require_working_tk
+
+    require_working_tk()
+    ini = tmp_path / "gcode-index.ini"
+    save_instance_ini(
+        ini,
+        can_index=False,
+        backup=str(tmp_path / "backup"),
+        target=str(tmp_path / "db"),
+    )
+    monkeypatch.setenv("GCODE_INDEX_INI", str(ini))
+    from gcode_index.gui import IndexerApp
+
+    app = IndexerApp()
+    try:
+        assert app._is_simple()
+        app._open_settings_window()
+        app.update()
+        titles = []
+        for w in app.winfo_children():
+            try:
+                if w.winfo_class() == "Toplevel":
+                    titles.append(str(w.title()))
+            except Exception:
+                pass
+        assert app._("settings_title") in titles
+    finally:
+        app.destroy()

@@ -90,8 +90,9 @@ class InstanceConfig:
     path_remaps: list[PathRemap] = field(default_factory=list)
     autostart: bool = False
     autostart_via: str = VIA_STARTUP
-    close_to_tray: bool = True
-    minimize_to_tray: bool = True
+    # New installs / unset keys default off; existing ini yes/no values are preserved.
+    close_to_tray: bool = False
+    minimize_to_tray: bool = False
     # --- [filters] last find-bar state (restored on restart) ---
     filter_text: str = ""
     filter_machines: list[str] = field(default_factory=list)
@@ -420,10 +421,10 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             parser.get("desktop", "autostart_via", fallback=VIA_STARTUP)
         )
         cfg.close_to_tray = _truthy(
-            parser.get("desktop", "close_to_tray", fallback="yes"), default=True
+            parser.get("desktop", "close_to_tray", fallback="no"), default=False
         )
         cfg.minimize_to_tray = _truthy(
-            parser.get("desktop", "minimize_to_tray", fallback="yes"), default=True
+            parser.get("desktop", "minimize_to_tray", fallback="no"), default=False
         )
 
     if parser.has_section("filters"):
@@ -802,13 +803,13 @@ to_prefix = {(data.path_remaps[0].to_prefix if data.path_remaps else "")}
 rules ={format_remap_rules_block(data.path_remaps)}
 
 [desktop]
-; Windows logon autostart (indexer helper). yes/no
+; Windows logon autostart (all modes). yes/no — default off for new installs
 autostart = {yn(data.autostart)}
 ; startup = Startup folder shortcut | task = Task Scheduler ONLOGON
 autostart_via = {data.autostart_via}
-; Window X closes to tray (yes) or quits (no) — indexer / tray builds
+; Window X closes to tray (yes) or quits (no) — default off; floor + indexer
 close_to_tray = {yn(data.close_to_tray)}
-; Minimize / iconify also hides to tray
+; Minimize / iconify also hides to tray — default off
 minimize_to_tray = {yn(data.minimize_to_tray)}
 
 [filters]
