@@ -30,7 +30,7 @@ Układ indeksatora ma dwa główne segmenty nawigacji (duży pasek u góry):
 
 Klient hali (`can_index=no`) zostaje na jednej powierzchni wyszukiwania — bez zakładek Praca/Indeks.
 
-W panelu podglądu użyj **W podglądzie**, żeby znaleźć tekst w treści G-code (następny/poprzedni + podświetlenie).
+W oknie podglądu użyj **W podglądzie**, żeby znaleźć tekst w treści G-code (następny/poprzedni + podświetlenie). Przycisk **Wydobądź do…** w wierszu akcji podglądu zapisuje oglądany program do wybranego folderu (te same zasady co menu kontekstowe wyników).
 
 ---
 

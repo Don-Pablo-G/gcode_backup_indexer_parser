@@ -52,7 +52,7 @@ If the source file is **missing on disk** (column **Source = MISSING**) or chang
 
 ## Find in preview
 
-Select a result row to load G-code in the right-hand **Preview**. Use **In preview** above the text to search inside the body — **▲** / **▼** (or Enter / Shift+Enter) move between matches; hits are highlighted.
+Select a result row and open **Preview…**. Use **In preview** above the text to search inside the body — **▲** / **▼** (or Enter / Shift+Enter) move between matches; hits are highlighted. **Extract to…** on the preview action row writes the viewed program to a folder you choose (same as right-click on results).
 
 ---
 

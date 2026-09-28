@@ -52,7 +52,7 @@ Jeśli plik źródłowy **nie istnieje** na dysku (kolumna **Źródło = BRAK**)
 
 ## Szukanie w podglądzie
 
-Zaznacz wiersz wyniku, żeby załadować G-code w **Podglądzie** po prawej. Pole **W podglądzie** nad tekstem szuka w treści — **▲** / **▼** (lub Enter / Shift+Enter) przechodzą między trafieniami; wyniki są podświetlone.
+Zaznacz wiersz wyniku i otwórz **Podgląd…**. Pole **W podglądzie** nad tekstem szuka w treści — **▲** / **▼** (lub Enter / Shift+Enter) przechodzą między trafieniami; wyniki są podświetlone. **Wydobądź do…** w wierszu akcji podglądu zapisuje oglądany program do wybranego folderu (jak prawy przycisk na wynikach).
 
 ---
 

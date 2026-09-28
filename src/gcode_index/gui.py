@@ -3545,6 +3545,11 @@ class IndexerApp(tk.Tk):
         ttk.Button(foot, text=self._("close"), command=self._close_preview_popup).pack(
             side=tk.RIGHT
         )
+        ttk.Button(
+            foot,
+            text=self._("ctx_extract_to"),
+            command=self._extract_to_folder,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
 
         def _on_configure(_event=None) -> None:
             try:

@@ -30,7 +30,7 @@ Indexer layout uses two primary navigation segments (large bar at the top):
 
 Floor clients (`can_index=no`) stay on a single retrieve surface — no Praca/Indeks tabs.
 
-In the preview pane, use **In preview** to find text in the G-code body (next/prev + highlight).
+In the preview window, use **In preview** to find text in the G-code body (next/prev + highlight). Use **Extract to…** on the preview action row to write the viewed program to a chosen folder (same rules as the results context menu).
 
 ---
 
