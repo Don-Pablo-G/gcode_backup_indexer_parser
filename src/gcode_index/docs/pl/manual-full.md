@@ -100,6 +100,8 @@ Osobne filtry **Status** i **Rola** (filtr roli łapie dowolny tag). Duplikaty o
 
 Dopasowanie nagłówka (to samo dla odbiorcy / roli / maszyny): komentarze w nawiasach **tylko w tej samej linii co numer programu** (`O#####`) — nie stare wieloliniowe okno nagłówka, nie kolejne linie, nie ciało programu. Sklejone zrzuty: seek do `byte_start`, potem linia O. Tylko aliasy (nie etykiety katalogu); min. długość igły 3. **Reguła:** granice tokenów (dokładne pełne / token lub kolejne tokeny, potem fuzzy tylko w jednym tokenie — podciąg ≥4 / prefiks ≥3 z krótkim residuum; VF2≈VF2S, nie pat→pattyn). **Po aktualizacji zrób reindeks.** **Maszyna z nagłówka** uzupełnia tylko gdy wiersz jest nadal **MACHINE UNKNOWN** — mapa folderów / alias nazwy / maszyna z drzewa zawsze wygrywają. Status 🟢/🟡 nigdy nie pochodzi z nagłówka.
 
+**Głębokość skanu nagłówka (linie)** w **Skan i obserwacja → Opcje skanu** poszerza tylko listę **nieprzypisanych tokenów nagłówka** (domyślnie **1** = linia O; stop przed następnym `%`). **Nie** zmienia auto-dopasowania odbiorcy / ról / maszyny. Klucz: `[scan] header_scan_depth` w `gcode-index.ini` (1–20; brak → 1). Tylko ini indeksatora — nie pack yaml.
+
 ---
 
 ## Indeksuj / skanuj
@@ -109,7 +111,7 @@ Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
 2. Zielony **Uruchom skan** (po prawej).
 3. Głębsze ustawienia: **Mapowanie…** (w tym mapowanie ścieżek), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja), **Raporty…**. Pulpit / zasobnik / język — w menu **Ustawienia**.
-4. Pasek postępu + **Raport skanu** po zakończeniu. Z raportu (lub **Raporty…**): **Nieprzypisane tokeny nagłówka…** — częste tokeny z komentarzy na linii O bez aliasu maszyny / funkcji / odbiorcy; prawy klik jak w **Nazwy folderów**. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi. Cache: `header_token_freq.json` obok bazy; **pełny skan** odświeża listę (nauczone znikają).
+4. Pasek postępu + **Raport skanu** po zakończeniu. Z raportu (lub **Raporty…**): **Nieprzypisane tokeny nagłówka…** — częste tokeny z komentarzy w oknie od linii O (głębokość w **Opcjach skanu**, domyślnie **1** = tylko linia O; stop przed następnym `%`) bez aliasu maszyny / funkcji / odbiorcy; prawy klik jak w **Nazwy folderów**. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi. Cache: `header_token_freq.json` obok bazy; **pełny skan** odświeża listę (nauczone znikają). Auto-dopasowanie odbiorcy / ról / maszyny zostaje na linii O.
 
 ### Obserwacja folderów
 

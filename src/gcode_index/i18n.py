@@ -188,6 +188,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "odbiorca_from_header": "Odbiorca z nagłówka",
         "role_from_header": "Role z nagłówka",
         "machine_from_header": "Maszyna z nagłówka",
+        "header_scan_depth": "Głębokość skanu nagłówka (linie)",
+        "header_scan_depth_hint": (
+            "Tylko lista nieprzypisanych tokenów (nauczanie): linie od O##### "
+            "(1 = tylko linia numeru programu). Zatrzymuje się przed następnym %. "
+            "Auto-dopasowanie odbiorcy / ról / maszyny zostaje na linii O. "
+            "Zapis: [scan] header_scan_depth w gcode-index.ini (1–20)."
+        ),
         "o9_system_programs_role": "O9000–O9099 → programy systemowe",
         "scan_note_odbiorca": "; odbiorca folder={folder} ścieżka={path} nagłówek={header}",
         "scan_note_role_header": "; role nagłówek={n}",
@@ -589,7 +596,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "scan_report_none": 'Brak ukończonego skanu w tej bazie.',
         "header_tokens_button": "Nieprzypisane tokeny nagłówka…",
         "header_tokens_dialog_title": "Nieprzypisane tokeny nagłówka",
-        "header_tokens_intro": "Tokeny z komentarzy nawiasowych na linii O##### (po skanie). Tylko bez aliasu maszyny / funkcji / odbiorcy. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi (nr części). Prawy klik jak w Nazwy folderów — ten sam zapis sidecars. Pełny reskan odświeża listę (nauczone znikają). Cache: header_token_freq.json obok bazy.",
+        "header_tokens_intro": "Tokeny z komentarzy nawiasowych od linii O##### (po skanie; głębokość w Opcjach skanu, domyślnie 1 = tylko linia O; stop przed %). Tylko bez aliasu maszyny / funkcji / odbiorcy. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi (nr części). Prawy klik jak w Nazwy folderów — ten sam zapis sidecars. Pełny reskan odświeża listę (nauczone znikają). Cache: header_token_freq.json obok bazy.",
         "header_tokens_need_target": "Wybierz folder docelowy indeksu (tam jest baza i cache tokenów).",
         "header_tokens_need_scan": "Brak listy tokenów — uruchom skan (pełny zalecany). Plik {filename} powstaje na końcu skanu obok bazy.",
         "header_tokens_empty": "Brak nieprzypisanych tokenów nagłówka (wszystkie mają alias albo lista jest pusta po wykluczeniach).",
@@ -877,6 +884,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "odbiorca_from_header": "Odbiorca from header",
         "role_from_header": "Roles from header",
         "machine_from_header": "Machine from header",
+        "header_scan_depth": "Header scan depth (lines)",
+        "header_scan_depth_hint": (
+            "Unassigned-token teach list only: lines from O##### "
+            "(1 = program-number line only). Stops before the next %. "
+            "Odbiorca / roles / machine auto-match stay on the O-line. "
+            "Saved as [scan] header_scan_depth in gcode-index.ini (1–20)."
+        ),
         "o9_system_programs_role": "O9000–O9099 → system programs",
         "scan_note_odbiorca": "; odbiorca folder={folder} path={path} header={header}",
         "scan_note_role_header": "; role header={n}",
@@ -1278,7 +1292,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "scan_report_none": 'No completed scan found in this database.',
         "header_tokens_button": "Unassigned header tokens…",
         "header_tokens_dialog_title": "Unassigned header tokens",
-        "header_tokens_intro": "Tokens from paren comments on the O##### line (after scan). Only those with no machine / function / recipient alias. Exclusions: program number and tokens with more than 4 digit characters (part-number filter). Right-click like Folder names — same sidecar writes. A full rescan refreshes the list (taught tokens drop out). Cache: header_token_freq.json beside the DB.",
+        "header_tokens_intro": "Tokens from paren comments starting at the O##### line (after scan; depth in Scan options, default 1 = O-line only; stop before %). Only those with no machine / function / recipient alias. Exclusions: program number and tokens with more than 4 digit characters (part-number filter). Right-click like Folder names — same sidecar writes. A full rescan refreshes the list (taught tokens drop out). Cache: header_token_freq.json beside the DB.",
         "header_tokens_need_target": "Choose the index target folder (database and token cache live there).",
         "header_tokens_need_scan": "No token list yet — run a scan (full recommended). {filename} is written at the end of scan beside the DB.",
         "header_tokens_empty": "No unassigned header tokens (all have an alias, or the list is empty after exclusions).",

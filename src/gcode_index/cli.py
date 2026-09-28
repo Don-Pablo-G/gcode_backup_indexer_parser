@@ -209,12 +209,16 @@ def scan_cmd(
     conn.close()
     try:
         from gcode_index.header_token_freq import build_and_save_header_token_freq
+        from gcode_index.instance_ini import load_instance_ini
+        from gcode_index.odbiorca_aliases import clamp_header_scan_depth
 
+        depth = clamp_header_scan_depth(load_instance_ini().header_scan_depth)
         build_and_save_header_token_freq(
             db.parent,
             result.instances,
             run_id=run_id,
             full_scan=cache is None,
+            depth=depth,
         )
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Warning: header token cache failed: {exc}", err=True)

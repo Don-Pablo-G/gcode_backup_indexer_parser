@@ -131,10 +131,14 @@ from gcode_index.folder_colour_aliases import (
     save_colour_catalog,
 )
 from gcode_index.odbiorca_aliases import (
+    DEFAULT_HEADER_SCAN_DEPTH,
+    MAX_HEADER_SCAN_DEPTH,
+    MIN_HEADER_SCAN_DEPTH,
     ODBIORCY_FILENAME,
     OdbiorcaAliasMap,
     OdbiorcaCatalog,
     OdbiorcaDef,
+    clamp_header_scan_depth,
     display_for_odbiorca,
     load_odbiorca_catalog,
     normalize_odbiorca_id,
@@ -367,6 +371,9 @@ class IndexerApp(tk.Tk):
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
         self.role_from_header_var = tk.BooleanVar(value=True)
         self.machine_from_header_var = tk.BooleanVar(value=True)
+        self.header_scan_depth_var = tk.StringVar(
+            value=str(DEFAULT_HEADER_SCAN_DEPTH)
+        )
         self.o9_system_programs_role_var = tk.BooleanVar(value=True)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
@@ -553,6 +560,9 @@ class IndexerApp(tk.Tk):
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
         self.role_from_header_var.set(bool(cfg.role_from_header))
         self.machine_from_header_var.set(bool(cfg.machine_from_header))
+        self.header_scan_depth_var.set(
+            str(clamp_header_scan_depth(cfg.header_scan_depth))
+        )
         self.o9_system_programs_role_var.set(bool(cfg.o9_system_programs_role))
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
@@ -772,6 +782,9 @@ class IndexerApp(tk.Tk):
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
             role_from_header=bool(self.role_from_header_var.get()),
             machine_from_header=bool(self.machine_from_header_var.get()),
+            header_scan_depth=clamp_header_scan_depth(
+                self.header_scan_depth_var.get()
+            ),
             o9_system_programs_role=bool(self.o9_system_programs_role_var.get()),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
@@ -1180,6 +1193,18 @@ class IndexerApp(tk.Tk):
         self._save_instance_ini()
         self._persist_indexer_settings()
 
+    def _on_header_scan_depth_changed(self, *_args) -> None:
+        """Clamp teach-list depth and persist ini only (not pack yaml)."""
+        if self._filter_trace_lock:
+            return
+        if getattr(self, "_applying_indexer_settings", False):
+            return
+        depth = clamp_header_scan_depth(self.header_scan_depth_var.get())
+        current = str(self.header_scan_depth_var.get()).strip()
+        if current != str(depth):
+            self.header_scan_depth_var.set(str(depth))
+        self._save_instance_ini()
+
     def _on_window_configure(self, event=None) -> None:
         # Only top-level geometry changes
         if event is not None and event.widget is not self:
@@ -1519,6 +1544,9 @@ class IndexerApp(tk.Tk):
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
             "role_from_header": bool(self.role_from_header_var.get()),
             "machine_from_header": bool(self.machine_from_header_var.get()),
+            "header_scan_depth": clamp_header_scan_depth(
+                self.header_scan_depth_var.get()
+            ),
             "o9_system_programs_role": bool(self.o9_system_programs_role_var.get()),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
@@ -1795,6 +1823,14 @@ class IndexerApp(tk.Tk):
                 if "machine_from_header" in preserved:
                     self.machine_from_header_var.set(
                         bool(preserved.get("machine_from_header"))
+                    )
+                if "header_scan_depth" in preserved:
+                    self.header_scan_depth_var.set(
+                        str(
+                            clamp_header_scan_depth(
+                                preserved.get("header_scan_depth")
+                            )
+                        )
                     )
                 if "o9_system_programs_role" in preserved:
                     self.o9_system_programs_role_var.set(
@@ -2806,6 +2842,26 @@ class IndexerApp(tk.Tk):
             variable=self.o9_system_programs_role_var,
             command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
+        depth_row = ttk.Frame(opts)
+        depth_row.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
+        ttk.Label(depth_row, text=self._("header_scan_depth")).pack(side=tk.LEFT)
+        depth_spin = ttk.Spinbox(
+            depth_row,
+            from_=MIN_HEADER_SCAN_DEPTH,
+            to=MAX_HEADER_SCAN_DEPTH,
+            textvariable=self.header_scan_depth_var,
+            width=4,
+            command=self._on_header_scan_depth_changed,
+        )
+        depth_spin.pack(side=tk.LEFT, padx=(6, 0))
+        depth_spin.bind("<FocusOut>", self._on_header_scan_depth_changed)
+        depth_spin.bind("<Return>", self._on_header_scan_depth_changed)
+        ttk.Label(
+            opts,
+            text=self._("header_scan_depth_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        ).pack(anchor=tk.W, pady=(2, 0))
 
         def _on_close() -> None:
             self._refresh_indeks_status_line()
@@ -5180,13 +5236,16 @@ class IndexerApp(tk.Tk):
                 append_scan_history(target, entry)
             except Exception:  # noqa: BLE001
                 log.exception("append scan history failed")
-            # Header-token teach list cache (O-line tokens; full rebuild each scan).
+            # Header-token teach list cache (depth from Scan options; full rebuild each scan).
             try:
                 build_and_save_header_token_freq(
                     target,
                     result.instances,
                     run_id=run_id,
                     full_scan=cache is None,
+                    depth=clamp_header_scan_depth(
+                        self.header_scan_depth_var.get()
+                    ),
                 )
             except Exception:  # noqa: BLE001
                 log.exception("build header token frequency cache failed")

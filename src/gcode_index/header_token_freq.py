@@ -1,8 +1,10 @@
-"""Unassigned O-line header token frequencies (scan-report teach list).
+"""Unassigned header token frequencies (scan-report teach list).
 
-Collects tokens from O-number-line ``(…)`` comments (same extractor as header
-match), applies teaching exclusions, caches beside the DB, and filters to
-tokens with no machine / role / odbiorca alias yet.
+Collects tokens from paren ``(…)`` comments starting at the O-number line,
+optionally spanning ``header_scan_depth`` lines (stop at leading ``%``).
+Auto-match (role / machine / odbiorca) stays O-line only elsewhere.
+Applies teaching exclusions, caches beside the DB, and filters to tokens with
+no machine / role / odbiorca alias yet.
 """
 
 from __future__ import annotations
@@ -23,8 +25,10 @@ from gcode_index.db import program_digit_core
 from gcode_index.folder_colour_aliases import FolderColourAliasMap, FolderNameFreq
 from gcode_index.models import ProgramInstance
 from gcode_index.odbiorca_aliases import (
+    DEFAULT_HEADER_SCAN_DEPTH,
     OdbiorcaAliasMap,
-    extract_header_paren_comments,
+    clamp_header_scan_depth,
+    extract_header_paren_comments_for_teach,
 )
 
 HEADER_TOKEN_FREQ_FILENAME = "header_token_freq.json"
@@ -118,19 +122,24 @@ def instance_source_file(inst: ProgramInstance) -> Optional[Path]:
 
 def collect_header_token_frequencies(
     instances: Sequence[ProgramInstance],
+    *,
+    depth: int = DEFAULT_HEADER_SCAN_DEPTH,
 ) -> list[FolderNameFreq]:
-    """Aggregate O-line header tokens across indexed instances (exclusions applied).
+    """Aggregate header tokens across indexed instances (exclusions applied).
 
-    Counts **once per instance** per distinct token key. Sort: high count first.
+    ``depth`` is lines counting the O-line (default 1 = O-line only); stops
+    before the next leading ``%``. Counts **once per instance** per distinct
+    token key. Sort: high count first.
     """
+    depth_n = clamp_header_scan_depth(depth)
     # key → spelling → count (instance hits)
     groups: dict[str, dict[str, int]] = {}
     for inst in instances:
         path = instance_source_file(inst)
         if path is None or not path.is_file():
             continue
-        comments = extract_header_paren_comments(
-            path, byte_start=inst.byte_start
+        comments = extract_header_paren_comments_for_teach(
+            path, byte_start=inst.byte_start, depth=depth_n
         )
         if not comments:
             continue
@@ -291,9 +300,10 @@ def build_and_save_header_token_freq(
     *,
     run_id: Optional[str] = None,
     full_scan: bool = True,
+    depth: int = DEFAULT_HEADER_SCAN_DEPTH,
 ) -> list[FolderNameFreq]:
     """Collect from instances and write ``header_token_freq.json`` beside the DB."""
-    entries = collect_header_token_frequencies(instances)
+    entries = collect_header_token_frequencies(instances, depth=depth)
     save_header_token_freq(
         header_token_freq_path_for_target(target),
         entries,
@@ -309,6 +319,7 @@ def load_or_rebuild_header_token_freq(
     *,
     run_id: Optional[str] = None,
     force: bool = False,
+    depth: int = DEFAULT_HEADER_SCAN_DEPTH,
 ) -> list[FolderNameFreq]:
     """Prefer cache; rebuild from ``instances`` when missing or ``force``."""
     path = header_token_freq_path_for_target(target)
@@ -321,4 +332,5 @@ def load_or_rebuild_header_token_freq(
         list(instances),
         run_id=run_id,
         full_scan=True,
+        depth=depth,
     )

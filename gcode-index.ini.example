@@ -102,6 +102,11 @@ role_from_header = yes
 ; yes/no — fill MACHINE UNKNOWN from machine folder-aliases on the O-number line
 ; Folder map / name alias / tree machine always win over header.
 machine_from_header = yes
+; Integer 1–20 — teach-list only: lines from O##### (counting the O-line) for
+; unassigned header-token collection. Default 1 = O-line only. Stops before
+; the next leading %. Does NOT widen odbiorca / role / machine auto-match
+; (those stay O-line only). Missing / invalid → 1. Indexer ini only (not pack).
+header_scan_depth = 1
 ; yes/no — auto-add role system_programs for program numbers O9000–O9099 (accumulate)
 ; Reindex to backfill / drop old broad O9… tags outside that range
 o9_system_programs_role = yes

@@ -28,6 +28,10 @@ from gcode_index.column_layout import (
 )
 from gcode_index.autostart_win import VIA_STARTUP, normalize_autostart_via
 from gcode_index.folder_watch import DEFAULT_WATCH_MODE, normalize_watch_mode
+from gcode_index.odbiorca_aliases import (
+    DEFAULT_HEADER_SCAN_DEPTH,
+    clamp_header_scan_depth,
+)
 from gcode_index.operator_lock import (
     is_settings_locked,
     settings_locked_from_ini_value,
@@ -83,6 +87,10 @@ class InstanceConfig:
     role_from_header: bool = True
     # Match machine folder-aliases in header when still MACHINE UNKNOWN
     machine_from_header: bool = True
+    # Teach-list only: how many lines from O##### (incl. O-line) to collect
+    # paren comments for unassigned header tokens. Auto-match stays O-line only.
+    # Missing / invalid → 1; clamped to 1–20. Not stored in pack yaml.
+    header_scan_depth: int = 1
     # Auto-tag O9000–O9099 program numbers with role system_programs
     o9_system_programs_role: bool = True
     search_auto_refresh: bool = False  # re-query when DB mtime changes
@@ -333,6 +341,14 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         )
         cfg.machine_from_header = _truthy(
             parser.get("scan", "machine_from_header", fallback="yes"), default=True
+        )
+        # Missing / invalid → 1 (O-line only for teach list).
+        cfg.header_scan_depth = clamp_header_scan_depth(
+            parser.get(
+                "scan",
+                "header_scan_depth",
+                fallback=str(DEFAULT_HEADER_SCAN_DEPTH),
+            )
         )
         cfg.o9_system_programs_role = _truthy(
             parser.get("scan", "o9_system_programs_role", fallback="yes"), default=True
@@ -606,6 +622,9 @@ def save_instance_ini(
         machine_from_header=bool(
             kwargs.get("machine_from_header", base.machine_from_header)
         ),
+        header_scan_depth=clamp_header_scan_depth(
+            kwargs.get("header_scan_depth", base.header_scan_depth)
+        ),
         o9_system_programs_role=bool(
             kwargs.get("o9_system_programs_role", base.o9_system_programs_role)
         ),
@@ -782,6 +801,12 @@ role_from_header = {yn(data.role_from_header)}
 ; yes/no — when machine is still MACHINE UNKNOWN, match machine folder-aliases on
 ; the O-number line. Folder map / name alias / tree machine always win.
 machine_from_header = {yn(data.machine_from_header)}
+; Integer 1–20 — teach-list only: how many lines from the O##### line (counting
+; the O-line) to collect paren (… ) comments for unassigned header tokens.
+; Default 1 = O-line only. Stops before the next leading %. Auto-match
+; (odbiorca / roles / machine) always stays O-line only — this key does not
+; widen them. Missing / invalid → 1. Indexer ini only (not pack yaml).
+header_scan_depth = {clamp_header_scan_depth(data.header_scan_depth)}
 ; yes/no — auto-add role system_programs when program_number is O9000–O9099
 ; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
 ; old broad O9… tags outside that range. Does not change status / machine / odbiorca.
