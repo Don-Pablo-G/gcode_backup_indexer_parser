@@ -27,8 +27,38 @@ def tray_available() -> bool:
 
 
 def _make_icon_image():
-    """Simple green mark icon so we do not need a packaged .ico."""
-    from PIL import Image, ImageDraw
+    """Packaged product mark for the tray (16/32 PNG), with procedural fallback."""
+    from PIL import Image
+
+    from gcode_index.app_icon import resolve_app_ico, resolve_best_png
+
+    png = resolve_best_png(32, 16, 64)
+    if png is not None:
+        try:
+            return Image.open(png).convert("RGBA")
+        except OSError:
+            pass
+
+    ico = resolve_app_ico()
+    if ico is not None:
+        try:
+            im = Image.open(ico)
+            # Prefer an embedded 32×32 (or nearest) for tray sharpness.
+            try:
+                sizes = sorted(im.ico.sizes())  # type: ignore[attr-defined]
+                prefer = (32, 32)
+                target = prefer if prefer in sizes else min(
+                    sizes, key=lambda s: abs(s[0] - 32)
+                )
+                im = im.ico.getimage(target)  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001
+                pass
+            return im.convert("RGBA")
+        except OSError:
+            pass
+
+    # Last resort: simple green disc (no packaged asset available).
+    from PIL import ImageDraw
 
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))

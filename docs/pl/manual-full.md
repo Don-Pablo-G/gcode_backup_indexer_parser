@@ -142,6 +142,7 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 
 - **Autostart przy logowaniu** (skrót albo Harmonogram zadań) — `[desktop]` w ini.
 - **Zamknij do zasobnika** / **Minimalizuj do zasobnika**.
+- Pasek tytułu, zasobnik systemowy i plik `.exe` używają tej samej ikony produktu (dołączonej do buildu).
 - GUI jest **jednoinstancyjne** (w tym z zasobnika).
 
 ---

@@ -150,6 +150,8 @@ On the third toolbar row (Windows builds):
 - **Close to tray** — the window **X** hides to the system tray instead of quitting. Double-click the tray icon (or **Restore**) brings the window back; **Quit** on the tray menu exits for real.
 - **Minimize to tray** — iconify also hides to the tray.
 
+The window title bar, system tray, and Windows `.exe` share the same product icon (packaged with the build).
+
 Turn **Close to tray** off if you want **X** to quit. Floor clients always quit on close and have no tray/autostart controls.
 
 The GUI is **single-instance**: launching again (including while it sits in the tray) restores the existing window instead of starting a second process.

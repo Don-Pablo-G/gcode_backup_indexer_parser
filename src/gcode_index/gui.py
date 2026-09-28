@@ -244,6 +244,7 @@ from gcode_index.autostart_win import (
     normalize_autostart_via,
     sync_autostart,
 )
+from gcode_index.app_icon import apply_tk_window_icon, resolve_best_png
 from gcode_index.tray_ui import TrayController, tray_available
 from gcode_index.indexer_lock import (
     read_lock,
@@ -337,6 +338,7 @@ class IndexerApp(tk.Tk):
         self.title(window_title("G-code Backup Indexer"))
         self.minsize(1040, 700)
         self.geometry("1320x820")
+        apply_tk_window_icon(self)
 
         self.backup_var = tk.StringVar()
         self.target_var = tk.StringVar()
@@ -3747,10 +3749,45 @@ class IndexerApp(tk.Tk):
             messagebox.showerror(self._("menu_help"), str(exc))
 
     def _show_about(self) -> None:
-        messagebox.showinfo(
-            self._("about_title"),
-            self._("about_body", version=format_version_build()),
+        body = self._("about_body", version=format_version_build())
+        png = resolve_best_png(128, 64, 256, 32)
+        if png is None:
+            messagebox.showinfo(self._("about_title"), body)
+            return
+        dlg = tk.Toplevel(self)
+        dlg.title(self._("about_title"))
+        dlg.transient(self)
+        dlg.resizable(False, False)
+        apply_tk_window_icon(dlg)
+        frame = ttk.Frame(dlg, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+        photo = None
+        try:
+            from PIL import Image, ImageTk
+
+            im = Image.open(png).convert("RGBA")
+            if max(im.size) > 128:
+                im = im.resize((128, 128), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(im, master=dlg)
+        except Exception:  # noqa: BLE001
+            try:
+                photo = tk.PhotoImage(file=str(png), master=dlg)
+            except tk.TclError:
+                photo = None
+        if photo is not None:
+            dlg._about_icon_photo = photo  # type: ignore[attr-defined]
+            ttk.Label(frame, image=photo).pack(pady=(0, 12))
+        ttk.Label(frame, text=body, justify=tk.LEFT).pack(anchor=tk.W)
+        ttk.Button(frame, text=self._("close"), command=dlg.destroy).pack(
+            pady=(16, 0)
         )
+        dlg.update_idletasks()
+        try:
+            dlg.geometry(f"+{self.winfo_rootx() + 80}+{self.winfo_rooty() + 80}")
+        except tk.TclError:
+            pass
+        dlg.grab_set()
+        dlg.focus_set()
 
     def _date_entry(self, parent: tk.Misc, var: tk.StringVar) -> ttk.Frame:
         """Typed DD.MM.YYYY entry + compact calendar button."""

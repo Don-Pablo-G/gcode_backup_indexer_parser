@@ -21,9 +21,17 @@ block_cipher = None
 
 ROOT = Path(SPECPATH).resolve()
 
-# Package data (aliases) + manuals + openpyxl / PyYAML runtime bits
+# Package data (aliases + app icon) + manuals + openpyxl / PyYAML runtime bits
+_DATA = ROOT / "src" / "gcode_index" / "data"
+_APP_ICO = _DATA / "app.ico"
 datas = [
-    (str(ROOT / "src" / "gcode_index" / "data" / "aliases.yaml"), "gcode_index/data"),
+    (str(_DATA / "aliases.yaml"), "gcode_index/data"),
+    (str(_APP_ICO), "gcode_index/data"),
+    (str(_DATA / "app-16.png"), "gcode_index/data"),
+    (str(_DATA / "app-32.png"), "gcode_index/data"),
+    (str(_DATA / "app-64.png"), "gcode_index/data"),
+    (str(_DATA / "app-128.png"), "gcode_index/data"),
+    (str(_DATA / "app-256.png"), "gcode_index/data"),
     (str(ROOT / "aliases.yaml"), "."),
     (str(ROOT / "docs"), "docs"),
     (str(ROOT / "src" / "gcode_index" / "docs"), "gcode_index/docs"),
@@ -63,6 +71,7 @@ hiddenimports = [
     "PIL",
     "PIL.Image",
     "PIL.ImageDraw",
+    "PIL.ImageTk",
 ]
 
 for pkg in ("openpyxl", "yaml", "pystray", "PIL"):
@@ -111,6 +120,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(_APP_ICO),
 )
 
 coll = COLLECT(
