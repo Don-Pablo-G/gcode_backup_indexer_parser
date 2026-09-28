@@ -5,8 +5,10 @@ Reuses the same extract as odbiorca: paren comments on the program-number
 line). Needles are existing folder-alias spellings only — not catalogue
 labels. Comments on any other line are never scanned.
 
-Match rule (same as folder names / machines): normalize → exact → fuzzy
-(substring ≥4 / prefix ≥3). Role/odbiorca ``exact`` flags are ignored.
+Match rule (same as folder names / machines): token-boundary — exact full
+normalize / exact token or consecutive tokens, then fuzzy only within one
+token (substring ≥4 / prefix ≥3 residual ≤2). Role/odbiorca ``exact``
+flags are ignored.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Sequence
 
-from gcode_index.aliases import AliasMap, fuzzy_match_tier, normalize_folder_name
+from gcode_index.aliases import AliasMap, match_tier_in_raw
 from gcode_index.folder_colour_aliases import (
     FolderColourAliasMap,
     canonical_role_id,
@@ -52,7 +54,7 @@ def match_roles_in_comments(
     """Role id → alias spelling for every colour-alias needle hit in comments.
 
     Accumulates **all** matching role ids (union). Skips ``exclude`` and status
-    colours. Machine-style exact-then-fuzzy on each ``(…)`` body; longer /
+    colours. Token-boundary exact-then-fuzzy on each ``(…)`` body; longer /
     higher-tier needles preferred when attributing a spelling, but every role
     that hits is kept. Rule ``exact`` flags are ignored.
     """
@@ -81,11 +83,10 @@ def match_roles_in_comments(
     # role_id → (tier, length, alias) — best spelling wins per role
     best: dict[str, tuple[int, int, str]] = {}
     for raw in comments:
-        norm = normalize_folder_name(raw)
-        if not norm:
+        if not (raw or "").strip():
             continue
         for key, length, rid, alias in needles:
-            tier = fuzzy_match_tier(key, norm)
+            tier = match_tier_in_raw(key, raw)
             if tier is None:
                 continue
             cand = (tier, length, alias)
@@ -119,7 +120,7 @@ def match_machine_in_comments(
     """Best single machine from alias needles in comment texts.
 
     Returns ``(machine_id, matched_alias_key, label, control_family)`` or None.
-    Same machine-style exact-then-fuzzy as folder resolve; longest /
+    Same token-boundary exact-then-fuzzy as folder resolve; longest /
     higher-tier needle wins. Skips entries whose ``machine_id`` is empty /
     ``unknown`` / ``unmapped:…``.
     """
@@ -146,11 +147,10 @@ def match_machine_in_comments(
     best: Optional[tuple[int, int, str, str, Optional[str], Optional[str]]] = None
     # (tier, length, machine_id, key, label, control_family)
     for raw in comments:
-        norm = normalize_folder_name(raw)
-        if not norm:
+        if not (raw or "").strip():
             continue
         for key, length, mid, label, cf in needles:
-            tier = fuzzy_match_tier(key, norm)
+            tier = match_tier_in_raw(key, raw)
             if tier is None:
                 continue
             cand = (tier, length, mid, key, label, cf)

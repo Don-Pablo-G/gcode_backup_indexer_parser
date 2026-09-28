@@ -42,21 +42,23 @@ def test_normalize_equates_space_underscore_hyphen_case():
 
 def test_match_comments_longest_and_exact():
     odb = _odb_map(("Acme", "acme"), ("Acme Sp", "acme_sp"))
-    # Longer alias wins over shorter substring
+    # Longer consecutive-token alias wins over shorter token
     assert match_odbiorca_in_comments(["Acme Sp order"], odb) == "acme_sp"
     assert match_odbiorca_in_comments(["(Acme_Sp)"], odb) == "acme_sp"
     assert match_odbiorca_in_comments(["ACME SP"], odb) == "acme_sp"
     assert match_odbiorca_in_comments(["Acme"], odb) == "acme"
-    # Prefix ≥3 (machine-style): alias is prefix of comment body
+    # Substring ≥4 within token: Acme in AcmeExtra still hits
     assert match_odbiorca_in_comments(["AcmeExtra"], odb) == "acme"
     # Too-short needle skipped
     short = _odb_map(("AB", "ab"))
     assert len(normalize_folder_name("AB")) < MIN_HEADER_ODBIORCA_NEEDLE
     assert match_odbiorca_in_comments(["AB"], short) is None
-    # 3-char mid-string no longer substring-hits (needs ≥4); prefix only
+    # Mid-string / long residual prefix do not hit
     mid = _odb_map(("Acm", "acm"))
     assert match_odbiorca_in_comments(["XAcmY"], mid) is None
-    assert match_odbiorca_in_comments(["AcmExtra"], mid) == "acm"
+    assert match_odbiorca_in_comments(["AcmExtra"], mid) is None
+    assert match_odbiorca_in_comments(["Acm"], mid) == "acm"
+    assert match_odbiorca_in_comments(["Acm_bay"], mid) == "acm"
 
 
 def test_extract_only_o_line_parens(tmp_path: Path):

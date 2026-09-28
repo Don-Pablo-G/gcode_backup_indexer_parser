@@ -48,25 +48,34 @@ def test_roles_accumulate_along_path(tmp_path: Path):
 
 
 def test_exact_flag_no_longer_blocks_fuzzy(tmp_path: Path):
-    """``exact=True`` is ignored — same fuzzy floors as machines (0.2.103+)."""
+    """``exact=True`` is ignored — token-boundary match (0.2.105+)."""
     colours = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=True)]
     )
     assert colours.match_segment("Fix") == ROLE_FIXTURE
-    # Prefix ≥3: Fixture.startswith(Fix)
-    assert colours.match_segment("Fixture") == ROLE_FIXTURE
-    # Same behaviour when exact=False
+    # Prefix Fix→Fixture no longer hits (residual 4 > 2)
+    assert colours.match_segment("Fixture") is None
+    assert colours.match_segment("Fix_bay") == ROLE_FIXTURE
     fuzzy = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=False)]
     )
-    assert fuzzy.match_segment("Fixture") == ROLE_FIXTURE
-    # Substring needs ≥4 — short 3-char alias mid-string does not hit
+    assert fuzzy.match_segment("Fix_bay") == ROLE_FIXTURE
+    # Mid-string 3-char does not substring-hit
     assert colours.match_segment("XFixY") is None
+    # Substring ≥4 within one token still works
     long = FolderColourAliasMap(
         [FolderColourRule(alias="Uchw", colour=ROLE_FIXTURE, exact=True)]
     )
     assert long.match_segment("UCHWYTY") == ROLE_FIXTURE
-
+    # Motivating cases: pat vs pattyn / pat_backup
+    personal = FolderColourAliasMap(
+        [FolderColourRule(alias="pat", colour=ROLE_PERSONAL, exact=True)]
+    )
+    assert personal.match_segment("pattyn") is None
+    assert personal.match_segment("pat") == ROLE_PERSONAL
+    assert personal.match_segment("pat_backup") == ROLE_PERSONAL
+    assert personal.match_segment("pat-backup") == ROLE_PERSONAL
+    assert personal.match_segment("foo pat bar") == ROLE_PERSONAL
 
 def test_path_tags_replace_name_union(tmp_path: Path):
     bak = tmp_path / "bak"

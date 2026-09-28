@@ -45,13 +45,15 @@ def test_match_segment_rule_returns_alias_and_fuzzy():
     assert exact_map.match_segment_rule("PawelX") is not None
     assert exact_map.match_segment("PawelX") == ROLE_PERSONAL
 
+    # Fix→Fixture no longer matches (residual 4); separator required
     fuzzy_map = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=False)]
     )
-    fr = fuzzy_map.match_segment_rule("Fixture")
+    assert fuzzy_map.match_segment_rule("Fixture") is None
+    fr = fuzzy_map.match_segment_rule("Fix_bay")
     assert fr is not None
     assert fr.alias == "Fix"
-    assert fuzzy_map.match_segment("Fixture") == ROLE_FIXTURE
+    assert fuzzy_map.match_segment("Fix_bay") == ROLE_FIXTURE
 
 
 def test_explain_name_aliases_exact_and_fuzzy():

@@ -84,25 +84,34 @@ def test_odbiorca_path_override(tmp_path: Path):
 
 
 def test_odbiorca_folder_fuzzy_like_machines(tmp_path: Path):
-    """Folder names use exact-then-fuzzy; ``exact`` flag does not block."""
+    """Folder names use token-boundary match; ``exact`` flag does not block."""
     bak = tmp_path / "bak"
-    hit = _write_nc(bak / "15.09.2026" / "VF2S" / "Acme Spares" / "x.nc", "O9301")
+    hit = _write_nc(bak / "15.09.2026" / "VF2S" / "Acme_Sp" / "x.nc", "O9301")
     am = AliasMap.load(ALIASES)
     odb = OdbiorcaAliasMap(
         [OdbiorcaRule(alias="Acme Sp", odbiorca_id="acme_sp", exact=True)],
         known_ids={"acme_sp"},
     )
-    # acmesp in acmespares (substring ≥4)
-    assert odb.match_segment("Acme Spares") == "acme_sp"
+    # Full normalize / consecutive tokens equate separators
     assert odb.match_segment("Acme_Sp") == "acme_sp"
-    # Prefix ≥3: short alias
+    assert odb.match_segment("Acme Sp") == "acme_sp"
+    # No mash-substring on Acme Spares (tokens acme + spares)
+    assert odb.match_segment("Acme Spares") is None
+    # Prefix residual ≤2: Acm→Acme (+1) still; Acm→AcmeExtra (+5) no
     short = OdbiorcaAliasMap(
         [OdbiorcaRule(alias="Acm", odbiorca_id="acme", exact=True)],
         known_ids={"acme"},
     )
-    assert short.match_segment("AcmeExtra") == "acme"
-    # Mid-string 3-char does not substring-hit
+    assert short.match_segment("Acme") == "acme"
+    assert short.match_segment("AcmeExtra") is None
     assert short.match_segment("XAcmY") is None
+    # pat vs pattyn / pat_backup
+    pat = OdbiorcaAliasMap(
+        [OdbiorcaRule(alias="pat", odbiorca_id="personal", exact=True)],
+        known_ids={"personal"},
+    )
+    assert pat.match_segment("pattyn") is None
+    assert pat.match_segment("pat_backup") == "personal"
 
     result = scan_backup_tree(bak, am, odbiorca_map=odb)
     by = {

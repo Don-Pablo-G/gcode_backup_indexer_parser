@@ -120,6 +120,7 @@ def _name_attributions(
         from gcode_index.aliases import normalize_folder_name
 
         part_key = normalize_folder_name(part)
+        # Exact full-normalize equality → alias; token / within-token → fuzzy.
         fuzzy = bool(part_key) and part_key != rule.key
         found[rid] = (rule, fuzzy)
     return found

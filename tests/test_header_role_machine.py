@@ -57,16 +57,23 @@ def test_match_roles_longest_and_union():
     hits = match_roles_in_comments(["PROTO order", "Pawel"], cmap)
     assert hits[ROLE_PROTOTYPE] == "PROTO"
     assert hits[ROLE_PERSONAL] == "Pawel"
-    # Prefix ≥3
+    # Exact token in multi-word comment
+    assert match_roles_in_comments(["PROTO bay"], cmap)[ROLE_PROTOTYPE] == "PROTO"
+    # Substring ≥4 within token: PROTO in PROTOExtra still hits
     assert match_roles_in_comments(["PROTOExtra"], cmap)[ROLE_PROTOTYPE] == "PROTO"
     # Too-short needle skipped
     short = _colour_map(("AB", ROLE_FIXTURE))
     assert len(normalize_folder_name("AB")) < MIN_HEADER_NEEDLE
     assert match_roles_in_comments(["AB"], short) == {}
-    # 3-char mid-string does not substring-hit
+    # 3-char mid-string does not substring-hit; Fix→Fixture residual too long
     mid = _colour_map(("Fix", ROLE_FIXTURE))
     assert match_roles_in_comments(["XFixY"], mid) == {}
-    assert match_roles_in_comments(["Fixture"], mid)[ROLE_FIXTURE] == "Fix"
+    assert match_roles_in_comments(["Fixture"], mid) == {}
+    assert match_roles_in_comments(["Fix_bay"], mid)[ROLE_FIXTURE] == "Fix"
+    # pat vs pattyn / pat_backup on O-line bodies
+    pat = _colour_map(("pat", ROLE_PERSONAL))
+    assert match_roles_in_comments(["pattyn"], pat) == {}
+    assert match_roles_in_comments(["pat_backup"], pat)[ROLE_PERSONAL] == "pat"
 
 
 def test_match_machine_longest_and_exact():

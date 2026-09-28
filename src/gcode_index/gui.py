@@ -7581,7 +7581,7 @@ class FolderTreeMapDialog(tk.Toplevel):
     tags replace that union for the matched prefix.
 
     Right-click a folder → alias that **name** everywhere as machine or role
-    (same fuzzy match as machines: normalize → exact → substring ≥4 / prefix ≥3).
+    (same token-boundary match as machines: exact token / within-token fuzzy; reindex after upgrade).
     """
 
     _PLACEHOLDER = "__lazy__"

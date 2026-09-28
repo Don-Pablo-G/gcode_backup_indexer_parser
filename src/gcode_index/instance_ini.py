@@ -694,10 +694,10 @@ newest_only = {yn(data.newest_only)}
 include_unknown = {yn(data.include_unknown)}
 ; yes/no — when folder/path left odbiorca empty, match aliases in paren comments
 ; on the same line as the program number (O#####) only — not following lines / body.
-; Same fuzzy as folder names (exact → substring ≥4 / prefix ≥3). Reindex to backfill.
+; Same token-boundary match as folder names (exact token / within-token fuzzy; not mash-prefix — pat≠pattyn). Reindex to backfill.
 odbiorca_from_header = {yn(data.odbiorca_from_header)}
 ; yes/no — match role folder-aliases in O-number-line paren comments; accumulate into the
-; role set after name/path (before O9). Same fuzzy as machines; exact flags ignored.
+; role set after name/path (before O9). Same token-boundary match as machines; exact flags ignored. Reindex after upgrade.
 ; Never changes status / machine / odbiorca.
 role_from_header = {yn(data.role_from_header)}
 ; yes/no — when machine is still MACHINE UNKNOWN, match machine folder-aliases on

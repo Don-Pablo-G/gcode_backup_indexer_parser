@@ -16,7 +16,7 @@ Sidecar next to the database: ``odbiorcy.yaml``::
         exact: true
 
 Tree / Nazwy folderów write name rules (``exact`` kept for YAML compat but
-**ignored** at match time — same machine-style fuzzy as roles/machines).
+**ignored** at match time — same token-boundary match as roles/machines).
 Path tree map may override with ``odbiorca_id`` on a prefix (like ``machine_id``).
 """
 
@@ -32,7 +32,7 @@ import yaml
 from gcode_index.aliases import (
     MIN_PREFIX_ALIAS_LEN,
     best_fuzzy_key,
-    fuzzy_match_tier,
+    match_tier_in_raw,
     normalize_folder_name,
 )
 
@@ -83,7 +83,7 @@ class OdbiorcaDef:
 class OdbiorcaRule:
     alias: str
     odbiorca_id: str
-    # Legacy YAML field; ignored at match time (machine-style fuzzy, 0.2.103+).
+    # Legacy YAML field; ignored at match time (token-boundary match, 0.2.105+).
     exact: bool = True
 
     def __post_init__(self) -> None:
@@ -244,14 +244,14 @@ class OdbiorcaAliasMap:
         return cat.alias_map()
 
     def rule_for_name(self, folder_raw: str) -> Optional[OdbiorcaRule]:
-        """Winning alias rule for ``folder_raw`` (exact key, else fuzzy)."""
+        """Winning alias rule for ``folder_raw`` (exact key, else token fuzzy)."""
         key = normalize_folder_name(folder_raw)
         if not key:
             return None
         exact = self._by_key.get(key)
         if exact is not None:
             return exact
-        best = best_fuzzy_key(key, self._by_key)
+        best = best_fuzzy_key(folder_raw, self._by_key)
         return self._by_key.get(best) if best else None
 
     def match_segment(self, folder_raw: str) -> Optional[str]:
@@ -378,9 +378,10 @@ def match_odbiorca_in_comments(
 ) -> Optional[str]:
     """Best single odbiorca_id from alias needles in comment texts.
 
-    Same machine-style rule as folder names: normalize → exact → fuzzy
-    (substring ≥4 / prefix ≥3). Longer / higher-tier needle wins. Aliases
-    only (not catalogue labels). The rule ``exact`` flag is ignored.
+    Same token-boundary rule as folder names: exact full / exact token or
+    consecutive tokens, then fuzzy within one token (substring ≥4 / prefix
+    ≥3 residual ≤2). Longer / higher-tier needle wins. Aliases only (not
+    catalogue labels). The rule ``exact`` flag is ignored.
     """
     if not comments or odbiorca_map is None or len(odbiorca_map) == 0:
         return None
@@ -403,11 +404,10 @@ def match_odbiorca_in_comments(
 
     best: Optional[tuple[int, int, str]] = None  # (tier, length, oid)
     for raw in comments:
-        norm = normalize_folder_name(raw)
-        if not norm:
+        if not (raw or "").strip():
             continue
         for key, length, oid in needles:
-            tier = fuzzy_match_tier(key, norm)
+            tier = match_tier_in_raw(key, raw)
             if tier is None:
                 continue
             cand = (tier, length, oid)

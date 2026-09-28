@@ -338,9 +338,11 @@ default_roles = default_colours
 class FolderColourRule:
     """One folder-name alias → role id or exclude.
 
-    Matching always uses machine-style fuzzy (exact → substring ≥4 →
-    prefix ≥3). The ``exact`` field is retained for YAML round-trip /
-    legacy sidecars but is **ignored** at match time (0.2.103+).
+    Matching uses token-boundary rules (exact full normalize / exact token
+    or consecutive tokens, then fuzzy only within one token: substring ≥4 /
+    prefix ≥3 with residual ≤2). The ``exact`` field is retained for YAML
+    round-trip / legacy sidecars but is **ignored** at match time (0.2.103+;
+    token-boundary 0.2.105+).
     """
 
     alias: str
@@ -721,7 +723,7 @@ class FolderColourAliasMap:
         return len(self._rules)
 
     def match_segment_rule(self, folder_raw: str) -> Optional[FolderColourRule]:
-        """Winning alias rule for ``folder_raw`` (exact key, else fuzzy).
+        """Winning alias rule for ``folder_raw`` (exact key, else token fuzzy).
 
         Same match order as ``match_segment`` / scan. Use this when the tip or
         UI needs the alias spelling and exact-vs-fuzzy, not only the role id.
@@ -732,15 +734,15 @@ class FolderColourAliasMap:
         exact = self._by_key.get(key)
         if exact is not None:
             return exact
-        return self._lookup_fuzzy(key)
+        return self._lookup_fuzzy(folder_raw)
 
     def match_segment(self, folder_raw: str) -> Optional[str]:
         rule = self.match_segment_rule(folder_raw)
         return rule.colour if rule is not None else None
 
-    def _lookup_fuzzy(self, key: str) -> Optional[FolderColourRule]:
-        # ``exact`` flag is ignored — same fuzzy floors as machines (0.2.103+).
-        best = best_fuzzy_key(key, self._by_key)
+    def _lookup_fuzzy(self, folder_raw: str) -> Optional[FolderColourRule]:
+        # ``exact`` flag is ignored — token-boundary fuzzy (0.2.105+).
+        best = best_fuzzy_key(folder_raw, self._by_key)
         return self._by_key.get(best) if best else None
 
     def resolve_path_parts(self, parts: Sequence[str]) -> Optional[str]:
