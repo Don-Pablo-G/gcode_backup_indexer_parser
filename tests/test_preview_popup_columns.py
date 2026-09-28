@@ -19,6 +19,7 @@ def test_preview_popup_and_columns_i18n():
         assert t(lang, "columns_menu")
         assert t(lang, "columns_menu_title")
         assert t(lang, "colour_legend_roles")
+        assert t(lang, "colour_legend_overrides")
         assert t(lang, "ctx_extract_to")
     assert t("pl", "ctx_extract_to").startswith("Wydobądź")
     assert "Extract to" in t("en", "ctx_extract_to")

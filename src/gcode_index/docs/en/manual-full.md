@@ -158,8 +158,9 @@ The GUI is **single-instance**: launching again (including while it sits in the 
 Same find bar as the floor client, plus:
 
 - **Include unassigned** / **Uwzględniaj nieprzypisane** (default **ON**) — when a machine multi-select is active, keep **MACHINE UNKNOWN** / `unmapped:…` rows in the results. Turning OFF shows a confirm warning. Saved as `[scan] include_unknown` in `gcode-index.ini`. Floor clients and locked installs force this **ON** (control disabled).
-- **Only green** / **Tylko zielone** — show only rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override colours. AND with other filters. Saved as `[filters] only_green` (default off).
-- **More filters** — source type, control, flag (green/yellow), role, odbiorca, programmer, **views** (named filter sets in `views.yaml` next to the DB), **size from/to** (bytes or `10k` / `1.5M`), **file date from/to** (source mtime / creation; calendar via **▾**)
+- **Only green** / **Tylko zielone** — show only rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override colours. AND with other filters. Saved as `[filters] only_green` (default off). Named **views** also store `only_green`.
+- **More filters** — inline expand under the find bar (▾ / ▴; open state in `[session] more_filters`). Groups: **Classification** (source type, control, status, role, odbiorca, programmer), **Views** (`views.yaml` next to the DB), **Ranges** (size from/to as bytes or `10k` / `1.5M`; file date from/to = source mtime / creation; calendar via **▾**). Also on floor clients. Hiding the panel does not clear values; **Clear filters** clears primary and advanced.
+- Results colour legend: status 🟢/🟡 plus **Overrides** / **Nadpisania** chips only for roles with `can_override_main_state_colour` (e.g. Prototype). Non-override role colours stay on Flag discs / tip — not in the legend.
 - Click any **results column header** to sort ascending/descending
 - **Compare…** — unified diff of exactly two selected rows
 - **Index quality…** — UNKNOWN machines, missing odbiorca, `system_programs` (O9000–O9099), colour conflicts; click a row to filter results

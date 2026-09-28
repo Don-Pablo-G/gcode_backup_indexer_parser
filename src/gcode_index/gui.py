@@ -86,6 +86,7 @@ from gcode_index.badge_style import (
     flag_text,
     is_flag_green,
     make_swatch,
+    override_role_legend_items,
     pack_compact_colour_legend,
     pack_status_legend,
     role_dot,
@@ -2029,12 +2030,15 @@ class IndexerApp(tk.Tk):
     def _apply_more_filters_visibility(self) -> None:
         if not hasattr(self, "_more_filters_frame"):
             return
+        # ``filt`` children use grid — never pack into the same parent.
         if self._more_filters_open:
-            self._more_filters_frame.pack(fill=tk.X, pady=(6, 0))
+            self._more_filters_frame.grid(
+                row=2, column=0, columnspan=10, sticky=tk.EW, pady=(6, 0)
+            )
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("fewer_filters"))
         else:
-            self._more_filters_frame.pack_forget()
+            self._more_filters_frame.grid_remove()
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("more_filters"))
 
@@ -2924,157 +2928,157 @@ class IndexerApp(tk.Tk):
             ttk.Button(
                 row2, text=self._("compare"), command=self._compare_selected
             ).pack(side=tk.LEFT, padx=4)
-            self._more_filters_btn = ttk.Button(
-                row2,
-                text=self._("more_filters"),
-                command=self._toggle_more_filters,
-            )
-            self._more_filters_btn.pack(side=tk.LEFT, padx=8)
+        # More filters: indexer + floor client (same expand panel)
+        self._more_filters_btn = ttk.Button(
+            row2,
+            text=self._("more_filters"),
+            command=self._toggle_more_filters,
+        )
+        self._more_filters_btn.pack(side=tk.LEFT, padx=8)
 
-            self._more_filters_frame = ttk.Frame(filt)
-            adv = self._more_filters_frame
-            ttk.Label(adv, text=self._("source_type")).grid(
-                row=0, column=0, sticky=tk.W, pady=2
-            )
-            self.type_combo = ttk.Combobox(
-                adv,
-                textvariable=self.source_type_var,
-                values=[self._all_token()],
-                state="readonly",
-                width=22,
-            )
-            self.type_combo.grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
+        self._more_filters_frame = ttk.Frame(filt)
+        adv = self._more_filters_frame
 
-            ttk.Label(adv, text=self._("control")).grid(
-                row=0, column=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.control_combo = ttk.Combobox(
-                adv,
-                textvariable=self.control_var,
-                values=[self._all_token()],
-                state="readonly",
-                width=14,
-            )
-            self.control_combo.grid(row=0, column=3, sticky=tk.W, padx=4, pady=2)
+        # Row A — Classification
+        ttk.Label(
+            adv, text=self._("more_filters_classification"), style="Muted.TLabel"
+        ).grid(row=0, column=0, columnspan=12, sticky=tk.W, pady=(0, 2))
+        ttk.Label(adv, text=self._("source_type")).grid(
+            row=1, column=0, sticky=tk.W, pady=2
+        )
+        self.type_combo = ttk.Combobox(
+            adv,
+            textvariable=self.source_type_var,
+            values=[self._all_token()],
+            state="readonly",
+            width=22,
+        )
+        self.type_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("filter_status")).grid(
-                row=0, column=4, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.provenance_combo = ttk.Combobox(
-                adv,
-                textvariable=self.provenance_var,
-                values=self._status_filter_labels(),
-                state="readonly",
-                width=18,
-            )
-            self.provenance_combo.grid(row=0, column=5, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("control")).grid(
+            row=1, column=2, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.control_combo = ttk.Combobox(
+            adv,
+            textvariable=self.control_var,
+            values=[self._all_token()],
+            state="readonly",
+            width=14,
+        )
+        self.control_combo.grid(row=1, column=3, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("filter_role")).grid(
-                row=0, column=6, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.role_combo = ttk.Combobox(
-                adv,
-                textvariable=self.role_var,
-                values=self._role_filter_labels(),
-                state="readonly",
-                width=18,
-            )
-            self.role_combo.grid(row=0, column=7, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("filter_status")).grid(
+            row=1, column=4, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.provenance_combo = ttk.Combobox(
+            adv,
+            textvariable=self.provenance_var,
+            values=self._status_filter_labels(),
+            state="readonly",
+            width=18,
+        )
+        self.provenance_combo.grid(row=1, column=5, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("filter_odbiorca")).grid(
-                row=0, column=8, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            self.odbiorca_combo = ttk.Combobox(
-                adv,
-                textvariable=self.odbiorca_var,
-                values=self._odbiorca_filter_labels(),
-                state="readonly",
-                width=16,
-            )
-            self.odbiorca_combo.grid(row=0, column=9, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("filter_role")).grid(
+            row=1, column=6, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.role_combo = ttk.Combobox(
+            adv,
+            textvariable=self.role_var,
+            values=self._role_filter_labels(),
+            state="readonly",
+            width=18,
+        )
+        self.role_combo.grid(row=1, column=7, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("programmer")).grid(
-                row=1, column=0, sticky=tk.W, pady=2
-            )
-            self.programmer_combo = ttk.Combobox(
-                adv,
-                textvariable=self.programmer_var,
-                values=[self._all_token()],
-                state="readonly",
-                width=14,
-            )
-            self.programmer_combo.grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
+        ttk.Label(adv, text=self._("filter_odbiorca")).grid(
+            row=1, column=8, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.odbiorca_combo = ttk.Combobox(
+            adv,
+            textvariable=self.odbiorca_var,
+            values=self._odbiorca_filter_labels(),
+            state="readonly",
+            width=16,
+        )
+        self.odbiorca_combo.grid(row=1, column=9, sticky=tk.W, padx=4, pady=2)
 
-            ttk.Label(adv, text=self._("preset")).grid(
-                row=1, column=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
-            preset_row = ttk.Frame(adv)
-            preset_row.grid(row=1, column=3, columnspan=5, sticky=tk.W, padx=4, pady=2)
-            self.preset_combo = ttk.Combobox(
-                preset_row,
-                textvariable=self.preset_var,
-                values=[],
-                state="readonly",
-                width=22,
-            )
-            self.preset_combo.pack(side=tk.LEFT)
-            ttk.Button(
-                preset_row, text=self._("load"), command=self._load_selected_preset
-            ).pack(side=tk.LEFT, padx=4)
-            ttk.Button(
-                preset_row,
-                text=self._("save_current"),
-                command=self._save_current_preset,
-            ).pack(side=tk.LEFT, padx=2)
-            ttk.Button(
-                preset_row,
-                text=self._("delete"),
-                command=self._delete_selected_preset,
-            ).pack(side=tk.LEFT, padx=2)
+        ttk.Label(adv, text=self._("programmer")).grid(
+            row=1, column=10, sticky=tk.W, padx=(12, 0), pady=2
+        )
+        self.programmer_combo = ttk.Combobox(
+            adv,
+            textvariable=self.programmer_var,
+            values=[self._all_token()],
+            state="readonly",
+            width=14,
+        )
+        self.programmer_combo.grid(row=1, column=11, sticky=tk.W, padx=4, pady=2)
 
-            # Size / file-date ranges (#10) — Full more-filters only
-            ttk.Label(adv, text=self._("size_from")).grid(
-                row=2, column=0, sticky=tk.W, pady=2
-            )
-            size_row = ttk.Frame(adv)
-            size_row.grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
-            ttk.Entry(size_row, textvariable=self.size_min_var, width=10).pack(
-                side=tk.LEFT
-            )
-            ttk.Label(size_row, text=self._("size_to_sep")).pack(side=tk.LEFT)
-            ttk.Entry(size_row, textvariable=self.size_max_var, width=10).pack(
-                side=tk.LEFT
-            )
-            ttk.Label(adv, text=self._("size_hint"), style="Muted.TLabel").grid(
-                row=2, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
+        # Row B — Views
+        ttk.Label(
+            adv, text=self._("more_filters_views"), style="Muted.TLabel"
+        ).grid(row=2, column=0, columnspan=12, sticky=tk.W, pady=(6, 2))
+        ttk.Label(adv, text=self._("preset")).grid(
+            row=3, column=0, sticky=tk.W, pady=2
+        )
+        preset_row = ttk.Frame(adv)
+        preset_row.grid(row=3, column=1, columnspan=7, sticky=tk.W, padx=4, pady=2)
+        self.preset_combo = ttk.Combobox(
+            preset_row,
+            textvariable=self.preset_var,
+            values=[],
+            state="readonly",
+            width=22,
+        )
+        self.preset_combo.pack(side=tk.LEFT)
+        ttk.Button(
+            preset_row, text=self._("load"), command=self._load_selected_preset
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            preset_row,
+            text=self._("save_current"),
+            command=self._save_current_preset,
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            preset_row,
+            text=self._("delete"),
+            command=self._delete_selected_preset,
+        ).pack(side=tk.LEFT, padx=2)
 
-            ttk.Label(adv, text=self._("mtime_from")).grid(
-                row=3, column=0, sticky=tk.W, pady=2
-            )
-            mtime_row = ttk.Frame(adv)
-            mtime_row.grid(row=3, column=1, sticky=tk.W, padx=4, pady=2)
-            self._date_entry(mtime_row, self.mtime_from_var).pack(side=tk.LEFT)
-            ttk.Label(mtime_row, text=self._("mtime_to_sep")).pack(side=tk.LEFT)
-            self._date_entry(mtime_row, self.mtime_to_var).pack(side=tk.LEFT)
-            ttk.Label(adv, text=self._("mtime_hint"), style="Muted.TLabel").grid(
-                row=3, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
-            )
+        # Row C — Ranges (size / file-date)
+        ttk.Label(
+            adv, text=self._("more_filters_ranges"), style="Muted.TLabel"
+        ).grid(row=4, column=0, columnspan=12, sticky=tk.W, pady=(6, 2))
+        ttk.Label(adv, text=self._("size_from")).grid(
+            row=5, column=0, sticky=tk.W, pady=2
+        )
+        size_row = ttk.Frame(adv)
+        size_row.grid(row=5, column=1, sticky=tk.W, padx=4, pady=2)
+        ttk.Entry(size_row, textvariable=self.size_min_var, width=10).pack(
+            side=tk.LEFT
+        )
+        ttk.Label(size_row, text=self._("size_to_sep")).pack(side=tk.LEFT)
+        ttk.Entry(size_row, textvariable=self.size_max_var, width=10).pack(
+            side=tk.LEFT
+        )
+        ttk.Label(adv, text=self._("size_hint"), style="Muted.TLabel").grid(
+            row=5, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
+        )
 
-            self._apply_more_filters_visibility()
-        else:
-            for attr in (
-                "type_combo",
-                "control_combo",
-                "provenance_combo",
-                "role_combo",
-                "programmer_combo",
-                "preset_combo",
-                "_more_filters_frame",
-                "_more_filters_btn",
-            ):
-                if hasattr(self, attr):
-                    delattr(self, attr)
+        ttk.Label(adv, text=self._("mtime_from")).grid(
+            row=6, column=0, sticky=tk.W, pady=2
+        )
+        mtime_row = ttk.Frame(adv)
+        mtime_row.grid(row=6, column=1, sticky=tk.W, padx=4, pady=2)
+        self._date_entry(mtime_row, self.mtime_from_var).pack(side=tk.LEFT)
+        ttk.Label(mtime_row, text=self._("mtime_to_sep")).pack(side=tk.LEFT)
+        self._date_entry(mtime_row, self.mtime_to_var).pack(side=tk.LEFT)
+        ttk.Label(adv, text=self._("mtime_hint"), style="Muted.TLabel").grid(
+            row=6, column=2, columnspan=2, sticky=tk.W, padx=(12, 0), pady=2
+        )
+
+        self._apply_more_filters_visibility()
 
 
     def _build_results_preview(self, parent, pad: dict, *, simple: bool) -> None:
@@ -3221,18 +3225,17 @@ class IndexerApp(tk.Tk):
             pass
 
     def _pack_results_colour_legend(self, parent) -> None:
-        """Status + role colour chips beside the results toolbar."""
+        """Status + override-role colour chips beside the results toolbar."""
         roles: list[tuple[str, str]] = []
         catalog = getattr(self, "_colour_catalog", None)
         if catalog is not None:
-            for c in list(catalog.colours)[:6]:
-                roles.append((c.swatch, c.label(self._lang)))
+            roles = override_role_legend_items(catalog.colours, self._lang)
         pack_compact_colour_legend(
             parent,
             on_machine_text=self._("status_on_machine"),
             not_run_text=self._("status_unknown"),
             role_items=roles or None,
-            roles_caption=self._("colour_legend_roles") if roles else "",
+            roles_caption=self._("colour_legend_overrides") if roles else "",
         ).pack(side=tk.RIGHT)
 
     def _visible_result_columns(self) -> list[str]:
@@ -5376,6 +5379,7 @@ class IndexerApp(tk.Tk):
                 else ALL
             ),
             newest_only=bool(self.newest_only_var.get()),
+            only_green=bool(self.only_green_var.get()),
         )
 
     def _apply_filter_preset(self, preset: FilterPreset) -> None:
@@ -5398,6 +5402,7 @@ class IndexerApp(tk.Tk):
                 odb_raw = getattr(preset, "odbiorca", "") or ALL
                 self.odbiorca_var.set(odb_raw if odb_raw else ALL)
             self.newest_only_var.set(bool(preset.newest_only))
+            self.only_green_var.set(bool(getattr(preset, "only_green", False)))
             wanted = {m.strip() for m in (preset.machines or []) if m.strip()}
             self._machine_sel = {
                 n for n in self._machine_names if n in wanted

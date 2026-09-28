@@ -36,6 +36,7 @@ class FilterPreset:
     role: str = "(all)"
     odbiorca: str = "(all)"
     newest_only: bool = False
+    only_green: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,6 +68,7 @@ class FilterPreset:
             role=str(data.get("role") or "(all)"),
             odbiorca=str(data.get("odbiorca") or "(all)"),
             newest_only=bool(data.get("newest_only") or False),
+            only_green=bool(data.get("only_green") or False),
         )
 
 
@@ -88,6 +90,7 @@ def _clean_preset(pr: FilterPreset) -> FilterPreset:
         role=getattr(pr, "role", "") or "(all)",
         odbiorca=getattr(pr, "odbiorca", "") or "(all)",
         newest_only=bool(pr.newest_only),
+        only_green=bool(getattr(pr, "only_green", False)),
     )
 
 

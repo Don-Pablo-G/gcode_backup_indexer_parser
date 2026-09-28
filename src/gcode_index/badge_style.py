@@ -244,6 +244,33 @@ def pack_status_legend(
     return frame
 
 
+def override_role_legend_items(
+    colours: Sequence[object],
+    lang: str = "pl",
+    *,
+    cap: int = 6,
+) -> list[tuple[str, str]]:
+    """``(swatch, label)`` chips for roles that replace status colour.
+
+    Non-override catalogue roles stay out of the results legend (they live on
+    Flag discs / hover tip). Catalogue order; optional cap for rare shops.
+    """
+    items: list[tuple[str, str]] = []
+    for c in colours:
+        if not bool(getattr(c, "can_override_main_state_colour", False)):
+            continue
+        label_fn = getattr(c, "label", None)
+        if callable(label_fn):
+            label = str(label_fn(lang))
+        else:
+            label = str(getattr(c, "id", "") or "")
+        swatch = str(getattr(c, "swatch", "") or "#888888")
+        items.append((swatch, label))
+        if len(items) >= max(1, int(cap)):
+            break
+    return items
+
+
 def pack_compact_colour_legend(
     parent: "tk.Misc",
     *,
@@ -252,7 +279,7 @@ def pack_compact_colour_legend(
     role_items: Sequence[tuple[str, str]] | None = None,
     roles_caption: str = "",
 ) -> "tk.Frame":
-    """One-line status (+ optional role) legend for the results toolbar."""
+    """One-line status (+ optional override-role) legend for the results toolbar."""
     import tkinter as tk
 
     frame = tk.Frame(parent)

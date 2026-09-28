@@ -146,8 +146,9 @@ Pasek statusu pokazuje metodę per katalog (np. `D:\CNC=events · Z:\Share=poll`
 Jak na kliencie hali, plus:
 
 - **Uwzględniaj nieprzypisane** / **Include unassigned** (domyślnie **ON**) — przy aktywnym filtrze maszyn zostawia w wynikach **MACHINE UNKNOWN** / `unmapped:…`. Wyłączenie pokazuje ostrzeżenie. Zapis: `[scan] include_unknown` w `gcode-index.ini`. Na kliencie hali i przy blokadzie zawsze **ON** (kontrolka wyłączona).
-- **Tylko zielone** / **Only green** — tylko wiersze z zielonym krążkiem Flag (kopia/zaufany); ukrywa żółte i nadpisanie prototypem. AND z innymi filtrami. Zapis: `[filters] only_green` (domyślnie wyłączone).
-- **Więcej filtrów** — typ źródła, sterowanie, status, rola, odbiorca, programista, **widoki** (`views.yaml` obok bazy), rozmiar / data pliku
+- **Tylko zielone** / **Only green** — tylko wiersze z zielonym krążkiem Flag (kopia/zaufany); ukrywa żółte i nadpisanie prototypem. AND z innymi filtrami. Zapis: `[filters] only_green` (domyślnie wyłączone). Nazwane **widoki** też zapisują `only_green`.
+- **Więcej filtrów** — rozwijany panel pod paskiem wyszukiwania (▾ / ▴; stan w `[session] more_filters`). Grupy: **Klasyfikacja** (typ źródła, sterowanie, status, rola, odbiorca, programista), **Widoki** (`views.yaml` obok bazy), **Zakresy** (rozmiar / data pliku). Także na kliencie hali. Ukrycie panelu nie czyści wartości; **Wyczyść filtry** czyści pasek i zaawansowane.
+- Legenda kolorów wyników: status 🟢/🟡 oraz **Nadpisania** / **Overrides** tylko dla ról z `can_override_main_state_colour` (np. Prototyp). Pozostałe role — na dyskach Flagi / tipie, nie w legendzie.
 - **Jakość indeksu…** — UNKNOWN, brak odbiorcy, programy systemowe (O9000–O9099), konflikty kolorów; klik → filtr wyników
 - **Porównaj…**, **Duplikaty…** (dokładne grupy po SHA ciała programu `program_sha256` — wycinek klejonego dumpa może zgadzać się z luźnym `.nc`; odznaki kolorów przy członkach; **Konflikt kolorów**, gdy to samo ciało ma ≥2 kolory — filtr „Tylko konflikt kolorów”; po aktualizacji **przeskanuj** ponownie)
 - Prawy przycisk → **Wydobądź do…** — wybór folderu (ostatnie foldery w ini). Wydobycie sprawdza SHA całego pliku (`content_sha256`) + rozmiar ze skanu.
