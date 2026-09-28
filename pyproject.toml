@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gcode-index"
-version = "0.2.108"
+version = "0.2.109"
 description = "Index CNC backup trees into a portable SQLite catalog of program instances"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,6 +35,12 @@ sources = ["src"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "aliases.yaml" = "gcode_index/data/aliases.yaml"
+"src/gcode_index/data/app.ico" = "gcode_index/data/app.ico"
+"src/gcode_index/data/app-16.png" = "gcode_index/data/app-16.png"
+"src/gcode_index/data/app-32.png" = "gcode_index/data/app-32.png"
+"src/gcode_index/data/app-64.png" = "gcode_index/data/app-64.png"
+"src/gcode_index/data/app-128.png" = "gcode_index/data/app-128.png"
+"src/gcode_index/data/app-256.png" = "gcode_index/data/app-256.png"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

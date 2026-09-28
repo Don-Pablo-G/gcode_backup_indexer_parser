@@ -145,6 +145,7 @@ W menu głównym **Ustawienia** (wszystkie tryby — hala i indeksator):
 - **Autostart przy logowaniu** (skrót albo Harmonogram zadań) — `[desktop]` w ini. Domyślnie **wyłączone** na nowych instalacjach.
 - **Zamknij do zasobnika** / **Minimalizuj do zasobnika** — domyślnie **wyłączone**.
 - **Język** — `pl` / `en` (przeniesione z paska; ten sam klucz `[ui] language`).
+- Pasek tytułu, zasobnik systemowy i plik `.exe` używają tej samej ikony produktu (dołączonej do buildu).
 
 Istniejące wartości w ini zostają przy aktualizacji; tylko brakujące klucze biorą nowe domyślne „wyłączone”.
 - GUI jest **jednoinstancyjne** (w tym z zasobnika).
