@@ -4,6 +4,9 @@ Reuses the same extract as odbiorca: paren comments on the program-number
 (``O#####``) line only (glued dumps: seek ``byte_start``, then find that
 line). Needles are existing folder-alias spellings only — not catalogue
 labels. Comments on any other line are never scanned.
+
+Match rule (same as folder names / machines): normalize → exact → fuzzy
+(substring ≥4 / prefix ≥3). Role/odbiorca ``exact`` flags are ignored.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Sequence
 
-from gcode_index.aliases import AliasMap, normalize_folder_name
+from gcode_index.aliases import AliasMap, fuzzy_match_tier, normalize_folder_name
 from gcode_index.folder_colour_aliases import (
     FolderColourAliasMap,
     canonical_role_id,
@@ -49,9 +52,9 @@ def match_roles_in_comments(
     """Role id → alias spelling for every colour-alias needle hit in comments.
 
     Accumulates **all** matching role ids (union). Skips ``exclude`` and status
-    colours. Exact normalized equality or needle-in-comment; longer needles are
-    preferred when attributing a spelling to a role, but every role that hits
-    is kept.
+    colours. Machine-style exact-then-fuzzy on each ``(…)`` body; longer /
+    higher-tier needles preferred when attributing a spelling, but every role
+    that hits is kept. Rule ``exact`` flags are ignored.
     """
     if not comments or colour_map is None or len(colour_map) == 0:
         return {}
@@ -75,19 +78,17 @@ def match_roles_in_comments(
         return {}
     needles.sort(key=lambda t: (-t[1], t[0]))
 
-    # role_id → (exact, length, alias) — best spelling wins per role
+    # role_id → (tier, length, alias) — best spelling wins per role
     best: dict[str, tuple[int, int, str]] = {}
     for raw in comments:
         norm = normalize_folder_name(raw)
-        if not norm or len(norm) < min_needle:
+        if not norm:
             continue
         for key, length, rid, alias in needles:
-            if key == norm:
-                cand = (1, length, alias)
-            elif key in norm:
-                cand = (0, length, alias)
-            else:
+            tier = fuzzy_match_tier(key, norm)
+            if tier is None:
                 continue
+            cand = (tier, length, alias)
             prior = best.get(rid)
             if prior is None or cand > prior:
                 best[rid] = cand
@@ -118,8 +119,9 @@ def match_machine_in_comments(
     """Best single machine from alias needles in comment texts.
 
     Returns ``(machine_id, matched_alias_key, label, control_family)`` or None.
-    Exact normalized equality beats substring; longest needle wins.
-    Skips entries whose ``machine_id`` is empty / ``unknown`` / ``unmapped:…``.
+    Same machine-style exact-then-fuzzy as folder resolve; longest /
+    higher-tier needle wins. Skips entries whose ``machine_id`` is empty /
+    ``unknown`` / ``unmapped:…``.
     """
     if not comments or alias_map is None:
         return None
@@ -142,26 +144,21 @@ def match_machine_in_comments(
     needles.sort(key=lambda t: (-t[1], t[0]))
 
     best: Optional[tuple[int, int, str, str, Optional[str], Optional[str]]] = None
-    # (exact, length, machine_id, key, label, control_family)
+    # (tier, length, machine_id, key, label, control_family)
     for raw in comments:
         norm = normalize_folder_name(raw)
-        if not norm or len(norm) < min_needle:
+        if not norm:
             continue
         for key, length, mid, label, cf in needles:
-            if key == norm:
-                cand = (1, length, mid, key, label, cf)
-            elif key in norm:
-                cand = (0, length, mid, key, label, cf)
-            else:
+            tier = fuzzy_match_tier(key, norm)
+            if tier is None:
                 continue
-            if best is None or cand[:2] > best[:2] or (
-                cand[:2] == best[:2] and cand[3] < best[3]
-            ):
-                # Prefer higher exact/length; stable tie-break on key
-                if best is None or cand[:2] > best[:2]:
-                    best = cand
-                elif cand[:2] == best[:2] and cand[3] < best[3]:
-                    best = cand
+            cand = (tier, length, mid, key, label, cf)
+            if best is None or cand[:2] > best[:2]:
+                best = cand
+            elif cand[:2] == best[:2] and cand[3] < best[3]:
+                # Stable tie-break on key
+                best = cand
     if best is None:
         return None
     return best[2], best[3], best[4], best[5]

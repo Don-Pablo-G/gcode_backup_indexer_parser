@@ -57,10 +57,16 @@ def test_match_roles_longest_and_union():
     hits = match_roles_in_comments(["PROTO order", "Pawel"], cmap)
     assert hits[ROLE_PROTOTYPE] == "PROTO"
     assert hits[ROLE_PERSONAL] == "Pawel"
+    # Prefix ≥3
+    assert match_roles_in_comments(["PROTOExtra"], cmap)[ROLE_PROTOTYPE] == "PROTO"
     # Too-short needle skipped
     short = _colour_map(("AB", ROLE_FIXTURE))
     assert len(normalize_folder_name("AB")) < MIN_HEADER_NEEDLE
     assert match_roles_in_comments(["AB"], short) == {}
+    # 3-char mid-string does not substring-hit
+    mid = _colour_map(("Fix", ROLE_FIXTURE))
+    assert match_roles_in_comments(["XFixY"], mid) == {}
+    assert match_roles_in_comments(["Fixture"], mid)[ROLE_FIXTURE] == "Fix"
 
 
 def test_match_machine_longest_and_exact():

@@ -47,7 +47,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 import yaml
 
-from gcode_index.aliases import normalize_folder_name
+from gcode_index.aliases import best_fuzzy_key, normalize_folder_name
 from gcode_index.models import (
     COLOUR_EXCLUDE,
     PROVENANCE_BACKUP,
@@ -66,9 +66,6 @@ from gcode_index.models import (
 )
 
 FOLDER_COLOUR_ALIASES_FILENAME = "folder_colour_aliases.yaml"
-
-_MIN_SUBSTRING_ALIAS_LEN = 4
-_MIN_PREFIX_ALIAS_LEN = 3
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
@@ -341,8 +338,9 @@ default_roles = default_colours
 class FolderColourRule:
     """One folder-name alias → role id or exclude.
 
-    ``exact=True`` (tree menu): match only the normalized spelling — no fuzzy
-    substring/prefix. Legacy rules default to ``exact=False`` (fuzzy allowed).
+    Matching always uses machine-style fuzzy (exact → substring ≥4 →
+    prefix ≥3). The ``exact`` field is retained for YAML round-trip /
+    legacy sidecars but is **ignored** at match time (0.2.103+).
     """
 
     alias: str
@@ -741,31 +739,9 @@ class FolderColourAliasMap:
         return rule.colour if rule is not None else None
 
     def _lookup_fuzzy(self, key: str) -> Optional[FolderColourRule]:
-        best: Optional[FolderColourRule] = None
-        best_len = -1
-        for rule in self._rules:
-            if rule.exact:
-                continue  # tree-created / exact-only — no fuzzy blast radius
-            ak = rule.key
-            if len(ak) < _MIN_SUBSTRING_ALIAS_LEN:
-                continue
-            if ak in key and len(ak) > best_len:
-                best = rule
-                best_len = len(ak)
-        if best is not None:
-            return best
-        best = None
-        best_len = -1
-        for rule in self._rules:
-            if rule.exact:
-                continue
-            ak = rule.key
-            if len(ak) < _MIN_PREFIX_ALIAS_LEN:
-                continue
-            if key.startswith(ak) and len(ak) > best_len:
-                best = rule
-                best_len = len(ak)
-        return best
+        # ``exact`` flag is ignored — same fuzzy floors as machines (0.2.103+).
+        best = best_fuzzy_key(key, self._by_key)
+        return self._by_key.get(best) if best else None
 
     def resolve_path_parts(self, parts: Sequence[str]) -> Optional[str]:
         """Deepest-wins single role (legacy). Prefer ``resolve_path_parts_roles``."""
@@ -823,7 +799,11 @@ class FolderColourAliasMap:
         return self.resolve_path_parts_roles(parts)
 
     def upsert_exact_role(self, alias: str, role_id: str) -> FolderColourRule:
-        """Replace or add an exact name→role rule (tree menu)."""
+        """Replace or add a name→role rule (tree / Nazwy folderów).
+
+        Still named ``upsert_exact_role`` for call-site compat; the stored
+        ``exact`` flag is ignored when matching (machine-style fuzzy).
+        """
         alias = (alias or "").strip()
         colour = normalize_colour_id(role_id, known_ids=self._known)
         new = FolderColourRule(alias=alias, colour=colour, exact=True)

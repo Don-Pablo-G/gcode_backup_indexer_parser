@@ -89,9 +89,10 @@ newest_only = no
 include_unknown = yes
 ; yes/no — when folder/path left odbiorca empty, match aliases in paren comments
 ; on the same line as the program number (O#####) only — not following lines / body.
-; Reindex to backfill.
+; Same fuzzy as folder names (exact → substring ≥4 / prefix ≥3). Reindex to backfill.
 odbiorca_from_header = yes
 ; yes/no — match role folder-aliases in O-number-line paren comments (accumulate after path/tree)
+; Same fuzzy rule as machines/odbiorca; role exact flags ignored.
 role_from_header = yes
 ; yes/no — fill MACHINE UNKNOWN from machine folder-aliases on the O-number line
 ; Folder map / name alias / tree machine always win over header.

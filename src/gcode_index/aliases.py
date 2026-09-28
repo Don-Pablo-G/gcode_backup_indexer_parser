@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import yaml
 
@@ -50,8 +50,59 @@ def local_aliases_path_for_target(target: Path | str) -> Path:
 
 
 # Substring / prefix fallbacks (avoid tiny keys like "sl" matching both SL-10 and SL-20).
-_MIN_SUBSTRING_ALIAS_LEN = 4
-_MIN_PREFIX_ALIAS_LEN = 3
+# Shared by machines, roles, recipients, and O-line header matchers.
+MIN_SUBSTRING_ALIAS_LEN = 4
+MIN_PREFIX_ALIAS_LEN = 3
+# Back-compat private aliases used inside this module historically.
+_MIN_SUBSTRING_ALIAS_LEN = MIN_SUBSTRING_ALIAS_LEN
+_MIN_PREFIX_ALIAS_LEN = MIN_PREFIX_ALIAS_LEN
+
+# Score tiers for exact-then-fuzzy (higher wins; then longer needle).
+FUZZY_TIER_EXACT = 2
+FUZZY_TIER_SUBSTRING = 1
+FUZZY_TIER_PREFIX = 0
+
+
+def fuzzy_match_tier(needle: str, haystack: str) -> Optional[int]:
+    """Machine-style fuzzy: exact → substring (≥4) → prefix (≥3).
+
+    ``needle`` and ``haystack`` must already be normalized
+    (``normalize_folder_name``). Returns a tier constant, or ``None``.
+    """
+    if not needle or not haystack:
+        return None
+    if needle == haystack:
+        return FUZZY_TIER_EXACT
+    if len(needle) >= MIN_SUBSTRING_ALIAS_LEN and needle in haystack:
+        return FUZZY_TIER_SUBSTRING
+    if len(needle) >= MIN_PREFIX_ALIAS_LEN and haystack.startswith(needle):
+        return FUZZY_TIER_PREFIX
+    return None
+
+
+def best_fuzzy_key(haystack: str, keys: Iterable[str]) -> Optional[str]:
+    """Longest substring (≥4) alias in ``haystack``, else longest prefix (≥3).
+
+    Exact equality is the caller's job (dict lookup) when a key map exists.
+    ``keys`` is an iterable of already-normalized alias keys.
+    """
+    if not haystack:
+        return None
+    best_key = ""
+    for ak in keys:
+        if not ak or len(ak) < MIN_SUBSTRING_ALIAS_LEN:
+            continue
+        if ak in haystack and len(ak) > len(best_key):
+            best_key = ak
+    if best_key:
+        return best_key
+    best_key = ""
+    for ak in keys:
+        if not ak or len(ak) < MIN_PREFIX_ALIAS_LEN:
+            continue
+        if haystack.startswith(ak) and len(ak) > len(best_key):
+            best_key = ak
+    return best_key or None
 
 
 def _machines_from_yaml_data(data: Any) -> dict[str, dict[str, Any]]:
@@ -164,22 +215,7 @@ class AliasMap:
 
     def _lookup_fuzzy(self, key: str) -> Optional[dict[str, Any]]:
         """Longest alias contained in key, else longest alias that is a prefix of key."""
-        best_key = ""
-        for ak in self._machines:
-            if len(ak) < _MIN_SUBSTRING_ALIAS_LEN:
-                continue
-            if ak in key and len(ak) > len(best_key):
-                best_key = ak
-        if best_key:
-            return self._machines[best_key]
-
-        # Prefix: "VF2S" / "VF2 old" → vf2; prefer longer (vf2nowa before vf2)
-        best_key = ""
-        for ak in self._machines:
-            if len(ak) < _MIN_PREFIX_ALIAS_LEN:
-                continue
-            if key.startswith(ak) and len(ak) > len(best_key):
-                best_key = ak
+        best_key = best_fuzzy_key(key, self._machines)
         if best_key:
             return self._machines[best_key]
         return None

@@ -83,7 +83,33 @@ def test_odbiorca_path_override(tmp_path: Path):
     assert by[hit.resolve()].odbiorca_id == "other"
 
 
-def test_odbiorca_does_not_change_roles_or_status(tmp_path: Path):
+def test_odbiorca_folder_fuzzy_like_machines(tmp_path: Path):
+    """Folder names use exact-then-fuzzy; ``exact`` flag does not block."""
+    bak = tmp_path / "bak"
+    hit = _write_nc(bak / "15.09.2026" / "VF2S" / "Acme Spares" / "x.nc", "O9301")
+    am = AliasMap.load(ALIASES)
+    odb = OdbiorcaAliasMap(
+        [OdbiorcaRule(alias="Acme Sp", odbiorca_id="acme_sp", exact=True)],
+        known_ids={"acme_sp"},
+    )
+    # acmesp in acmespares (substring ≥4)
+    assert odb.match_segment("Acme Spares") == "acme_sp"
+    assert odb.match_segment("Acme_Sp") == "acme_sp"
+    # Prefix ≥3: short alias
+    short = OdbiorcaAliasMap(
+        [OdbiorcaRule(alias="Acm", odbiorca_id="acme", exact=True)],
+        known_ids={"acme"},
+    )
+    assert short.match_segment("AcmeExtra") == "acme"
+    # Mid-string 3-char does not substring-hit
+    assert short.match_segment("XAcmY") is None
+
+    result = scan_backup_tree(bak, am, odbiorca_map=odb)
+    by = {
+        (Path(i.scan_root or "") / i.source_path).resolve(): i
+        for i in result.instances
+    }
+    assert by[hit.resolve()].odbiorca_id == "acme_sp"
     bak = tmp_path / "bak"
     # Non-O9 program number so auto system_programs role does not apply
     hit = _write_nc(bak / "15.09.2026" / "OddMill" / "Acme" / "x.nc", "O2301")

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gcode_index.aliases import AliasMap, normalize_folder_name
+from gcode_index.aliases import (
+    AliasMap,
+    FUZZY_TIER_EXACT,
+    FUZZY_TIER_PREFIX,
+    FUZZY_TIER_SUBSTRING,
+    best_fuzzy_key,
+    fuzzy_match_tier,
+    normalize_folder_name,
+)
 
 
 def test_normalize_strips_spaces_dashes_underscores():
@@ -11,6 +19,19 @@ def test_normalize_strips_spaces_dashes_underscores():
     assert normalize_folder_name("VF-2 nowa") == "vf2nowa"
     assert normalize_folder_name("SBL 500") == "sbl500"
     assert normalize_folder_name("ST-20Y") == "st20y"
+
+
+def test_fuzzy_match_tier_and_best_key():
+    assert fuzzy_match_tier("vf2s", "vf2s") == FUZZY_TIER_EXACT
+    assert fuzzy_match_tier("umc750", "haasumc750") == FUZZY_TIER_SUBSTRING
+    assert fuzzy_match_tier("vf2", "vf2old") == FUZZY_TIER_PREFIX
+    # Substring floor is 4 — 3-char mid-string is not a hit
+    assert fuzzy_match_tier("vf2", "xvf2y") is None
+    assert fuzzy_match_tier("fix", "fixture") == FUZZY_TIER_PREFIX
+    keys = ["vf2", "vf2s", "umc750", "ab"]
+    assert best_fuzzy_key("vf2sjob", keys) == "vf2s"
+    assert best_fuzzy_key("vf2old", keys) == "vf2"
+    assert best_fuzzy_key("mystery", keys) is None
 
 
 def test_alias_map_known_machines(tmp_path: Path):

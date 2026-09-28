@@ -41,7 +41,9 @@ def test_match_segment_rule_returns_alias_and_fuzzy():
     assert rule.alias == "Pawel"
     assert rule.colour == ROLE_PERSONAL
     assert exact_map.match_segment("Pawel") == ROLE_PERSONAL
-    assert exact_map.match_segment_rule("PawelX") is None  # exact-only
+    # exact=True no longer blocks fuzzy: Pawel in PawelX (substring ≥4)
+    assert exact_map.match_segment_rule("PawelX") is not None
+    assert exact_map.match_segment("PawelX") == ROLE_PERSONAL
 
     fuzzy_map = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=False)]

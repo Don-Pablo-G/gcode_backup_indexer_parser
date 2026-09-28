@@ -1,4 +1,4 @@
-"""Name-wide role aliases: accumulate (union) + exact tree rules."""
+"""Name-wide role aliases: accumulate (union) + machine-style fuzzy."""
 
 from __future__ import annotations
 
@@ -47,18 +47,25 @@ def test_roles_accumulate_along_path(tmp_path: Path):
     assert ROLE_PERSONAL in roles
 
 
-def test_exact_rule_no_fuzzy_blast(tmp_path: Path):
-    """Tree-created exact rules must not fuzzy-match longer names."""
+def test_exact_flag_no_longer_blocks_fuzzy(tmp_path: Path):
+    """``exact=True`` is ignored — same fuzzy floors as machines (0.2.103+)."""
     colours = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=True)]
     )
     assert colours.match_segment("Fix") == ROLE_FIXTURE
-    assert colours.match_segment("Fixture") is None  # would fuzzy-match if not exact
-    # Legacy fuzzy still works when exact=False
+    # Prefix ≥3: Fixture.startswith(Fix)
+    assert colours.match_segment("Fixture") == ROLE_FIXTURE
+    # Same behaviour when exact=False
     fuzzy = FolderColourAliasMap(
         [FolderColourRule(alias="Fix", colour=ROLE_FIXTURE, exact=False)]
     )
     assert fuzzy.match_segment("Fixture") == ROLE_FIXTURE
+    # Substring needs ≥4 — short 3-char alias mid-string does not hit
+    assert colours.match_segment("XFixY") is None
+    long = FolderColourAliasMap(
+        [FolderColourRule(alias="Uchw", colour=ROLE_FIXTURE, exact=True)]
+    )
+    assert long.match_segment("UCHWYTY") == ROLE_FIXTURE
 
 
 def test_path_tags_replace_name_union(tmp_path: Path):
