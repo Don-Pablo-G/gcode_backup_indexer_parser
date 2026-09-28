@@ -2,8 +2,9 @@
 
 Scan persists only the final role-id set on each instance. Hover tips rebuild
 truthful reasons from the live path + YAML (name aliases / Mapuj drzewo /
-header paren comments / O9000–O9099), mirroring scanner order: name union →
-tree-path replace → header accumulate → O9 accumulate. No DB schema change.
+O-number-line paren comments / O9000–O9099), mirroring scanner order: name
+union → tree-path replace → header accumulate → O9 accumulate. No DB schema
+change.
 """
 
 from __future__ import annotations

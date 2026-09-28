@@ -298,14 +298,17 @@ def parse_odbiorca_display(raw: str) -> tuple[str, str]:
     return normalize_odbiorca_id(s), s
 
 
-# --- Header-window odbiorca match (fill-if-empty at scan) -------------------
+# --- O-number-line header match (fill-if-empty at scan) ---------------------
 
 # Same spirit as other alias mins; short tokens (LP1, OK, …) are skipped.
 MIN_HEADER_ODBIORCA_NEEDLE = 3
-# Align with whole-file .nc O-header scan window.
+# How far to *search* for the program-number line (O#####) after seek/start.
+# Comments are taken from that line only — not a multi-line window.
 HEADER_ODBIORCA_SCAN_LINES = 40
 
 _ALL_PARENS = re.compile(r"\(([^)]*)\)")
+# Same O-word lead-in locators use for program identity / programmer flag.
+_O_NUMBER_LINE = re.compile(r"^O(\d+)", re.IGNORECASE)
 
 
 def extract_header_paren_comments(
@@ -314,15 +317,16 @@ def extract_header_paren_comments(
     byte_start: Optional[int] = None,
     max_lines: int = HEADER_ODBIORCA_SCAN_LINES,
 ) -> list[str]:
-    """Paren comment texts from the header window (not the full body).
+    """Paren comment texts on the program-number (``O#####``) line only.
 
-    For whole-file programs ``byte_start`` is None → first ``max_lines`` lines.
-    For glued dumps, seek to ``byte_start`` and read ``max_lines`` from there.
+    Seeks to ``byte_start`` for glued dumps (or file start), then scans up to
+    ``max_lines`` looking for the first ``O#####…`` line. Returns every
+    ``(…)`` segment on that line. Comments on following lines or deeper in
+    the body are never returned — even if still within ``max_lines``.
     """
     p = Path(path)
     if not p.is_file():
         return []
-    comments: list[str] = []
     try:
         with open(p, "rb") as f:
             if byte_start is not None and byte_start > 0:
@@ -338,13 +342,18 @@ def extract_header_paren_comments(
                     line = raw.decode("ascii", errors="replace").rstrip("\r\n")
                 except Exception:
                     continue
+                stripped = line.lstrip(" \t")
+                if not _O_NUMBER_LINE.match(stripped):
+                    continue
+                comments: list[str] = []
                 for m in _ALL_PARENS.finditer(line):
                     text = (m.group(1) or "").strip()
                     if text:
                         comments.append(text)
+                return comments
     except OSError:
         return []
-    return comments
+    return []
 
 
 def match_odbiorca_in_comments(
@@ -403,7 +412,7 @@ def match_odbiorca_from_header(
     min_needle: int = MIN_HEADER_ODBIORCA_NEEDLE,
     max_lines: int = HEADER_ODBIORCA_SCAN_LINES,
 ) -> Optional[str]:
-    """Resolve one odbiorca_id from header-window paren comments, or None."""
+    """Resolve one odbiorca_id from O-number-line paren comments, or None."""
     comments = extract_header_paren_comments(
         path, byte_start=byte_start, max_lines=max_lines
     )

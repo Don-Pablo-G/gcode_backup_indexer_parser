@@ -1,8 +1,9 @@
-"""Header-window paren-comment matching for odbiorca / role / machine.
+"""O-number-line paren-comment matching for odbiorca / role / machine.
 
-Reuses the same extract window as odbiorca (first 40 lines / glued
-``byte_start``). Needles are existing folder-alias spellings only — not
-catalogue labels. Body comments below the window are never scanned.
+Reuses the same extract as odbiorca: paren comments on the program-number
+(``O#####``) line only (glued dumps: seek ``byte_start``, then find that
+line). Needles are existing folder-alias spellings only — not catalogue
+labels. Comments on any other line are never scanned.
 """
 
 from __future__ import annotations
@@ -22,8 +23,9 @@ from gcode_index.odbiorca_aliases import (
     extract_header_paren_comments,
 )
 
-# Shared constants (same guards as odbiorca header)
+# Shared constants (same guards as odbiorca O-line header)
 MIN_HEADER_NEEDLE = MIN_HEADER_ODBIORCA_NEEDLE
+# Search limit when locating the O-number line (not a multi-line comment window).
 HEADER_SCAN_LINES = HEADER_ODBIORCA_SCAN_LINES
 
 # Re-export extract for callers that want one import site
@@ -100,7 +102,7 @@ def match_roles_from_header(
     min_needle: int = MIN_HEADER_NEEDLE,
     max_lines: int = HEADER_SCAN_LINES,
 ) -> dict[str, str]:
-    """Role id → alias spelling from header-window paren comments."""
+    """Role id → alias spelling from O-number-line paren comments."""
     comments = extract_header_paren_comments(
         path, byte_start=byte_start, max_lines=max_lines
     )
@@ -173,7 +175,7 @@ def match_machine_from_header(
     min_needle: int = MIN_HEADER_NEEDLE,
     max_lines: int = HEADER_SCAN_LINES,
 ) -> Optional[tuple[str, str, Optional[str], Optional[str]]]:
-    """Resolve one machine from header-window paren comments, or None."""
+    """Resolve one machine from O-number-line paren comments, or None."""
     comments = extract_header_paren_comments(
         path, byte_start=byte_start, max_lines=max_lines
     )

@@ -80,22 +80,63 @@ def test_match_machine_longest_and_exact():
     assert hit2[0] == "haas-umc750"
 
 
-def test_body_comment_below_window_ignored(tmp_path: Path):
+def test_body_comment_below_o_line_ignored(tmp_path: Path):
+    """Alias on a later line (even within old 40-line window) must not match."""
     nc = _write_nc(
         tmp_path / "p.nc",
         "%\n"
         "O1234 (loose)\n"
+        "(LP1)\n"
+        "G0\n"
+        "G1 X0\n"
+        "(PROTO)\n"  # line 5 — false-positive if multi-line window still used
+        "(VF2S)\n"
         + "\n".join(f"G1 X{i}" for i in range(50))
         + "\n(PROTO)\n(VF2S)\nM30\n%\n",
     )
     comments = extract_header_paren_comments(nc, max_lines=40)
-    joined = " ".join(comments)
-    assert "PROTO" not in joined
-    assert "VF2S" not in joined
+    assert comments == ["loose"]
+    assert "PROTO" not in comments
+    assert "VF2S" not in comments
     cmap = _colour_map(("PROTO", ROLE_PROTOTYPE))
     am = AliasMap.load(ALIASES)
     assert match_roles_from_header(nc, cmap) == {}
     assert match_machine_from_header(nc, am) is None
+
+
+def test_o_line_multi_comment_matches_role_and_machine(tmp_path: Path):
+    nc = _write_nc(
+        tmp_path / "p.nc",
+        "%\nO9001 (VF2S) (PROTO) (Pawel)\nG0\n%\n",
+    )
+    comments = extract_header_paren_comments(nc)
+    assert comments == ["VF2S", "PROTO", "Pawel"]
+    cmap = _colour_map(("PROTO", ROLE_PROTOTYPE), ("Pawel", ROLE_PERSONAL))
+    am = AliasMap.load(ALIASES)
+    roles = match_roles_from_header(nc, cmap)
+    assert ROLE_PROTOTYPE in roles
+    assert ROLE_PERSONAL in roles
+    hit = match_machine_from_header(nc, am)
+    assert hit is not None
+    assert hit[0] == "haas-vf-2"
+
+
+def test_glued_byte_start_role_machine(tmp_path: Path):
+    glued = tmp_path / "dump.nc"
+    part_a = "%\nO1111 (UMC750)\nG0\nM30\n%\n"
+    part_b = "%\nO2222 (PROTO) (VF2S)\nG0\nM30\n%\n"
+    glued.write_text(part_a + part_b, encoding="utf-8")
+    byte_b = len(part_a.encode("utf-8"))
+    cmap = _colour_map(("PROTO", ROLE_PROTOTYPE))
+    am = AliasMap.load(ALIASES)
+    assert match_roles_from_header(glued, cmap, byte_start=0) == {}
+    assert match_roles_from_header(glued, cmap, byte_start=byte_b) == {
+        ROLE_PROTOTYPE: "PROTO"
+    }
+    mach_a = match_machine_from_header(glued, am, byte_start=0)
+    mach_b = match_machine_from_header(glued, am, byte_start=byte_b)
+    assert mach_a is not None and "umc" in mach_a[0].casefold()
+    assert mach_b is not None and mach_b[0] == "haas-vf-2"
 
 
 def test_folder_personal_plus_header_proto_both_roles(tmp_path: Path):
@@ -287,6 +328,30 @@ def test_tip_header_reason_when_file_present(tmp_path: Path):
     assert reasons[0].reason_kind == REASON_HEADER
     assert reasons[0].detail == "PROTO"
     assert nc.is_file()
+    from gcode_index.role_explain import format_reason_phrase
+
+    en = format_reason_phrase(reasons[0], "en")
+    pl = format_reason_phrase(reasons[0], "pl")
+    assert "O-number line" in en
+    assert "linia O" in pl
+
+
+def test_tip_ignores_alias_not_on_o_line(tmp_path: Path):
+    bak = tmp_path / "bak"
+    _write_nc(
+        bak / "loose" / "a.nc",
+        "%\nO1 (part)\n(LP1)\nG0\n(PROTO)\nM30\n%\n",
+    )
+    reasons = explain_row_roles(
+        source_path="loose/a.nc",
+        scan_root=str(bak),
+        program_number="1",
+        role_csv=ROLE_PROTOTYPE,
+        colour_map=_colour_map(("PROTO", ROLE_PROTOTYPE)),
+        tree_map=FolderTreeMap(),
+        role_from_header=True,
+    )
+    assert reasons[0].reason_kind != REASON_HEADER
 
 
 def test_tip_header_unavailable_without_source(tmp_path: Path):

@@ -699,14 +699,15 @@ newest_only = {yn(data.newest_only)}
 ; yes/no — when filtering by machines, still show MACHINE UNKNOWN / unassigned
 ; Default yes. Floor clients (can_index=no / operator.lock) keep this on.
 include_unknown = {yn(data.include_unknown)}
-; yes/no — when folder/path left odbiorca empty, match aliases in header paren comments
-; (O-header window only — not the full toolpath body). Reindex to backfill.
+; yes/no — when folder/path left odbiorca empty, match aliases in paren comments
+; on the same line as the program number (O#####) only — not following lines / body.
+; Reindex to backfill.
 odbiorca_from_header = {yn(data.odbiorca_from_header)}
-; yes/no — match role folder-aliases in header paren comments; accumulate into the
+; yes/no — match role folder-aliases in O-number-line paren comments; accumulate into the
 ; role set after name/path (before O9). Never changes status / machine / odbiorca.
 role_from_header = {yn(data.role_from_header)}
-; yes/no — when machine is still MACHINE UNKNOWN, match machine folder-aliases in
-; header paren comments. Folder map / name alias / tree machine always win.
+; yes/no — when machine is still MACHINE UNKNOWN, match machine folder-aliases on
+; the O-number line. Folder map / name alias / tree machine always win.
 machine_from_header = {yn(data.machine_from_header)}
 ; yes/no — auto-add role system_programs when program_number is O9000–O9099
 ; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
