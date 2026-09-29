@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
+from gcode_index import schedule as schedule_mod
 from gcode_index.indexer_settings import (
     IndexerSettings,
     load_indexer_settings,
@@ -21,6 +21,20 @@ from gcode_index.schedule import (
     parse_watch_safety_at,
     seconds_until_watch_safety,
 )
+
+# Fixed UTC+2 stand-in for Europe/Warsaw summer (CEST). Avoids ZoneInfo/tzdata and
+# time.tzset(), neither of which is reliable on Windows CI runners.
+_LOCAL = timezone(timedelta(hours=2))
+
+
+def _freeze_local_tz(monkeypatch) -> timezone:
+    """Make schedule._as_local use a fixed offset (Windows CI has no tzdata/tzset)."""
+    monkeypatch.setattr(
+        schedule_mod,
+        "_as_local",
+        lambda dt: schedule_mod._as_utc(dt).astimezone(_LOCAL),
+    )
+    return _LOCAL
 
 
 def test_normalize_watch_safety_at():
@@ -57,16 +71,8 @@ def test_blank_at_matches_interval_from_last_run():
 
 
 def test_24h_at_midnight_next_local_midnight(monkeypatch):
-    # Freeze local TZ so wall-clock assertions are stable in CI.
-    monkeypatch.setenv("TZ", "Europe/Warsaw")
-    try:
-        import time
-
-        time.tzset()
-    except AttributeError:
-        pass
-
-    local = ZoneInfo("Europe/Warsaw")
+    # Freeze local TZ so wall-clock assertions are stable in CI (incl. Windows).
+    local = _freeze_local_tz(monkeypatch)
     # Afternoon local — next slot is tonight's midnight (start of next calendar day).
     now_local = datetime(2026, 9, 29, 15, 30, tzinfo=local)
     now = now_local.astimezone(timezone.utc)
@@ -106,15 +112,7 @@ def test_24h_at_midnight_next_local_midnight(monkeypatch):
 
 
 def test_12h_at_0600_grid(monkeypatch):
-    monkeypatch.setenv("TZ", "Europe/Warsaw")
-    try:
-        import time
-
-        time.tzset()
-    except AttributeError:
-        pass
-
-    local = ZoneInfo("Europe/Warsaw")
+    local = _freeze_local_tz(monkeypatch)
     # 10:00 → next is 18:00
     now = datetime(2026, 9, 29, 10, 0, tzinfo=local).astimezone(timezone.utc)
     nxt = next_watch_safety_at("12h", None, "06:00", now=now)
@@ -132,15 +130,7 @@ def test_12h_at_0600_grid(monkeypatch):
 
 
 def test_6h_at_0000_quarter_day(monkeypatch):
-    monkeypatch.setenv("TZ", "Europe/Warsaw")
-    try:
-        import time
-
-        time.tzset()
-    except AttributeError:
-        pass
-
-    local = ZoneInfo("Europe/Warsaw")
+    local = _freeze_local_tz(monkeypatch)
     now = datetime(2026, 9, 29, 14, 0, tzinfo=local).astimezone(timezone.utc)
     nxt = next_watch_safety_at("6h", None, "00:00", now=now)
     assert nxt is not None
