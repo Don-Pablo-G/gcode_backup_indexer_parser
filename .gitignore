@@ -16,3 +16,9 @@ venv/
 *.xlsx
 .DS_Store
 Thumbs.db
+
+# Local code-signing material (never commit)
+*.pfx
+*.p12
+*.key
+certs/

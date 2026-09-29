@@ -1,0 +1,59 @@
+name: Sign Windows GUI exe
+
+# Small standalone signer (Sign-WindowsGui.exe) — NOT the main gcode-index-gui indexer.
+# Artifact name is deliberately distinct from gcode-index-gui-windows-*.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/sign_windows_gui.py"
+      - "scripts/build-sign-gui.ps1"
+      - ".github/workflows/sign-windows-gui.yml"
+  pull_request:
+    paths:
+      - "scripts/sign_windows_gui.py"
+      - "scripts/build-sign-gui.ps1"
+      - ".github/workflows/sign-windows-gui.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-sign-gui:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        run: python -m pip install "pyinstaller>=6.0"
+
+      - name: Build Sign-WindowsGui.exe
+        shell: pwsh
+        run: .\scripts\build-sign-gui.ps1 -Clean
+
+      - name: Resolve version for artifact name
+        id: meta
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path pyproject.toml -Pattern '(?m)^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          if (-not $ver) { throw "Could not read version from pyproject.toml" }
+          $name = "Sign-WindowsGui-$ver"
+          $exe = "dist\Sign-WindowsGui.exe"
+          if (-not (Test-Path $exe)) { throw "Missing $exe" }
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Get-Item $exe | Format-List Name, Length, FullName
+
+      - name: Upload Sign-WindowsGui.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: dist/Sign-WindowsGui.exe
+          if-no-files-found: error

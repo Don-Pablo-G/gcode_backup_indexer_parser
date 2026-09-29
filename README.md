@@ -170,6 +170,43 @@ Output:
 
 Native Windows binaries are produced on **Windows** (local or GitHub Actions). Linux cannot emit a Windows `.exe` with stock PyInstaller.
 
+### Local code signing (after download)
+
+CI builds ship **unsigned**. Sign on a Windows PC you control with a local `.pfx` — do **not** put certificates or passwords in the repo or in GitHub Actions.
+
+**Easiest — standalone `Sign-WindowsGui.exe`:** download the **`Sign-WindowsGui-*`** artifact from the [Sign Windows GUI exe](https://github.com/Don-Pablo-G/gcode_backup_indexer_parser/actions/workflows/sign-windows-gui.yml) workflow (not the main `gcode-index-gui-windows-*` zip), run the exe, browse for the unzipped indexer artifact / `gcode-index-gui.exe`, browse for your `.pfx`, enter the password, click **Sign**. No repo checkout and no `.\scripts\` path needed.
+
+**Build the signer locally** (Windows PC with Python 3.11+ / tkinter):
+
+```powershell
+.\scripts\build-sign-gui.ps1
+# → dist\Sign-WindowsGui.exe
+```
+
+**From a checkout without building:** double-click `scripts\Sign-WindowsGui.bat` (WinForms) or run `python scripts\sign_windows_gui.py` (Tk). Last target/PFX paths are remembered in `%LOCALAPPDATA%\gcode-index\` (not the password).
+
+One-time setup (self-signed is fine for shop PCs that will trust it):
+
+```powershell
+# Create a local Code Signing cert (CurrentUser\My), then export .pfx yourself
+New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=G-code Index Shop" `
+  -CertStoreLocation Cert:\CurrentUser\My -KeyExportPolicy Exportable
+# Certificates MMC → Personal → export with private key → .pfx (password-protect)
+# On each shop PC: import the public .cer into Trusted Root / Trusted Publishers (or deploy via GPO)
+```
+
+CLI alternative after each artifact download (or local `build_windows.bat`) — use **absolute paths** (or `cd` into the repo first):
+
+```powershell
+$env:GCODE_SIGN_PFX = "D:\certs\shop-codesign.pfx"   # path only — never commit
+# optional: $env:GCODE_SIGN_PFX_PASSWORD = "…"       # or omit and type at the SecureString prompt
+& "C:\path\to\repo\scripts\sign-windows.ps1" -Path "$env:USERPROFILE\Downloads\gcode-index-gui-0.2.115"
+```
+
+Requires [Windows SDK](https://developer.microsoft.com/windows/downloads/windows-sdk/) **Signing Tools** (`signtool`). Default timestamp server is DigiCert (`http://timestamp.digicert.com`); override with `-TimestampUrl` or `GCODE_SIGN_TIMESTAMP_URL`. Details: `scripts/sign-windows.ps1 -?`.
+
+**Not automated:** creating the cert, exporting the `.pfx`, and trusting it on shop PCs — those stay manual / IT. The main indexer Windows build remains `scripts\build_windows.bat` / the **Windows GUI build** workflow.
+
 ## Scan a backup tree (CLI)
 
 ```bat

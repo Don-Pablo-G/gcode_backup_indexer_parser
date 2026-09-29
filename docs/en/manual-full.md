@@ -156,6 +156,8 @@ Under the main menubar **Settings** / **Ustawienia** (all modes — floor and in
 
 The window title bar, system tray, and Windows `.exe` share the same product icon (packaged with the build).
 
+Prebuilt CI zips are **unsigned**. Shop signing is a **local** post-download step — easiest: download **Sign-WindowsGui.exe** (workflow *Sign Windows GUI exe*) or build with `scripts/build-sign-gui.ps1` → `dist/Sign-WindowsGui.exe`; from checkout: `scripts/Sign-WindowsGui.bat` / `python scripts/sign_windows_gui.py`; CLI: `scripts/sign-windows.ps1`. See README **Local code signing**. Cert creation and trusting the cert on shop PCs are manual.
+
 Turn **Close to tray** off if you want **X** to quit. Existing ini values are preserved on upgrade; only unset keys use the new off defaults.
 
 The GUI is **single-instance**: launching again (including while it sits in the tray) restores the existing window instead of starting a second process.

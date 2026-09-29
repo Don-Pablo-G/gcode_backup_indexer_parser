@@ -156,6 +156,8 @@ Under the main menubar **Settings** / **Ustawienia** (all modes — floor and in
 
 The window title bar, system tray, and Windows `.exe` share the same product icon (packaged with the build).
 
+Prebuilt CI zips are **unsigned**. Shop signing is a **local** post-download step (**Sign-WindowsGui.exe** / `scripts/sign-windows.ps1` + your `.pfx`) — see README **Local code signing**. Cert creation and trusting the cert on shop PCs are manual.
+
 Turn **Close to tray** off if you want **X** to quit. Existing ini values are preserved on upgrade; only unset keys use the new off defaults.
 
 The GUI is **single-instance**: launching again (including while it sits in the tray) restores the existing window instead of starting a second process.
