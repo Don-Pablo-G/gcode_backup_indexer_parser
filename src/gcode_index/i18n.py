@@ -75,9 +75,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "(zmiany w tym czasie łączą się w jeden skan)."
         ),
         "watch_safety": "Skan bezpieczeństwa co:",
+        "watch_safety_at": "od",
         "watch_safety_hint": (
             "Wymuszony skan przyrostowy nawet bez zmian — na wypadek "
-            "pominiętych zdarzeń / wolnego UNC. To nie jest min. przerwa."
+            "pominiętych zdarzeń / wolnego UNC. To nie jest min. przerwa. "
+            "Puste = od ostatniego skanu. Ustaw czas, aby kotwiczyć np. co 24 h o północy."
         ),
         "watch_status_quiet": "przerwa {seconds} s",
         "watch_status_safety_off": "bezpieczeństwo wył.",
@@ -777,9 +779,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "(changes in between coalesce into one scan)."
         ),
         "watch_safety": "Safety rescan every:",
+        "watch_safety_at": "at",
         "watch_safety_hint": (
             "Forced incremental even if quiet — missed events / flaky UNC. "
-            "This is not the quiet timer."
+            "This is not the quiet timer. "
+            "Blank = from last scan. Set a time to anchor e.g. every 24h at midnight."
         ),
         "watch_status_quiet": "quiet {seconds} s",
         "watch_status_safety_off": "safety off",

@@ -121,9 +121,11 @@ Gdy obserwacja jest włączona:
 
 - **Wyklucz folder kopii** (domyślnie **wł.**) — pomija `[folders] backup` w korzeniach Watch. Ręczny **Uruchom skan**, skan po zmianie Watch oraz opcjonalny **skan bezpieczeństwa** nadal indeksują kopię + dodatkowe przez normalny pipeline; tylko live nasłuch / poll pomija kopię, gdy opcja jest włączona.
 - **Min. przerwa między skanami** (domyślnie **45 s**, min. 15 s) — po *starcie* skanu Watch kolejne sygnały zmian łączą się: co najwyżej jeden skan po wygaśnięciu przerwy.
-- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”. Bezpieczeństwo nadal skanuje pełny zestaw (w tym kopię).
+- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”. Opcjonalne **od HH:MM** (czas lokalny) kotwiczy interwał na zegarze — np. **24 godziny** + **00:00** = najbliższa lokalna północ, potem co 24 h. Pusty czas = dotychczasowe „od ostatniego skanu”. Udany skan aktualizuje `watch_safety_last_run`; przy ustawionym czasie następny termin nadal idzie z siatki zegara (ręczny skan w południe nie przesuwa północy na jutro w południe). Miękkie spięcie z przerwą (może ruszyć kilka minut po godzinie, gdy trwa quiet). Bezpieczeństwo nadal skanuje pełny zestaw (w tym kopię).
 
-Klucze: `[scan] watch_exclude_backup` (domyślnie yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run`. Brakujący `watch_exclude_backup` → **yes**. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
+Klucze: `[scan] watch_exclude_backup` (domyślnie yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_at` (opcjonalne `HH:MM`, brak → puste), `watch_safety_last_run`. Brakujący `watch_exclude_backup` → **yes**. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
+
+Automatyczne skany Watch / coalesce / bezpieczeństwo aktualizują pasek statusu, ale **nie** przełączają nawigacji Praca | Indeks; tylko ręczny **Uruchom skan** skacze do Indeksu pod pasek postępu.
 
 Klient hali (`can_index=no`) nie widzi Obserwuj. Automatyczne skany wymagają włączonej obserwacji (i biorą `gcode_index.lock`).
 

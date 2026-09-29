@@ -125,9 +125,11 @@ While Watch is on you also get:
 
 - **Exclude backup folder** (default **on**) — omit `[folders] backup` from Watch roots. Manual **Run scan**, Watch-triggered incremental, and optional **safety rescan** still scan backup + extras through the normal scan pipeline; only live FS watch / poll skips backup when this is on.
 - **Min. quiet between scans** (default **45 s**, floor 15 s) — after a Watch-triggered scan *starts*, further change signals coalesce: at most one follow-up scan when the quiet window ends. Busy dumps produce one scan per quiet window, not one per debounce burst.
-- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Successful scans reset the safety countdown. Safety still indexes the full scan set (including backup).
+- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Optional **at HH:MM** (local) anchors the interval on the wall clock — e.g. **24 hours** + **00:00** = next local midnight, then every 24 h. Blank time keeps interval-from-last-run behaviour. Successful scans update `watch_safety_last_run`; with a clock set, the next due still follows the clock grid (a midday manual scan does not push midnight to tomorrow noon). Soft-couples with coalesce (may run a few minutes late if quiet is active). Safety still indexes the full scan set (including backup).
 
-Settings: `[scan] watch_exclude_backup` (default yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run` in `gcode-index.ini`. Missing `watch_exclude_backup` migrates to **yes**. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
+Settings: `[scan] watch_exclude_backup` (default yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_at` (optional `HH:MM`, missing → blank), `watch_safety_last_run` in `gcode-index.ini`. Missing `watch_exclude_backup` migrates to **yes**. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
+
+Background Watch / coalesce / safety scans update the status strip but **do not** switch the Praca | Indeks nav; only manual **Run scan** jumps to Indeks for the progress bar.
 
 Floor clients (`can_index=no`) never see Watch. Automatic scans require Watch on (and take `gcode_index.lock`).
 

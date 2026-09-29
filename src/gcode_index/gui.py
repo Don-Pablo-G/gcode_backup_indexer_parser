@@ -197,12 +197,14 @@ from gcode_index.schedule import (
     format_countdown,
     format_iso_datetime,
     format_schedule,
-    is_schedule_due,
+    format_watch_safety_label,
+    is_watch_safety_due,
     normalize_watch_safety,
+    normalize_watch_safety_at,
     parse_iso_datetime,
     parse_schedule,
     schedule_poll_ms,
-    seconds_until_next,
+    seconds_until_watch_safety,
 )
 from gcode_index.scan_cache import load_scan_cache
 from gcode_index.scan_report import (
@@ -387,6 +389,7 @@ class IndexerApp(tk.Tk):
         self.watch_safety_enabled_var = tk.BooleanVar(value=False)
         self.watch_safety_amount_var = tk.StringVar(value="1")
         self.watch_safety_unit_var = tk.StringVar(value="")
+        self.watch_safety_at_var = tk.StringVar(value="")
         self.watch_status_var = tk.StringVar(value="")
         self.watch_strip_var = tk.StringVar(value="")
         self.indeks_status_var = tk.StringVar(value="")
@@ -443,6 +446,7 @@ class IndexerApp(tk.Tk):
         self._watch_coalesce_s = DEFAULT_WATCH_COALESCE_S
         self._watch_safety = SCHEDULE_OFF
         self._watch_safety_last_run: Optional[str] = None
+        self._watch_safety_at: str = ""
         self._watch_opts_widgets: list = []
         self._tray: Optional[TrayController] = None
         self._tray_hidden = False
@@ -559,6 +563,7 @@ class IndexerApp(tk.Tk):
         self._watch_coalesce_s = clamp_watch_coalesce_s(cfg.watch_coalesce_s)
         self._watch_safety = normalize_watch_safety(cfg.watch_safety)
         self._watch_safety_last_run = cfg.watch_safety_last_run or None
+        self._watch_safety_at = normalize_watch_safety_at(cfg.watch_safety_at)
         self._sync_watch_quiet_widgets()
         self.backup_var.set(cfg.backup or "")
         self.target_var.set(cfg.target or "")
@@ -791,6 +796,7 @@ class IndexerApp(tk.Tk):
             watch_coalesce_s=self._watch_coalesce_s,
             watch_safety=self._watch_safety,
             watch_safety_last_run=self._watch_safety_last_run or "",
+            watch_safety_at=self._watch_safety_at,
             also_excel=bool(self.excel_var.get()),
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
             role_from_header=bool(self.role_from_header_var.get()),
@@ -1085,6 +1091,7 @@ class IndexerApp(tk.Tk):
             watch_exclude_backup=bool(self.watch_exclude_backup_var.get()),
             watch_coalesce_s=self._watch_coalesce_s,
             watch_safety=self._watch_safety,
+            watch_safety_at=self._watch_safety_at,
             backup_hint=self.backup_var.get().strip(),
             green_root_hints=greens,
             yellow_root_hints=yellows,
@@ -1131,6 +1138,7 @@ class IndexerApp(tk.Tk):
                 self.include_unknown_var.set(bool(settings.include_unknown))
             self._set_watch_coalesce_s(settings.watch_coalesce_s, persist=False)
             self._set_watch_safety(settings.watch_safety, persist=False)
+            self._set_watch_safety_at(settings.watch_safety_at, persist=False)
             self.watch_var.set(bool(settings.watch_folders))
             self.watch_exclude_backup_var.set(bool(settings.watch_exclude_backup))
             self._watch_enabled = bool(settings.watch_folders) and not self._is_simple()
@@ -1572,6 +1580,7 @@ class IndexerApp(tk.Tk):
             "more_filters": bool(self._more_filters_open),
             "watch_coalesce_s": self._watch_coalesce_s,
             "watch_safety": self._watch_safety,
+            "watch_safety_at": self._watch_safety_at,
             "sort_col": self._sort_col,
             "sort_reverse": bool(self._sort_reverse),
             "pelny_view": getattr(self, "_pelny_view", "praca"),
@@ -1887,6 +1896,11 @@ class IndexerApp(tk.Tk):
                         str(preserved.get("watch_safety") or SCHEDULE_OFF),
                         persist=False,
                     )
+                if preserved.get("watch_safety_at") is not None:
+                    self._set_watch_safety_at(
+                        str(preserved.get("watch_safety_at") or ""),
+                        persist=False,
+                    )
         finally:
             self._filter_trace_lock = False
 
@@ -2130,7 +2144,7 @@ class IndexerApp(tk.Tk):
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("more_filters"))
 
-    def _show_progress(self, visible: bool) -> None:
+    def _show_progress(self, visible: bool, *, switch_view: bool = True) -> None:
         if not hasattr(self, "prog_frame"):
             return
         if visible:
@@ -2141,8 +2155,10 @@ class IndexerApp(tk.Tk):
                 if after is not None and after.winfo_exists():
                     pack_opts["after"] = after
                 self.prog_frame.pack(**pack_opts)
-                # If scanning from Praca, jump to Indeks so progress is visible.
-                self._goto_indeks_tab()
+                # Manual scan: jump to Indeks so progress is visible.
+                # Background Watch / coalesce / safety keep the current Praca|Indeks view.
+                if switch_view:
+                    self._goto_indeks_tab()
         else:
             self.prog_frame.pack_forget()
 
@@ -2812,6 +2828,16 @@ class IndexerApp(tk.Tk):
         )
         safety_unit.pack(side=tk.LEFT, padx=(4, 0))
         safety_unit.bind("<<ComboboxSelected>>", self._on_watch_safety_widgets_changed)
+        safety_at_lbl = ttk.Label(
+            safety_row, text=self._("watch_safety_at"), style="Muted.TLabel"
+        )
+        safety_at_lbl.pack(side=tk.LEFT, padx=(8, 0))
+        safety_at = ttk.Entry(
+            safety_row, textvariable=self.watch_safety_at_var, width=5
+        )
+        safety_at.pack(side=tk.LEFT, padx=(4, 0))
+        safety_at.bind("<FocusOut>", self._on_watch_safety_widgets_changed)
+        safety_at.bind("<Return>", self._on_watch_safety_widgets_changed)
         safety_hint = ttk.Label(
             watch_box,
             text=self._("watch_safety_hint"),
@@ -2829,6 +2855,8 @@ class IndexerApp(tk.Tk):
             safety_chk,
             safety_amount,
             safety_unit,
+            safety_at_lbl,
+            safety_at,
             safety_hint,
         ]
         self._set_watch_opts_enabled(bool(self.watch_var.get()))
@@ -4346,6 +4374,7 @@ class IndexerApp(tk.Tk):
 
     def _sync_watch_quiet_widgets(self) -> None:
         self.watch_coalesce_var.set(str(self._watch_coalesce_s))
+        self.watch_safety_at_var.set(self._watch_safety_at or "")
         parsed = parse_schedule(self._watch_safety)
         if parsed is None:
             self.watch_safety_enabled_var.set(False)
@@ -4372,6 +4401,9 @@ class IndexerApp(tk.Tk):
         except ValueError:
             amount = 1
         return normalize_watch_safety(format_schedule(amount, unit))
+
+    def _collect_watch_safety_at_from_widgets(self) -> str:
+        return normalize_watch_safety_at(self.watch_safety_at_var.get())
 
     def _set_watch_opts_enabled(self, enabled: bool) -> None:
         state = tk.NORMAL if enabled else tk.DISABLED
@@ -4445,6 +4477,7 @@ class IndexerApp(tk.Tk):
                 self.watch_safety_amount_var.set("1")
                 self.watch_safety_unit_var.set(self._("schedule_unit_hours"))
         new_code = self._collect_watch_safety_from_widgets()
+        new_at = self._collect_watch_safety_at_from_widgets()
         if (
             new_code != self._watch_safety
             and new_code != SCHEDULE_OFF
@@ -4455,6 +4488,7 @@ class IndexerApp(tk.Tk):
             self._watch_safety_last_run = format_iso_datetime(
                 datetime.now(timezone.utc)
             )
+        self._watch_safety_at = new_at
         self._set_watch_safety(new_code)
 
     def _set_watch_safety(self, safety: str, *, persist: bool = True) -> None:
@@ -4468,16 +4502,29 @@ class IndexerApp(tk.Tk):
         self._refresh_indeks_status_line()
         self._arm_safety_timer()
 
+    def _set_watch_safety_at(self, at: str, *, persist: bool = True) -> None:
+        self._watch_safety_at = normalize_watch_safety_at(at)
+        self.watch_safety_at_var.set(self._watch_safety_at)
+        if persist:
+            self._save_instance_ini()
+            if not getattr(self, "_applying_indexer_settings", False):
+                self._persist_indexer_settings()
+        self._refresh_indeks_status_line()
+        self._arm_safety_timer()
+
     def _watch_safety_status_bit(self) -> str:
         if self._watch_safety == SCHEDULE_OFF:
             return self._("watch_status_safety_off")
+        label = format_watch_safety_label(self._watch_safety, self._watch_safety_at)
         if self._scan_busy:
-            return self._("watch_status_safety_on", interval=self._watch_safety)
-        rem = seconds_until_next(self._watch_safety, self._watch_safety_last_run)
+            return self._("watch_status_safety_on", interval=label)
+        rem = seconds_until_watch_safety(
+            self._watch_safety, self._watch_safety_last_run, self._watch_safety_at
+        )
         if rem is None:
             return self._("watch_status_safety_off")
         if rem <= 0.5:
-            return self._("watch_status_safety_on", interval=self._watch_safety)
+            return self._("watch_status_safety_on", interval=label)
         return self._(
             "watch_status_safety_due", countdown=format_countdown(rem)
         )
@@ -4576,7 +4623,9 @@ class IndexerApp(tk.Tk):
             return
         if not self._folders_ready():
             return
-        if not is_schedule_due(self._watch_safety, self._watch_safety_last_run):
+        if not is_watch_safety_due(
+            self._watch_safety, self._watch_safety_last_run, self._watch_safety_at
+        ):
             return
         if self._quiet_active():
             self._watch_safety_pending = True
@@ -5239,7 +5288,7 @@ class IndexerApp(tk.Tk):
             self._("schedule_running") if auto else self._("scan_scanning")
         )
         self._refresh_indeks_status_line()
-        self._show_progress(True)
+        self._show_progress(True, switch_view=not auto)
         self._maybe_auto_collapse_folders()
         if self._is_simple() or auto:
             write_excel = False
@@ -7469,7 +7518,9 @@ class PrepareIndexerDialog(tk.Toplevel):
                 master,
                 "prepare_indexer_pack_summary",
                 coalesce=pack.watch_coalesce_s,
-                safety=pack.watch_safety,
+                safety=format_watch_safety_label(
+                    pack.watch_safety, pack.watch_safety_at
+                ),
                 watch=("yes" if pack.watch_folders else "no"),
                 mode=pack.watch_mode,
                 exclude=("yes" if pack.watch_exclude_backup else "no"),

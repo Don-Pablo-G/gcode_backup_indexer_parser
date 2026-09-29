@@ -200,7 +200,7 @@ CLI alternative after each artifact download (or local `build_windows.bat`) — 
 ```powershell
 $env:GCODE_SIGN_PFX = "D:\certs\shop-codesign.pfx"   # path only — never commit
 # optional: $env:GCODE_SIGN_PFX_PASSWORD = "…"       # or omit and type at the SecureString prompt
-& "C:\path\to\repo\scripts\sign-windows.ps1" -Path "$env:USERPROFILE\Downloads\gcode-index-gui-0.2.115"
+& "C:\path\to\repo\scripts\sign-windows.ps1" -Path "$env:USERPROFILE\Downloads\gcode-index-gui-0.2.116"
 ```
 
 Requires [Windows SDK](https://developer.microsoft.com/windows/downloads/windows-sdk/) **Signing Tools** (`signtool`). Default timestamp server is DigiCert (`http://timestamp.digicert.com`); override with `-TimestampUrl` or `GCODE_SIGN_TIMESTAMP_URL`. Details: `scripts/sign-windows.ps1 -?`.
