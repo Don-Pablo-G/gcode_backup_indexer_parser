@@ -170,6 +170,32 @@ Output:
 
 Native Windows binaries are produced on **Windows** (local or GitHub Actions). Linux cannot emit a Windows `.exe` with stock PyInstaller.
 
+### Local code signing (after download)
+
+CI builds ship **unsigned**. Sign on a Windows PC you control with a local `.pfx` — do **not** put certificates or passwords in the repo or in GitHub Actions.
+
+One-time setup (self-signed is fine for shop PCs that will trust it):
+
+```powershell
+# Create a local Code Signing cert (CurrentUser\My), then export .pfx yourself
+New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=G-code Index Shop" `
+  -CertStoreLocation Cert:\CurrentUser\My -KeyExportPolicy Exportable
+# Certificates MMC → Personal → export with private key → .pfx (password-protect)
+# On each shop PC: import the public .cer into Trusted Root / Trusted Publishers (or deploy via GPO)
+```
+
+After each artifact download (or local `build_windows.bat`):
+
+```powershell
+$env:GCODE_SIGN_PFX = "D:\certs\shop-codesign.pfx"   # path only — never commit
+# optional: $env:GCODE_SIGN_PFX_PASSWORD = "…"       # or omit and type at the SecureString prompt
+.\scripts\sign-windows.ps1 -Path "$env:USERPROFILE\Downloads\gcode-index-gui-0.2.114"
+```
+
+Requires [Windows SDK](https://developer.microsoft.com/windows/downloads/windows-sdk/) **Signing Tools** (`signtool`). Default timestamp server is DigiCert (`http://timestamp.digicert.com`); override with `-TimestampUrl` or `GCODE_SIGN_TIMESTAMP_URL`. Details: `scripts/sign-windows.ps1 -?`.
+
+**Not automated:** creating the cert, exporting the `.pfx`, and trusting it on shop PCs — those stay manual / IT.
+
 ## Scan a backup tree (CLI)
 
 ```bat
