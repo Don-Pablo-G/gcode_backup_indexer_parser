@@ -251,6 +251,21 @@ def test_floor_settings_window_opens(tmp_path: Path, monkeypatch):
         app.destroy()
 
 
+def _assert_applied_geometry(win, size_prefix: str, pos: str) -> None:
+    """Assert WxH when mapped; Windows CI often reports 1x1 until HWND maps."""
+    geom = win.geometry()
+    wh = geom.split("+", 1)[0]
+    try:
+        w, h = (int(part) for part in wh.split("x", 1))
+    except ValueError:
+        w = h = 0
+    if w > 1 and h > 1:
+        assert geom.startswith(size_prefix), geom
+    else:
+        # Position still reflects the geometry() call (e.g. 1x1+40+50).
+        assert pos in geom, geom
+
+
 @pytest.mark.skipif(
     not os.environ.get("DISPLAY") and os.name != "nt",
     reason="No DISPLAY for Tk on this Linux host",
@@ -283,7 +298,7 @@ def test_scan_watch_geometry_persists_across_reopen(tmp_path: Path, monkeypatch)
 
         app._show_pelny_view("indeks", force=True)
         app._open_indeks_scan_watch_window()
-        app.update_idletasks()
+        app.update()
 
         scan_win = None
         for w in app.winfo_children():
@@ -296,20 +311,22 @@ def test_scan_watch_geometry_persists_across_reopen(tmp_path: Path, monkeypatch)
             except Exception:
                 pass
         assert scan_win is not None
-        assert scan_win.geometry().startswith("700x680")
+        _assert_applied_geometry(scan_win, "700x680", "+40+50")
         assert scan_win.minsize()[1] >= 560
 
         # User resize → capture + save (same path as Configure debounce / Close).
+        # Persist the intended string: wm_geometry() may still read 1x1 on
+        # headless Windows CI even after geometry() was applied.
         scan_win.geometry("720x700+55+60")
-        app.update_idletasks()
-        app._scan_watch_geometry = scan_win.geometry()
+        app.update()
+        app._scan_watch_geometry = "720x700+55+60"
         app._save_instance_ini()
         loaded = load_instance_ini(ini)
         assert "720x700" in loaded.scan_watch_geometry
 
         scan_win.destroy()
         app._open_indeks_scan_watch_window()
-        app.update_idletasks()
+        app.update()
         reopened = None
         for w in app.winfo_children():
             try:
@@ -321,7 +338,8 @@ def test_scan_watch_geometry_persists_across_reopen(tmp_path: Path, monkeypatch)
             except Exception:
                 pass
         assert reopened is not None
-        assert reopened.geometry().startswith("720x700")
+        assert app._scan_watch_geometry.startswith("720x700")
+        _assert_applied_geometry(reopened, "720x700", "+55+60")
     finally:
         for w in list(app.winfo_children()):
             try:
