@@ -21,6 +21,7 @@ from gcode_index.schedule import (
     clamp_watch_coalesce_s,
     migrate_legacy_schedule,
     normalize_watch_safety,
+    normalize_watch_safety_at,
 )
 
 INDEXER_SETTINGS_FILENAME = "indexer_settings.yaml"
@@ -40,6 +41,8 @@ class IndexerSettings:
     watch_exclude_backup: bool = True
     watch_coalesce_s: int = DEFAULT_WATCH_COALESCE_S
     watch_safety: str = SCHEDULE_OFF
+    # Optional local HH:MM anchor; blank = interval from last run.
+    watch_safety_at: str = ""
     # Optional documented logical roots (UNC/share forms preferred when known)
     backup_hint: str = ""
     green_root_hints: list[str] = field(default_factory=list)
@@ -49,6 +52,7 @@ class IndexerSettings:
         self.watch_mode = normalize_watch_mode(self.watch_mode)
         self.watch_coalesce_s = clamp_watch_coalesce_s(self.watch_coalesce_s)
         self.watch_safety = normalize_watch_safety(self.watch_safety)
+        self.watch_safety_at = normalize_watch_safety_at(self.watch_safety_at)
         self.backup_hint = (self.backup_hint or "").strip()
         self.green_root_hints = _clean_path_list(self.green_root_hints)
         self.yellow_root_hints = _clean_path_list(self.yellow_root_hints)
@@ -144,6 +148,9 @@ def load_indexer_settings(path: Path | str | None) -> Optional[IndexerSettings]:
         ),
         watch_coalesce_s=coalesce_s,
         watch_safety=safety,
+        watch_safety_at=normalize_watch_safety_at(
+            str(data.get("watch_safety_at") or "")
+        ),
         backup_hint=str(data.get("backup_hint") or "").strip(),
         green_root_hints=_clean_path_list(data.get("green_root_hints")),
         yellow_root_hints=_clean_path_list(data.get("yellow_root_hints")),
@@ -163,6 +170,7 @@ def save_indexer_settings(
             "Loaded when target points here. Does NOT set indexer capability "
             "(that stays in local gcode-index.ini next to the exe). "
             "watch_coalesce_s = min quiet seconds; watch_safety = off|15m|1h|…; "
+            "watch_safety_at = optional HH:MM local clock anchor (blank = from last run); "
             "watch_exclude_backup = yes omits main backup from live Watch roots"
         ),
         "incremental": bool(settings.incremental),
@@ -174,6 +182,7 @@ def save_indexer_settings(
         "watch_exclude_backup": bool(settings.watch_exclude_backup),
         "watch_coalesce_s": clamp_watch_coalesce_s(settings.watch_coalesce_s),
         "watch_safety": normalize_watch_safety(settings.watch_safety),
+        "watch_safety_at": normalize_watch_safety_at(settings.watch_safety_at),
     }
     if settings.backup_hint:
         payload["backup_hint"] = settings.backup_hint

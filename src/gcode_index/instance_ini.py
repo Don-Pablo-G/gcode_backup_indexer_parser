@@ -43,6 +43,7 @@ from gcode_index.schedule import (
     migrate_legacy_schedule,
     normalize_schedule,
     normalize_watch_safety,
+    normalize_watch_safety_at,
 )
 
 INSTANCE_INI_FILENAME = "gcode-index.ini"
@@ -78,6 +79,8 @@ class InstanceConfig:
     # Optional forced incremental while Watch is on: off | 15m | 1h | …
     watch_safety: str = SCHEDULE_OFF
     watch_safety_last_run: str = ""
+    # Optional local wall-clock anchor HH:MM; blank = interval from last run.
+    watch_safety_at: str = ""
     also_excel: bool = False
     newest_only: bool = False
     include_unknown: bool = True  # sticky: keep MACHINE UNKNOWN when filtering machines
@@ -407,6 +410,12 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             ).strip()
         if not cfg.watch_safety_last_run and cfg.watch_safety != SCHEDULE_OFF:
             cfg.watch_safety_last_run = cfg.schedule_last_run
+        # Missing watch_safety_at → blank (interval-from-last-run behaviour).
+        cfg.watch_safety_at = ""
+        if parser.has_section("scan") and parser.has_option("scan", "watch_safety_at"):
+            cfg.watch_safety_at = normalize_watch_safety_at(
+                parser.get("scan", "watch_safety_at", fallback="")
+            )
     else:
         coalesce_s, safety = migrate_legacy_schedule(cfg.schedule)
         cfg.watch_coalesce_s = coalesce_s
@@ -415,6 +424,7 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
             cfg.watch_safety_last_run = cfg.schedule_last_run
         else:
             cfg.watch_safety_last_run = ""
+        cfg.watch_safety_at = ""
 
     if parser.has_section("window"):
         geom = parser.get("window", "geometry", fallback=cfg.geometry).strip()
@@ -618,6 +628,9 @@ def save_instance_ini(
         watch_safety_last_run=str(
             kwargs.get("watch_safety_last_run", base.watch_safety_last_run) or ""
         ),
+        watch_safety_at=normalize_watch_safety_at(
+            str(kwargs.get("watch_safety_at", base.watch_safety_at) or "")
+        ),
         also_excel=bool(kwargs.get("also_excel", base.also_excel)),
         newest_only=bool(kwargs.get("newest_only", base.newest_only)),
         include_unknown=bool(kwargs.get("include_unknown", base.include_unknown)),
@@ -792,6 +805,9 @@ watch_coalesce_s = {data.watch_coalesce_s}
 ; Optional safety rescan while Watch is on: off | 15m | 1h | 1d
 ; Forced incremental even if quiet (missed events / flaky UNC). Not the quiet timer.
 watch_safety = {data.watch_safety}
+; Optional local wall-clock anchor HH:MM (24h). Blank = interval from last run.
+; With time set (e.g. 00:00 + 24h) next run is the next local clock hit, then every interval.
+watch_safety_at = {data.watch_safety_at}
 ; Last successful scan time used for safety countdown (UTC ISO). Blank = due soon.
 watch_safety_last_run = {data.watch_safety_last_run}
 ; yes/no — also write gcode_index.xlsx after a scan (indexer)

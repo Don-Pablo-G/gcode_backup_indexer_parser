@@ -125,9 +125,11 @@ While Watch is on you also get:
 
 - **Exclude backup folder** (default **on**) — omit `[folders] backup` from Watch roots. Manual **Run scan**, Watch-triggered incremental, and optional **safety rescan** still scan backup + extras through the normal scan pipeline; only live FS watch / poll skips backup when this is on.
 - **Min. quiet between scans** (default **45 s**, floor 15 s) — after a Watch-triggered scan *starts*, further change signals coalesce: at most one follow-up scan when the quiet window ends. Busy dumps produce one scan per quiet window, not one per debounce burst.
-- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Successful scans reset the safety countdown. Safety still indexes the full scan set (including backup).
+- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Optional **at HH:MM** (local) anchors the interval on the wall clock — e.g. **24 hours** + **00:00** = next local midnight, then every 24 h. Blank time keeps interval-from-last-run behaviour. Successful scans update `watch_safety_last_run`; with a clock set, the next due still follows the clock grid (a midday manual scan does not push midnight to tomorrow noon). Soft-couples with coalesce (may run a few minutes late if quiet is active). Safety still indexes the full scan set (including backup).
 
-Settings: `[scan] watch_exclude_backup` (default yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run` in `gcode-index.ini`. Missing `watch_exclude_backup` migrates to **yes**. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
+Settings: `[scan] watch_exclude_backup` (default yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_at` (optional `HH:MM`, missing → blank), `watch_safety_last_run` in `gcode-index.ini`. Missing `watch_exclude_backup` migrates to **yes**. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
+
+Background Watch / coalesce / safety scans update the status strip but **do not** switch the Praca | Indeks nav; only manual **Run scan** jumps to Indeks for the progress bar.
 
 Floor clients (`can_index=no`) never see Watch. Automatic scans require Watch on (and take `gcode_index.lock`).
 
@@ -156,7 +158,7 @@ Under the main menubar **Settings** / **Ustawienia** (all modes — floor and in
 
 The window title bar, system tray, and Windows `.exe` share the same product icon (packaged with the build).
 
-Prebuilt CI zips are **unsigned**. Shop signing is a **local** post-download step — easiest: download **Sign-WindowsGui.exe** (workflow *Sign Windows GUI exe*) or build with `scripts/build-sign-gui.ps1` → `dist/Sign-WindowsGui.exe`; from checkout: `scripts/Sign-WindowsGui.bat` / `python scripts/sign_windows_gui.py`; CLI: `scripts/sign-windows.ps1`. See README **Local code signing**. Cert creation and trusting the cert on shop PCs are manual.
+Prebuilt CI zips are **unsigned**. Shop signing is a **local** post-download step (**Sign-WindowsGui.exe** / `scripts/sign-windows.ps1` + your `.pfx`) — see README **Local code signing**. Cert creation and trusting the cert on shop PCs are manual.
 
 Turn **Close to tray** off if you want **X** to quit. Existing ini values are preserved on upgrade; only unset keys use the new off defaults.
 
@@ -186,6 +188,51 @@ Same find bar as the floor client, plus:
 ## Scan history
 
 **Scan history…** (indexer only) lists the last index runs from `scan_history.json` next to the database: when, duration, programs, files **added / updated / removed / unchanged**. Survives DB rebuilds — useful when diagnosing network spikes during incremental scans.
+
+---
+
+## Naming & placement (best practices)
+
+How you name folders and where you put trees decides whether Flag dots, machines, roles, recipients, green/yellow, header teach tokens, Watch, and aliases stay trustworthy. Full guide: **Help → Naming & placement…** (also [`docs/en/naming-and-placement.md`](naming-and-placement.md) in the repo).
+
+### Backup vs green vs yellow
+
+| Place | Flag |
+|-------|------|
+| Main **backup** tree | 🟢 From machine — tip **from backup** |
+| **Green** extras (trusted catch) | 🟢 same disc — tip **trusted folder** |
+| **Yellow** extras | 🟡 Status unknown |
+
+Name aliases never rewrite green/yellow — only scan-root provenance does. Nested roots: deepest configured root wins.
+
+### Folder names (token boundaries)
+
+Aliases match **tokens** split on space / `_` / `-`. `pat` matches `pat_backup`, not `pattyn`. Fuzzy runs only **inside** one token (e.g. `VF2`≈`VF2S`). Prefer aliases ≥3 characters; avoid short needles that collide across machines and recipients.
+
+### Teaching machines / roles / recipients
+
+Use **Folder names…** for repeating spellings, **Map tree…** for one-off path overrides, catalogues for maintenance, and **Unassigned header tokens…** (scan report) for frequent O-line spellings. The same alias needles match folders and O-line `(…)` comments.
+
+### Header O-line vs teach depth
+
+Auto-match (machine / role / odbiorca from header) uses paren comments **on the O-number line only**. **Header scan depth** widens only the teach list (default 1 = O-line); it does not widen auto-match. Teach list skips program numbers and tokens with **more than 4 digits**.
+
+### Program numbers and O9
+
+Programs live on `O#####` lines. Optional **O9 → system programs** (default on) tags **O9000–O9099** with role `system_programs` — not status, machine, or odbiorca.
+
+### Watch
+
+Default: **Exclude backup folder** on — live Watch covers green/yellow extras only. Manual Run scan and safety still scan backup + extras. Optional safety interval may use **at HH:MM** (local). One PC holds the watch lock.
+
+### Pack beside the DB
+
+Floor clients need the whole database folder: especially `folder_colour_aliases.yaml` (mandatory for Flag colours), plus tree map / aliases / odbiorcy / extras as taught. Never put `can_index` in the shared pack.
+
+### Short do / don’t
+
+**Do:** clear backup vs green vs yellow; token-safe names; teach via Nazwy / Mapuj / header tokens; O-line `(…)` tags; full pack beside DB; leave backup excluded from live Watch unless needed.  
+**Don’t:** rely on fuzzy prefix bleed; teach long digit runs as aliases; expect off-O-line comments to auto-assign; ship sqlite alone; run Watch on two indexer PCs.
 
 ---
 

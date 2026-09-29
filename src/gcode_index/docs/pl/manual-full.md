@@ -121,9 +121,11 @@ Gdy obserwacja jest włączona:
 
 - **Wyklucz folder kopii** (domyślnie **wł.**) — pomija `[folders] backup` w korzeniach Watch. Ręczny **Uruchom skan**, skan po zmianie Watch oraz opcjonalny **skan bezpieczeństwa** nadal indeksują kopię + dodatkowe przez normalny pipeline; tylko live nasłuch / poll pomija kopię, gdy opcja jest włączona.
 - **Min. przerwa między skanami** (domyślnie **45 s**, min. 15 s) — po *starcie* skanu Watch kolejne sygnały zmian łączą się: co najwyżej jeden skan po wygaśnięciu przerwy.
-- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”. Bezpieczeństwo nadal skanuje pełny zestaw (w tym kopię).
+- **Skan bezpieczeństwa** (opcjonalnie, domyślnie **wył.**) — wymuszony przyrostowy co N minut/godzin nawet bez zmian (pominięte zdarzenia / wolny UNC). To **nie** jest min. przerwa i nie nazywa się „Auto-indeks”. Opcjonalne **od HH:MM** (czas lokalny) kotwiczy interwał na zegarze — np. **24 godziny** + **00:00** = najbliższa lokalna północ, potem co 24 h. Pusty czas = dotychczasowe „od ostatniego skanu”. Udany skan aktualizuje `watch_safety_last_run`; przy ustawionym czasie następny termin nadal idzie z siatki zegara (ręczny skan w południe nie przesuwa północy na jutro w południe). Miękkie spięcie z przerwą (może ruszyć kilka minut po godzinie, gdy trwa quiet). Bezpieczeństwo nadal skanuje pełny zestaw (w tym kopię).
 
-Klucze: `[scan] watch_exclude_backup` (domyślnie yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run`. Brakujący `watch_exclude_backup` → **yes**. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
+Klucze: `[scan] watch_exclude_backup` (domyślnie yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_at` (opcjonalne `HH:MM`, brak → puste), `watch_safety_last_run`. Brakujący `watch_exclude_backup` → **yes**. Stary `[ui] schedule` migruje raz (krótkie sekundy → przerwa; minuty/godziny/dni → bezpieczeństwo).
+
+Automatyczne skany Watch / coalesce / bezpieczeństwo aktualizują pasek statusu, ale **nie** przełączają nawigacji Praca | Indeks; tylko ręczny **Uruchom skan** skacze do Indeksu pod pasek postępu.
 
 Klient hali (`can_index=no`) nie widzi Obserwuj. Automatyczne skany wymagają włączonej obserwacji (i biorą `gcode_index.lock`).
 
@@ -173,6 +175,51 @@ Jak na kliencie hali, plus:
 ## Historia skanów
 
 **Historia skanów…** (tylko indeksator) — ostatnie przebiegi z `scan_history.json` obok bazy: kiedy, czas, programy, pliki **dodane / zmienione / usunięte / bez zmian**. Przydatne przy diagnostyce skoków sieci.
+
+---
+
+## Nazwy i rozmieszczenie (dobre praktyki)
+
+Jak nazywasz foldery i gdzie kładziesz drzewa, decyduje o tym, czy Flaga, maszyny, role, odbiorcy, zielony/żółty, tokeny nagłówka, Obserwuj i aliasy zostają wiarygodne. Pełny przewodnik: **Pomoc → Nazwy i rozmieszczenie…** (także [`docs/pl/naming-and-placement.md`](naming-and-placement.md) w repozytorium).
+
+### Kopia vs zielone vs żółte
+
+| Miejsce | Flaga |
+|---------|-------|
+| Główne drzewo **kopii** | 🟢 Z maszyny — podpowiedź **z backupu** |
+| **Zielone** dodatkowe (zaufany catch) | 🟢 ten sam krążek — podpowiedź **zaufany folder** |
+| **Żółte** dodatkowe | 🟡 Status nieznany |
+
+Aliasy nazw nigdy nie przepisują zielonego/żółtego — tylko pochodzenie z korzenia skanu. Zagnieżdżone korzenie: najgłębszy skonfigurowany wygrywa.
+
+### Nazwy folderów (granice tokenów)
+
+Aliasy trafiają w **tokeny** dzielone spacją / `_` / `-`. `pat` pasuje do `pat_backup`, nie do `pattyn`. Fuzzy tylko **wewnątrz** jednego tokenu (np. `VF2`≈`VF2S`). Preferuj aliasy ≥3 znaki; unikaj krótkich igieł kolidujących między maszynami i odbiorcami.
+
+### Uczenie maszyn / ról / odbiorców
+
+**Nazwy folderów…** na powtarzające się pisownie, **Mapuj drzewo…** na jednorazowe nadpisania ścieżki, katalogi na utrzymanie, **Nieprzypisane tokeny nagłówka…** (raport skanu) na częste pisownie w linii O. Te same igły aliasów działają na foldery i komentarze `(…)` w linii O.
+
+### Linia O vs głębokość listy uczenia
+
+Auto-dopasowanie (maszyna / rola / odbiorca z nagłówka) używa komentarzy w nawiasach **tylko w linii numeru O**. **Głębokość skanu nagłówka** poszerza tylko listę uczenia (domyślnie 1 = linia O); nie poszerza auto-dopasowania. Lista uczenia pomija numery programów i tokeny z **więcej niż 4 cyframi**.
+
+### Numery programów i O9
+
+Programy żyją w liniach `O#####`. Opcja **O9 → programy systemowe** (domyślnie wł.) taguje **O9000–O9099** rolą `system_programs` — bez zmiany statusu, maszyny ani odbiorcy.
+
+### Obserwuj
+
+Domyślnie: **Wyklucz folder kopii** wł. — żywe Obserwuj obejmuje zielone/żółte. Ręczny Uruchom skan i bezpieczeństwo nadal skanują kopię + dodatkowe. Opcjonalny interwał bezpieczeństwa może użyć **o HH:MM** (zegar lokalny). Jeden PC trzyma blokadę obserwacji.
+
+### Pakiet obok bazy
+
+Klienci hali potrzebują całego folderu bazy: zwłaszcza `folder_colour_aliases.yaml` (obowiązkowy dla kolorów Flagi), plus mapa drzewa / aliasy / odbiorcy / dodatkowe według uczenia. Nigdy nie wkładaj `can_index` do pakietu współdzielonego.
+
+### Krótko: rób / nie rób
+
+**Rób:** jasna kopia vs zielone vs żółte; nazwy przyjazne tokenom; ucz przez Nazwy / Mapuj / tokeny nagłówka; tagi `(…)` w linii O; pełny pakiet obok bazy; zostaw kopię poza żywym Obserwuj, chyba że naprawdę potrzeba.  
+**Nie rób:** licz na rozlewanie fuzzy prefiksu; ucz długich ciągów cyfr jako aliasów; oczekuj auto-przypisania z komentarzy poza linią O; wysyłaj samo sqlite; uruchamiaj Obserwuj na dwóch PC indeksatora.
 
 ---
 

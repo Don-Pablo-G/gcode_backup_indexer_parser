@@ -9,6 +9,7 @@ Legacy presets ``hourly`` / ``daily`` / ``weekly`` normalize to ``1h`` / ``1d`` 
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -315,3 +316,160 @@ def migrate_legacy_schedule(old_schedule: Optional[str]) -> tuple[int, str]:
         # Values above 2 min still clamp into coalesce range (no seconds safety UI).
         return clamp_watch_coalesce_s(amount), SCHEDULE_OFF
     return DEFAULT_WATCH_COALESCE_S, normalize_watch_safety(code)
+
+
+_HHMM_RE = re.compile(r"^\s*(\d{1,2})\s*:\s*(\d{2})\s*$")
+
+
+def parse_watch_safety_at(value: Optional[str]) -> tuple[int, int] | None:
+    """Return ``(hour, minute)`` for a local ``HH:MM`` clock, or ``None`` if blank/invalid."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    m = _HHMM_RE.match(raw)
+    if not m:
+        return None
+    hour = int(m.group(1))
+    minute = int(m.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return hour, minute
+
+
+def normalize_watch_safety_at(value: Optional[str]) -> str:
+    """Canonical ``HH:MM`` or empty string (invalid → empty)."""
+    parsed = parse_watch_safety_at(value)
+    if parsed is None:
+        return ""
+    hour, minute = parsed
+    return f"{hour:02d}:{minute:02d}"
+
+
+def format_watch_safety_label(schedule: str, at: Optional[str] = "") -> str:
+    """Display form: ``24h`` or ``24h@00:00`` when a clock anchor is set."""
+    code = normalize_watch_safety(schedule)
+    if code == SCHEDULE_OFF:
+        return SCHEDULE_OFF
+    clock = normalize_watch_safety_at(at)
+    if clock:
+        return f"{code}@{clock}"
+    return code
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _as_local(dt: datetime) -> datetime:
+    return _as_utc(dt).astimezone()
+
+
+def _grid_slot_on_or_after(
+    when_local: datetime,
+    interval: timedelta,
+    hour: int,
+    minute: int,
+    *,
+    strict: bool = False,
+) -> datetime:
+    """Next local wall-clock slot on the interval grid anchored at ``HH:MM``.
+
+    Origin is ``when_local``'s calendar day at ``hour:minute``, then
+    ``origin + k * interval`` for integer ``k``. Examples: ``24h`` + ``00:00``
+    → daily midnight; ``12h`` + ``06:00`` → 06:00 / 18:00; ``6h`` + ``00:00``
+    → 00:00 / 06:00 / 12:00 / 18:00.
+    """
+    origin = when_local.replace(
+        hour=hour, minute=minute, second=0, microsecond=0
+    )
+    secs = interval.total_seconds()
+    if secs <= 0:
+        return origin
+    delta_secs = (when_local - origin).total_seconds()
+    if strict:
+        # First slot strictly after ``when_local``.
+        if delta_secs < 0:
+            slot = origin
+            if slot <= when_local:
+                slot = origin + interval
+            return slot
+        k = math.floor(delta_secs / secs) + 1
+        return origin + timedelta(seconds=k * secs)
+    # On or after ``when_local``.
+    if delta_secs <= 0:
+        return origin
+    k = math.ceil(delta_secs / secs)
+    slot = origin + timedelta(seconds=k * secs)
+    # Guard float edge: ensure slot >= when_local
+    if slot < when_local:
+        slot = origin + timedelta(seconds=(k + 1) * secs)
+    return slot
+
+
+def next_watch_safety_at(
+    schedule: str,
+    last_run: Optional[datetime | str],
+    at: Optional[str] = "",
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    """Next safety due instant (UTC). Blank ``at`` → interval-from-last-run."""
+    clock = parse_watch_safety_at(at)
+    if clock is None:
+        return next_schedule_at(schedule, last_run, now=now)
+    interval = schedule_interval(normalize_watch_safety(schedule))
+    if interval is None:
+        return None
+    current = _as_utc(now or datetime.now(timezone.utc))
+    current_local = _as_local(current)
+    hour, minute = clock
+    previous = (
+        last_run
+        if isinstance(last_run, datetime)
+        else parse_iso_datetime(str(last_run) if last_run else None)
+    )
+    if previous is None:
+        slot_local = _grid_slot_on_or_after(
+            current_local, interval, hour, minute, strict=False
+        )
+    else:
+        prev_local = _as_local(previous)
+        slot_local = _grid_slot_on_or_after(
+            prev_local, interval, hour, minute, strict=True
+        )
+    return _as_utc(slot_local)
+
+
+def is_watch_safety_due(
+    schedule: str,
+    last_run: Optional[datetime | str],
+    at: Optional[str] = "",
+    *,
+    now: Optional[datetime] = None,
+) -> bool:
+    """True when Watch safety rescan should run (optional clock anchor)."""
+    clock = parse_watch_safety_at(at)
+    if clock is None:
+        return is_schedule_due(schedule, last_run, now=now)
+    nxt = next_watch_safety_at(schedule, last_run, at, now=now)
+    if nxt is None:
+        return False
+    current = _as_utc(now or datetime.now(timezone.utc))
+    return current >= nxt
+
+
+def seconds_until_watch_safety(
+    schedule: str,
+    last_run: Optional[datetime | str],
+    at: Optional[str] = "",
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[float]:
+    """Seconds until next safety due time, or ``None`` when safety is off."""
+    nxt = next_watch_safety_at(schedule, last_run, at, now=now)
+    if nxt is None:
+        return None
+    current = _as_utc(now or datetime.now(timezone.utc))
+    return max(0.0, (nxt - current).total_seconds())

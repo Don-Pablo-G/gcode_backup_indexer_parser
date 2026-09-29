@@ -2,6 +2,7 @@
 
 Kinds ``simple`` / ``full`` are legacy filenames for floor (`can_index=no`) vs
 indexer (`can_index=yes`) manuals — not a Prosty/Pełny UI mode.
+Kind ``naming`` is the naming & placement guideline (same file for both audiences).
 """
 
 from __future__ import annotations
@@ -12,14 +13,16 @@ import sys
 from pathlib import Path
 from typing import Literal, Optional
 
-DocKind = Literal["simple", "full"]
+DocKind = Literal["simple", "full", "naming"]
 LangCode = Literal["pl", "en"]
 
 _MANUAL_FILES = {
     ("en", "simple"): "manual-simple.md",
     ("en", "full"): "manual-full.md",
+    ("en", "naming"): "naming-and-placement.md",
     ("pl", "simple"): "manual-simple.md",
     ("pl", "full"): "manual-full.md",
+    ("pl", "naming"): "naming-and-placement.md",
 }
 
 
