@@ -245,6 +245,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
         hidden_columns=["path", "location"],
         column_widths={"path": 320, "flag": 96, "program": 110},
         preview_geometry="800x600+40+40",
+        scan_watch_geometry="700x650+30+40",
     )
     save_instance_ini(path, config=cfg)
     text = path.read_text(encoding="utf-8")
@@ -257,6 +258,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert "path=320" in text
     assert "flag=96" in text
     assert "preview_geometry = 800x600+40+40" in text
+    assert "scan_watch_geometry = 700x650+30+40" in text
     loaded = load_instance_ini(path)
     assert loaded.filter_text == "O1234"
     assert loaded.filter_machines == ["HAAS VF-2", "ST-20Y"]
@@ -277,6 +279,29 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert loaded.column_widths.get("path") == 320
     assert loaded.column_widths.get("flag") == 96
     assert loaded.preview_geometry == "800x600+40+40"
+    assert loaded.scan_watch_geometry == "700x650+30+40"
+
+
+def test_scan_watch_geometry_window_and_session_keys(tmp_path: Path):
+    """[window] scan_watch_geometry loads; [session] key is a legacy mirror."""
+    path = tmp_path / INSTANCE_INI_FILENAME
+    path.write_text(
+        "[window]\nscan_watch_geometry = 640x700+12+24\n",
+        encoding="utf-8",
+    )
+    assert load_instance_ini(path).scan_watch_geometry == "640x700+12+24"
+
+    path.write_text(
+        "[session]\nscan_watch_geometry = 660x720+8+16\n",
+        encoding="utf-8",
+    )
+    assert load_instance_ini(path).scan_watch_geometry == "660x720+8+16"
+
+    cfg = InstanceConfig(backup="/bak", target="/db", scan_watch_geometry="680x680+5+5")
+    save_instance_ini(path, config=cfg)
+    text = path.read_text(encoding="utf-8")
+    assert text.count("scan_watch_geometry = 680x680+5+5") >= 2  # window + session
+    assert load_instance_ini(path).scan_watch_geometry == "680x680+5+5"
 
 
 def test_filter_all_tokens_normalize_to_empty(tmp_path: Path):

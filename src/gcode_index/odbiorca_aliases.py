@@ -317,12 +317,42 @@ def parse_odbiorca_display(raw: str) -> tuple[str, str]:
 # Same floors as folder/machine fuzzy; short tokens (OK, …) skipped as needles.
 MIN_HEADER_ODBIORCA_NEEDLE = MIN_PREFIX_ALIAS_LEN
 # How far to *search* for the program-number line (O#####) after seek/start.
-# Comments are taken from that line only — not a multi-line window.
+# Comments for auto-match are taken from that line only — not a multi-line window.
 HEADER_ODBIORCA_SCAN_LINES = 40
+
+# Teach-list depth (lines counting the O-line): default 1 = O-line only.
+DEFAULT_HEADER_SCAN_DEPTH = 1
+MIN_HEADER_SCAN_DEPTH = 1
+MAX_HEADER_SCAN_DEPTH = 20
 
 _ALL_PARENS = re.compile(r"\(([^)]*)\)")
 # Same O-word lead-in locators use for program identity.
 _O_NUMBER_LINE = re.compile(r"^O(\d+)", re.IGNORECASE)
+
+
+def clamp_header_scan_depth(value: object) -> int:
+    """Clamp teach-list header depth to ``[1, 20]``; missing/invalid → 1."""
+    try:
+        n = int(float(str(value).strip().replace(",", ".")))
+    except (TypeError, ValueError, AttributeError):
+        return DEFAULT_HEADER_SCAN_DEPTH
+    if n < MIN_HEADER_SCAN_DEPTH:
+        return MIN_HEADER_SCAN_DEPTH
+    return min(MAX_HEADER_SCAN_DEPTH, n)
+
+
+def _paren_bodies_on_line(line: str) -> list[str]:
+    comments: list[str] = []
+    for m in _ALL_PARENS.finditer(line):
+        text = (m.group(1) or "").strip()
+        if text:
+            comments.append(text)
+    return comments
+
+
+def _is_leading_percent_line(stripped: str) -> bool:
+    """True when the line starts with ``%`` (program end / next glued frame)."""
+    return bool(stripped) and stripped.startswith("%")
 
 
 def extract_header_paren_comments(
@@ -337,10 +367,36 @@ def extract_header_paren_comments(
     ``max_lines`` looking for the first ``O#####…`` line. Returns every
     ``(…)`` segment on that line. Comments on following lines or deeper in
     the body are never returned — even if still within ``max_lines``.
+
+    Used by odbiorca / role / machine auto-match (always O-line only).
+    """
+    return extract_header_paren_comments_for_teach(
+        path,
+        byte_start=byte_start,
+        max_lines=max_lines,
+        depth=1,
+    )
+
+
+def extract_header_paren_comments_for_teach(
+    path: Path | str,
+    *,
+    byte_start: Optional[int] = None,
+    max_lines: int = HEADER_ODBIORCA_SCAN_LINES,
+    depth: int = DEFAULT_HEADER_SCAN_DEPTH,
+) -> list[str]:
+    """Paren comments for the unassigned-token teach list.
+
+    Locates the first ``O#####`` after seek/`byte_start` (same ``max_lines``
+    budget as auto-match), then collects ``(…)`` bodies from that O-line and
+    the next ``depth - 1`` physical lines. Stops before the next leading
+    ``%`` (program end) even when ``depth`` would allow more lines. Free text
+    outside parentheses is ignored. Depth ``1`` matches O-line-only auto-match.
     """
     p = Path(path)
     if not p.is_file():
         return []
+    depth_n = clamp_header_scan_depth(depth)
     try:
         with open(p, "rb") as f:
             if byte_start is not None and byte_start > 0:
@@ -348,6 +404,7 @@ def extract_header_paren_comments(
                     f.seek(int(byte_start))
                 except OSError:
                     f.seek(0)
+            o_line: Optional[str] = None
             for _ in range(max(1, int(max_lines))):
                 raw = f.readline()
                 if not raw:
@@ -359,15 +416,27 @@ def extract_header_paren_comments(
                 stripped = line.lstrip(" \t")
                 if not _O_NUMBER_LINE.match(stripped):
                     continue
-                comments: list[str] = []
-                for m in _ALL_PARENS.finditer(line):
-                    text = (m.group(1) or "").strip()
-                    if text:
-                        comments.append(text)
-                return comments
+                o_line = line
+                break
+            if o_line is None:
+                return []
+            comments = _paren_bodies_on_line(o_line)
+            # Collect up to depth-1 following lines; stop before leading %.
+            for _ in range(max(0, depth_n - 1)):
+                raw = f.readline()
+                if not raw:
+                    break
+                try:
+                    line = raw.decode("ascii", errors="replace").rstrip("\r\n")
+                except Exception:
+                    continue
+                stripped = line.lstrip(" \t")
+                if _is_leading_percent_line(stripped):
+                    break
+                comments.extend(_paren_bodies_on_line(line))
+            return comments
     except OSError:
         return []
-    return []
 
 
 def match_odbiorca_in_comments(

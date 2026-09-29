@@ -41,7 +41,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "add_yellow_folder": "Dodaj żółty (poza kopią)…",
         "remove_selected": "Usuń zaznaczone",
         "extra_hint": (
-            "Zielony = traktuj jak z maszyny (luźne .nc zanim znikną z backupu). "
+            "Zielony = zaufany folder / traktuj jak z maszyny "
+            "(luźne .nc zanim znikną z backupu). "
             "Żółty = dodatkowy folder (nie z kopii)."
         ),
         # Flag disc glyph (colour via Listbox foreground — same as Flag column)
@@ -62,6 +63,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_running": "Skan automatyczny…",
         "schedule_last": "Ostatni auto-indeks: {when}",
         "watch_folders": "Obserwuj foldery",
+        "watch_exclude_backup": "Wyklucz folder kopii",
+        "watch_exclude_backup_hint": (
+            "Nie nasłuchuj głównego folderu kopii — tylko zielone/żółte. "
+            "Skan ręczny i bezpieczeństwa nadal mogą obejmować kopię."
+        ),
         "watch_coalesce": "Min. przerwa między skanami:",
         "watch_coalesce_unit": "sekund",
         "watch_coalesce_hint": (
@@ -183,6 +189,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "odbiorca_from_header": "Odbiorca z nagłówka",
         "role_from_header": "Role z nagłówka",
         "machine_from_header": "Maszyna z nagłówka",
+        "header_scan_depth": "Głębokość skanu nagłówka (linie)",
+        "header_scan_depth_hint": (
+            "Tylko lista nieprzypisanych tokenów (nauczanie): linie od O##### "
+            "(1 = tylko linia numeru programu). Zatrzymuje się przed następnym %. "
+            "Auto-dopasowanie odbiorcy / ról / maszyny zostaje na linii O. "
+            "Zapis: [scan] header_scan_depth w gcode-index.ini (1–20)."
+        ),
         "o9_system_programs_role": "O9000–O9099 → programy systemowe",
         "scan_note_odbiorca": "; odbiorca folder={folder} ścieżka={path} nagłówek={header}",
         "scan_note_role_header": "; role nagłówek={n}",
@@ -302,9 +315,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag": "Flaga",
         "filter_status": "Status",
         "filter_role": "Rola",
-        "status_on_machine": "Na maszynie",
+        "status_on_machine": "Z maszyny",
         "status_not_run": "Status nieznany",
         "status_unknown": "Status nieznany",
+        "status_source_backup": "z backupu",
+        "status_source_trusted": "zaufany folder",
         "col_status": "Status",
         "col_role": "Rola",
         "compare": "Porównaj…",
@@ -316,7 +331,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "delete": "Usuń",
         "preset_hint": "Zapisane jako {filename} obok bazy",
         "hint": (
-            "Status (zielony = na maszynie; żółty = status nieznany). "
+            "Status (zielony = z maszyny; żółty = status nieznany). "
             "Rola z aliasów folderów — osobno od statusu (żółty ≠ przyrząd). "
             "Tylko najnowsze = jedna pozycja na program+maszynę. "
             "Ctrl/Shift+klik = wielokrotny wybór do wydobycia. "
@@ -381,10 +396,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_pick": "Wybierz folder kopii i folder bazy.",
         "status_pick_simple": "Otwórz istniejącą bazę (zielony przycisk).",
         "status_loaded_ini": "Wczytano ustawienia z {filename}",
-        "flag_green": "● na maszynie (kopia)",
+        "flag_green": "● z maszyny (backup)",
         "flag_yellow": "● status nieznany (żółty)",
         "flag_red": "● rola osobisty",
         "flag_tip_status": "Flaga: {disc} {label}",
+        "flag_tip_status_sourced": "Flaga: {disc} {label} — {source}",
         "flag_tip_override": "Flaga: {disc} {role} — zastępuje status",
         "flag_tip_functions": "Funkcje:",
         "flag_tip_alias": "alias „{spelling}”",
@@ -399,6 +415,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag_tip_empty": "Brak funkcji",
         "flag_tip_unavailable": "powód niedostępny (ponów skan?)",
         "flag_tip_bullet": "  • {label} — {reason}",
+        "folder_tip_status": "Folder: {disc} {label}",
+        "folder_tip_status_sourced": "Folder: {disc} {label} — {source}",
         "all_paren": "(wszystkie)",
         "ctx_extract": "Wydobądź zaznaczone…",
         "ctx_compare": "Porównaj…",
@@ -436,7 +454,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "prepare_indexer_apply": "Ustaw jako indeksator",
         "prepare_indexer_apply_pack": "Zastosuj domyślne ustawienia z pakietu (indexer_settings.yaml)",
         "prepare_indexer_no_pack": "Brak indexer_settings.yaml w folderze bazy — użyte zostaną bieżące przełączniki",
-        "prepare_indexer_pack_summary": "Pakiet: przerwa={coalesce} s, bezpieczeństwo={safety}, obserwacja={watch}, metoda={mode}",
+        "prepare_indexer_pack_summary": "Pakiet: przerwa={coalesce} s, bezpieczeństwo={safety}, obserwacja={watch}, metoda={mode}, wyklucz kopię={exclude}",
         "prepare_indexer_enable_watch": "Włącz obserwację folderów po zatwierdzeniu",
         "prepare_indexer_can_index_note": "Ta instalacja dostanie can_index=yes w lokalnym gcode-index.ini (obok exe). Pakiet danych nie wymusza can_index.",
         "prepare_indexer_floor_hint": "Komputery na hali: can_index=no oraz opcjonalnie pusty operator.lock (lub settings_locked=yes) obok ich ini — żeby nikt nie włączył indeksatora edycją pliku. Razem z bazą zawsze dawaj folder_colour_aliases.yaml (kolory Flagi).",
@@ -584,7 +602,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "scan_report_none": 'Brak ukończonego skanu w tej bazie.',
         "header_tokens_button": "Nieprzypisane tokeny nagłówka…",
         "header_tokens_dialog_title": "Nieprzypisane tokeny nagłówka",
-        "header_tokens_intro": "Tokeny z komentarzy nawiasowych na linii O##### (po skanie). Tylko bez aliasu maszyny / funkcji / odbiorcy. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi (nr części). Prawy klik jak w Nazwy folderów — ten sam zapis sidecars. Pełny reskan odświeża listę (nauczone znikają). Cache: header_token_freq.json obok bazy.",
+        "header_tokens_intro": "Tokeny z komentarzy nawiasowych od linii O##### (po skanie; głębokość w Opcjach skanu, domyślnie 1 = tylko linia O; stop przed %). Tylko bez aliasu maszyny / funkcji / odbiorcy. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi (nr części). Prawy klik jak w Nazwy folderów — ten sam zapis sidecars. Pełny reskan odświeża listę (nauczone znikają). Cache: header_token_freq.json obok bazy.",
         "header_tokens_need_target": "Wybierz folder docelowy indeksu (tam jest baza i cache tokenów).",
         "header_tokens_need_scan": "Brak listy tokenów — uruchom skan (pełny zalecany). Plik {filename} powstaje na końcu skanu obok bazy.",
         "header_tokens_empty": "Brak nieprzypisanych tokenów nagłówka (wszystkie mają alias albo lista jest pusta po wykluczeniach).",
@@ -721,11 +739,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "browse": "Browse…",
         "extra_folders": "Additional folders",
         "add_folder": "Add folder…",
-        "add_green_folder": "Add green (on-machine / .nc)…",
+        "add_green_folder": "Add green (from machine / .nc)…",
         "add_yellow_folder": "Add yellow (not from backup)…",
         "remove_selected": "Remove selected",
         "extra_hint": (
-            "Green = treat as on-machine (loose .nc before backup misses them). "
+            "Green = trusted folder / treat as from machine "
+            "(loose .nc before backup misses them). "
             "Yellow = extra folder (not from backup)."
         ),
         # Flag disc glyph (colour via Listbox foreground — same as Flag column)
@@ -746,6 +765,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "schedule_running": "Automatic scan…",
         "schedule_last": "Last auto-index: {when}",
         "watch_folders": "Watch folders",
+        "watch_exclude_backup": "Exclude backup folder",
+        "watch_exclude_backup_hint": (
+            "Do not watch the main backup tree — only green/yellow extras. "
+            "Manual and safety scans can still cover backup."
+        ),
         "watch_coalesce": "Min. quiet between scans:",
         "watch_coalesce_unit": "seconds",
         "watch_coalesce_hint": (
@@ -867,6 +891,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "odbiorca_from_header": "Odbiorca from header",
         "role_from_header": "Roles from header",
         "machine_from_header": "Machine from header",
+        "header_scan_depth": "Header scan depth (lines)",
+        "header_scan_depth_hint": (
+            "Unassigned-token teach list only: lines from O##### "
+            "(1 = program-number line only). Stops before the next %. "
+            "Odbiorca / roles / machine auto-match stay on the O-line. "
+            "Saved as [scan] header_scan_depth in gcode-index.ini (1–20)."
+        ),
         "o9_system_programs_role": "O9000–O9099 → system programs",
         "scan_note_odbiorca": "; odbiorca folder={folder} path={path} header={header}",
         "scan_note_role_header": "; role header={n}",
@@ -986,9 +1017,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag": "Flag",
         "filter_status": "Status",
         "filter_role": "Role",
-        "status_on_machine": "On machine",
+        "status_on_machine": "From machine",
         "status_not_run": "Status unknown",
         "status_unknown": "Status unknown",
+        "status_source_backup": "from backup",
+        "status_source_trusted": "trusted folder",
         "col_status": "Status",
         "col_role": "Role",
         "compare": "Compare…",
@@ -1000,7 +1033,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "delete": "Delete",
         "preset_hint": "Stored as {filename} next to the DB",
         "hint": (
-            "Status (green = on machine; yellow = status unknown). "
+            "Status (green = from machine; yellow = status unknown). "
             "Role from folder aliases — separate from status (yellow ≠ fixture). "
             "Newest only keeps the latest date per program+machine. "
             "Ctrl/Shift+click rows to multi-select for batch extract. "
@@ -1065,10 +1098,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_pick": "Pick a backup folder and a database folder.",
         "status_pick_simple": "Open an existing database (green button).",
         "status_loaded_ini": "Loaded settings from {filename}",
-        "flag_green": "● on machine (backup)",
+        "flag_green": "● from machine (backup)",
         "flag_yellow": "● status unknown (yellow)",
         "flag_red": "● personal role",
         "flag_tip_status": "Flag: {disc} {label}",
+        "flag_tip_status_sourced": "Flag: {disc} {label} — {source}",
         "flag_tip_override": "Flag: {disc} {role} — overrides status",
         "flag_tip_functions": "Functions:",
         "flag_tip_alias": "alias “{spelling}”",
@@ -1083,6 +1117,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag_tip_empty": "No functions",
         "flag_tip_unavailable": "reason unavailable (re-scan?)",
         "flag_tip_bullet": "  • {label} — {reason}",
+        "folder_tip_status": "Folder: {disc} {label}",
+        "folder_tip_status_sourced": "Folder: {disc} {label} — {source}",
         "all_paren": "(all)",
         "ctx_extract": "Extract selected…",
         "ctx_compare": "Compare…",
@@ -1120,7 +1156,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "prepare_indexer_apply": "Make this the indexer",
         "prepare_indexer_apply_pack": "Apply pack defaults (indexer_settings.yaml)",
         "prepare_indexer_no_pack": "No indexer_settings.yaml in the database folder — current toggles will be kept",
-        "prepare_indexer_pack_summary": "Pack: quiet={coalesce} s, safety={safety}, watch={watch}, mode={mode}",
+        "prepare_indexer_pack_summary": "Pack: quiet={coalesce} s, safety={safety}, watch={watch}, mode={mode}, exclude backup={exclude}",
         "prepare_indexer_enable_watch": "Enable folder watch after confirm",
         "prepare_indexer_can_index_note": "This install gets can_index=yes in local gcode-index.ini (next to the exe). The data pack never forces can_index.",
         "prepare_indexer_floor_hint": "Floor PCs: can_index=no plus optional empty operator.lock (or settings_locked=yes) next to their ini — so nobody elevates to indexer by editing the file. Always ship folder_colour_aliases.yaml with the DB (Flag colours).",
@@ -1268,7 +1304,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "scan_report_none": 'No completed scan found in this database.',
         "header_tokens_button": "Unassigned header tokens…",
         "header_tokens_dialog_title": "Unassigned header tokens",
-        "header_tokens_intro": "Tokens from paren comments on the O##### line (after scan). Only those with no machine / function / recipient alias. Exclusions: program number and tokens with more than 4 digit characters (part-number filter). Right-click like Folder names — same sidecar writes. A full rescan refreshes the list (taught tokens drop out). Cache: header_token_freq.json beside the DB.",
+        "header_tokens_intro": "Tokens from paren comments starting at the O##### line (after scan; depth in Scan options, default 1 = O-line only; stop before %). Only those with no machine / function / recipient alias. Exclusions: program number and tokens with more than 4 digit characters (part-number filter). Right-click like Folder names — same sidecar writes. A full rescan refreshes the list (taught tokens drop out). Cache: header_token_freq.json beside the DB.",
         "header_tokens_need_target": "Choose the index target folder (database and token cache live there).",
         "header_tokens_need_scan": "No token list yet — run a scan (full recommended). {filename} is written at the end of scan beside the DB.",
         "header_tokens_empty": "No unassigned header tokens (all have an alias, or the list is empty after exclusions).",

@@ -14,7 +14,7 @@ Legacy note: older installs with `[ui] mode=full` map to `can_index=yes`.
 With `can_index=yes` the GUI can:
 
 - Scan backup trees and write / update `gcode_index.sqlite`
-- Add **green** (on-machine) and **yellow** (extra) scan roots
+- Add **green** (from machine) and **yellow** (extra) scan roots
 - Watch folders with min. quiet coalesce and optional safety rescan while the GUI stays open
 - Map odd folder names to machines and edit **local aliases**
 - Use advanced filters, saved views, compare, scan report / index quality, duplicates
@@ -57,7 +57,7 @@ Browsing for backup / database / extract keeps the folder panel **open** so you 
 
 ### Extra roots
 
-- **Green** — treat like on-machine / catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
+- **Green** — treat like from machine / trusted catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
 - **Yellow** — extra trees not from the machine backup. Programs get a **yellow** status-unknown flag.
 
 Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-index.ini`).
@@ -70,7 +70,7 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 | Badge | Meaning | Source |
 |-------|---------|--------|
-| 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch / trusted roots |
+| 🟢 | From machine (`backup`) | Main backup tree (**from backup**) or green catch / trusted roots (**trusted folder**); same green disc — tip shows which |
 | 🟡 | Status unknown (`extra`) | Any other subtree (yellow extras, etc.) |
 
 **Flag column = status + distinct function colours.** Always one green **or** yellow status disc (unless a role with **can override main state colour** replaces it — prototype defaults on → single blue). Then one disc per **distinct** function colour from row roles (e.g. system programs orange beside green). Same colour never doubles. Row font colour follows the **primary** disc (status or override). True multi-colour discs are drawn as an image (not multiple text glyphs).
@@ -98,7 +98,9 @@ Use separate **Status** and **Role** filters (role filter matches any tag). Exac
 4. **Roles & aliases…** — same pattern: select a role → meta + nested folder aliases; **Name exclusions** under the role list. Those aliases also match paren comments `(…)` on the **O-number line** when **Roles from header** is on (accumulate after path/tree; before O9).
 5. **Recipients & aliases…** — same pattern: select a recipient → labels + nested folder aliases; one odbiorca per program (like machine). Folder-name aliases also match paren comments `(…)` on the **O-number line** when path/folder left odbiorca empty (**Odbiorca from header** toggle; reindex to backfill).
 
-Header matching (same for odbiorca / role / machine): paren comments **on the same line as the program number** (`O#####`) only — not the old multi-line header window, not following lines, not the body. Glued dumps seek to `byte_start` then find that O-line. Aliases only (not catalogue labels). **Same match rule as folder names:** token-boundary (exact full / exact token or consecutive tokens, then fuzzy only within one token: substring ≥4 / prefix ≥3 short residual — VF2≈VF2S, not pat→pattyn); prefer longer / exact needles. **Reindex after upgrade** so assignments refresh. Role/odbiorca `exact` flags in YAML are ignored. **Machine from header** fills only when the row is still **MACHINE UNKNOWN** — folder map / name alias / tree machine always win. Status 🟢/🟡 is never taken from the header.
+Header matching (same for odbiorca / role / machine): paren comments **on the same line as the program number** (`O#####`) only — not the old multi-line header window, not following lines, not the body. Glued dumps seek to `byte_start` then find that O-line. Aliases only (not catalogue labels); min needle length 3. **Match rule:** token-boundary (exact full / token or consecutive tokens, then fuzzy within one token only — substring ≥4 / prefix ≥3 short residual; VF2≈VF2S, not pat→pattyn). **Reindex after upgrade.** **Machine from header** fills only when the row is still **MACHINE UNKNOWN** — folder map / name alias / tree machine always win. Status 🟢/🟡 is never taken from the header.
+
+**Header scan depth (lines)** in **Scan & watch → Scan options** widens only the **unassigned header tokens** teach list (default **1** = O-line; stop before next `%`). It does **not** change odbiorca / role / machine auto-match. Key: `[scan] header_scan_depth` in `gcode-index.ini` (1–20; missing → 1). Indexer ini only — not pack yaml.
 
 ### Loose `.nc` machine assignment
 
@@ -113,18 +115,19 @@ Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / ex
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
 2. Click green **Run scan** / **Uruchom skan** (right side). Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
 3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch), and **Reports…**. Desktop / tray / language live under the main **Settings** menu.
-4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**). From the report (or **Reports…**), **Unassigned header tokens…** lists frequent O-line comment tokens that still have no machine / function / recipient alias — right-click assign like **Folder names**. Excludes program numbers and tokens with more than 4 digit characters. Cache: `header_token_freq.json` beside the DB; a **full rescan** refreshes the list so taught tokens drop out.
+4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**). From the report (or **Reports…**), **Unassigned header tokens…** lists frequent comment tokens from the O-line window (depth in **Scan options**, default **1** = O-line only; stops before the next `%`) that still have no machine / function / recipient alias — right-click assign like **Folder names**. Excludes program numbers and tokens with more than 4 digit characters. Cache: `header_token_freq.json` beside the DB; a **full rescan** refreshes the list so taught tokens drop out. Odbiorca / roles / machine auto-match stay O-line only.
 
 ### Watch folders
 
-Tick **Watch folders** to watch the backup tree and extra (green/yellow) roots. When new or changed indexable files appear, the app waits a short debounce (3 s), then runs an **incremental** scan (no full rebuild). Stamp-poll stays at 5 s.
+Tick **Watch folders** to watch configured roots. By default the **main backup folder is excluded** from live Watch (listeners / stamp-poll) — only green/yellow extras are watched. Uncheck **Exclude backup folder** to watch the backup tree as well. When new or changed indexable files appear under watched roots, the app waits a short debounce (3 s), then runs an **incremental** scan (no full rebuild). Stamp-poll stays at 5 s.
 
 While Watch is on you also get:
 
+- **Exclude backup folder** (default **on**) — omit `[folders] backup` from Watch roots. Manual **Run scan**, Watch-triggered incremental, and optional **safety rescan** still scan backup + extras through the normal scan pipeline; only live FS watch / poll skips backup when this is on.
 - **Min. quiet between scans** (default **45 s**, floor 15 s) — after a Watch-triggered scan *starts*, further change signals coalesce: at most one follow-up scan when the quiet window ends. Busy dumps produce one scan per quiet window, not one per debounce burst.
-- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Successful scans reset the safety countdown.
+- **Safety rescan** (optional, default **off**) — forced incremental on an interval (minutes/hours, e.g. 1 h) even if quiet, for missed events / flaky UNC. This is **not** the quiet timer and is never labeled “Auto-index.” Successful scans reset the safety countdown. Safety still indexes the full scan set (including backup).
 
-Settings: `[scan] watch_coalesce_s`, `watch_safety`, `watch_safety_last_run` in `gcode-index.ini`. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
+Settings: `[scan] watch_exclude_backup` (default yes), `watch_coalesce_s`, `watch_safety`, `watch_safety_last_run` in `gcode-index.ini`. Missing `watch_exclude_backup` migrates to **yes**. Legacy `[ui] schedule` migrates once (short seconds → quiet; minutes/hours/days → safety).
 
 Floor clients (`can_index=no`) never see Watch. Automatic scans require Watch on (and take `gcode_index.lock`).
 

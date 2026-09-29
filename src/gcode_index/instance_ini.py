@@ -28,6 +28,10 @@ from gcode_index.column_layout import (
 )
 from gcode_index.autostart_win import VIA_STARTUP, normalize_autostart_via
 from gcode_index.folder_watch import DEFAULT_WATCH_MODE, normalize_watch_mode
+from gcode_index.odbiorca_aliases import (
+    DEFAULT_HEADER_SCAN_DEPTH,
+    clamp_header_scan_depth,
+)
 from gcode_index.operator_lock import (
     is_settings_locked,
     settings_locked_from_ini_value,
@@ -66,6 +70,9 @@ class InstanceConfig:
     incremental: bool = True
     watch_folders: bool = False
     watch_mode: str = DEFAULT_WATCH_MODE  # hybrid | poll
+    # When yes (default), omit [folders] backup from live Watch roots.
+    # Green/yellow extras still watched; manual/safety scans still cover backup.
+    watch_exclude_backup: bool = True
     # Min. quiet between Watch-triggered scans (seconds); coalesce pending changes.
     watch_coalesce_s: int = DEFAULT_WATCH_COALESCE_S
     # Optional forced incremental while Watch is on: off | 15m | 1h | …
@@ -80,6 +87,10 @@ class InstanceConfig:
     role_from_header: bool = True
     # Match machine folder-aliases in header when still MACHINE UNKNOWN
     machine_from_header: bool = True
+    # Teach-list only: how many lines from O##### (incl. O-line) to collect
+    # paren comments for unassigned header tokens. Auto-match stays O-line only.
+    # Missing / invalid → 1; clamped to 1–20. Not stored in pack yaml.
+    header_scan_depth: int = 1
     # Auto-tag O9000–O9099 program numbers with role system_programs
     o9_system_programs_role: bool = True
     search_auto_refresh: bool = False  # re-query when DB mtime changes
@@ -125,6 +136,8 @@ class InstanceConfig:
     column_widths: dict[str, int] = field(default_factory=dict)
     # Preview popup WxH[+X+Y]; empty = default
     preview_geometry: str = ""
+    # Scan & watch dialog WxH[+X+Y]; empty = dialog default
+    scan_watch_geometry: str = ""
 
     def root_specs(self) -> list[ScanRootSpec]:
         specs: list[ScanRootSpec] = []
@@ -331,6 +344,14 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.machine_from_header = _truthy(
             parser.get("scan", "machine_from_header", fallback="yes"), default=True
         )
+        # Missing / invalid → 1 (O-line only for teach list).
+        cfg.header_scan_depth = clamp_header_scan_depth(
+            parser.get(
+                "scan",
+                "header_scan_depth",
+                fallback=str(DEFAULT_HEADER_SCAN_DEPTH),
+            )
+        )
         cfg.o9_system_programs_role = _truthy(
             parser.get("scan", "o9_system_programs_role", fallback="yes"), default=True
         )
@@ -339,6 +360,11 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         )
         cfg.watch_mode = normalize_watch_mode(
             parser.get("scan", "watch_mode", fallback=DEFAULT_WATCH_MODE)
+        )
+        # Missing key → yes (exclude backup from Watch). Explicit no keeps watching it.
+        cfg.watch_exclude_backup = _truthy(
+            parser.get("scan", "watch_exclude_backup", fallback="yes"),
+            default=True,
         )
         cfg.search_auto_refresh = _truthy(
             parser.get("scan", "search_auto_refresh", fallback="no"), default=False
@@ -397,6 +423,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         prev_geom = parser.get("window", "preview_geometry", fallback="").strip()
         if prev_geom:
             cfg.preview_geometry = prev_geom
+        scan_geom = parser.get("window", "scan_watch_geometry", fallback="").strip()
+        if scan_geom:
+            cfg.scan_watch_geometry = scan_geom
 
     if parser.has_section("notes"):
         cfg.notes = parser.get("notes", "text", fallback="").strip()
@@ -500,6 +529,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         session_prev = parser.get("session", "preview_geometry", fallback="").strip()
         if session_prev:
             cfg.preview_geometry = session_prev
+        session_scan = parser.get("session", "scan_watch_geometry", fallback="").strip()
+        if session_scan:
+            cfg.scan_watch_geometry = session_scan
 
     return cfg
 
@@ -574,6 +606,9 @@ def save_instance_ini(
         watch_mode=normalize_watch_mode(
             str(kwargs.get("watch_mode", base.watch_mode) or DEFAULT_WATCH_MODE)
         ),
+        watch_exclude_backup=bool(
+            kwargs.get("watch_exclude_backup", base.watch_exclude_backup)
+        ),
         watch_coalesce_s=clamp_watch_coalesce_s(
             kwargs.get("watch_coalesce_s", base.watch_coalesce_s)
         ),
@@ -594,6 +629,9 @@ def save_instance_ini(
         ),
         machine_from_header=bool(
             kwargs.get("machine_from_header", base.machine_from_header)
+        ),
+        header_scan_depth=clamp_header_scan_depth(
+            kwargs.get("header_scan_depth", base.header_scan_depth)
         ),
         o9_system_programs_role=bool(
             kwargs.get("o9_system_programs_role", base.o9_system_programs_role)
@@ -661,6 +699,9 @@ def save_instance_ini(
         ),
         preview_geometry=str(
             kwargs.get("preview_geometry", base.preview_geometry) or ""
+        ),
+        scan_watch_geometry=str(
+            kwargs.get("scan_watch_geometry", base.scan_watch_geometry) or ""
         ),
     )
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -733,13 +774,18 @@ schedule_last_run =
 [scan]
 ; yes/no — skip unchanged files when re-indexing (indexer)
 incremental = {yn(data.incremental)}
-; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
+; yes/no — watch folders and incremental-index on drop (indexer)
 watch_folders = {yn(data.watch_folders)}
 ; Watch method when watch_folders=yes (indexer):
 ;   hybrid = Auto — OS events on local disks, stamp-poll on network/UNC shares
 ;   poll   = stamp-poll everywhere (safe fallback)
 ; Accepted aliases: auto/hybryda → hybrid; safe/stamp → poll
 watch_mode = {data.watch_mode}
+; yes/no — omit [folders] backup from live Watch roots (default yes).
+; Green/yellow extras still watched. Manual / safety / incremental scans still
+; cover backup; only FS listeners and stamp-poll skip it when yes.
+; Missing key migrates to yes (excluded).
+watch_exclude_backup = {yn(data.watch_exclude_backup)}
 ; Min. quiet between Watch-triggered scans (seconds, floor 15, default 45).
 ; Changes during the quiet window coalesce into one follow-up scan.
 watch_coalesce_s = {data.watch_coalesce_s}
@@ -766,6 +812,12 @@ role_from_header = {yn(data.role_from_header)}
 ; yes/no — when machine is still MACHINE UNKNOWN, match machine folder-aliases on
 ; the O-number line. Folder map / name alias / tree machine always win.
 machine_from_header = {yn(data.machine_from_header)}
+; Integer 1–20 — teach-list only: how many lines from the O##### line (counting
+; the O-line) to collect paren (… ) comments for unassigned header tokens.
+; Default 1 = O-line only. Stops before the next leading %. Auto-match
+; (odbiorca / roles / machine) always stays O-line only — this key does not
+; widen them. Missing / invalid → 1. Indexer ini only (not pack yaml).
+header_scan_depth = {clamp_header_scan_depth(data.header_scan_depth)}
 ; yes/no — auto-add role system_programs when program_number is O9000–O9099
 ; (case-insensitive O; accumulate with other roles). Reindex to backfill / drop
 ; old broad O9… tags outside that range. Does not change status / machine / odbiorca.
@@ -786,6 +838,8 @@ search_auto_refresh_s = {data.search_auto_refresh_s}
 geometry = {data.geometry}
 ; Preview popup size/position (e.g. 760x640+120+80); blank = default
 preview_geometry = {data.preview_geometry}
+; Scan & watch dialog size/position (e.g. 620x640+80+60); blank = default
+scan_watch_geometry = {data.scan_watch_geometry}
 
 [notes]
 ; Free-form note for this PC / shop (optional)
@@ -858,6 +912,8 @@ hidden_columns = {",".join(data.hidden_columns)}
 column_widths = {format_column_widths(data.column_widths, list(DEFAULT_COLUMN_WIDTHS))}
 ; Preview popup geometry (also written under [window]; kept here for older readers)
 preview_geometry = {data.preview_geometry}
+; Scan & watch dialog geometry (also under [window]; kept here for older readers)
+scan_watch_geometry = {data.scan_watch_geometry}
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (auto-loaded; do not delete):

@@ -73,13 +73,18 @@ schedule_last_run =
 [scan]
 ; yes/no — skip unchanged files when re-indexing (size + mtime cache)
 incremental = yes
-; yes/no — watch backup/extra folders and incremental-index on drop (indexer)
+; yes/no — watch folders and incremental-index on drop (indexer)
 watch_folders = no
 ; Watch method when watch_folders=yes (indexer only):
 ;   hybrid = Auto — OS events on local disks, stamp-poll on network/UNC (Z:\, \\server\share)
 ;   poll   = stamp-poll everywhere (safe fallback / previous behavior)
 ; Aliases: auto / hybryda → hybrid; safe / stamp → poll
 watch_mode = hybrid
+; yes/no — omit [folders] backup from live Watch roots (default yes).
+; Green/yellow extras still watched. Manual / safety / incremental scans still
+; cover backup; only FS listeners and stamp-poll skip it when yes.
+; Missing key migrates to yes (excluded).
+watch_exclude_backup = yes
 ; yes/no — also write gcode_index.xlsx after a successful scan (indexer)
 also_excel = no
 ; yes/no — default "newest only" (one row per program+machine) on startup
@@ -97,6 +102,11 @@ role_from_header = yes
 ; yes/no — fill MACHINE UNKNOWN from machine folder-aliases on the O-number line
 ; Folder map / name alias / tree machine always win over header.
 machine_from_header = yes
+; Integer 1–20 — teach-list only: lines from O##### (counting the O-line) for
+; unassigned header-token collection. Default 1 = O-line only. Stops before
+; the next leading %. Does NOT widen odbiorca / role / machine auto-match
+; (those stay O-line only). Missing / invalid → 1. Indexer ini only (not pack).
+header_scan_depth = 1
 ; yes/no — auto-add role system_programs for program numbers O9000–O9099 (accumulate)
 ; Reindex to backfill / drop old broad O9… tags outside that range
 o9_system_programs_role = yes
@@ -113,6 +123,10 @@ search_auto_refresh_s = 20
 [window]
 ; Width x height (+optional +X+Y). Saved on resize / quit / close-to-tray.
 geometry = 1320x820
+; Preview popup size/position; blank = default
+preview_geometry =
+; Scan & watch dialog size/position; blank = default (restored on reopen)
+scan_watch_geometry =
 
 [notes]
 ; Free-form note for this PC / shop (optional; rewritten by the GUI)
@@ -185,6 +199,8 @@ hidden_columns =
 column_widths =
 ; Preview popup geometry (also under [window])
 preview_geometry =
+; Scan & watch dialog geometry (also under [window])
+scan_watch_geometry =
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (paths implied by [folders] target=).

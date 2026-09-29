@@ -132,6 +132,42 @@ def watch_method_for_path(
     return METHOD_POLL
 
 
+def collect_watch_roots(
+    backup: Path | str | None,
+    extra_roots: Iterable[Path | str],
+    *,
+    exclude_backup: bool = True,
+) -> list[Path]:
+    """Build live Watch listener/poll roots (hybrid and poll honour this list).
+
+    When ``exclude_backup`` is True (default), omit ``[folders] backup`` so
+    FS events and stamp-poll ignore the main backup tree. Green/yellow extras
+    stay. Manual / safety / incremental scans still use the full scan set —
+    only Watch roots change here.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(raw: Path | str | None) -> None:
+        if raw is None:
+            return
+        text = os.fspath(raw).strip()
+        if not text:
+            return
+        path = Path(text)
+        key = os.fspath(path).replace("\\", "/").casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    if not exclude_backup:
+        _add(backup)
+    for extra in extra_roots:
+        _add(extra)
+    return roots
+
+
 def short_root_label(path: Path | str, *, maxlen: int = 28) -> str:
     raw = os.fspath(path).strip()
     if not raw:

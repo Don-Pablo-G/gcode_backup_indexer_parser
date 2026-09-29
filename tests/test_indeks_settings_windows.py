@@ -249,3 +249,102 @@ def test_floor_settings_window_opens(tmp_path: Path, monkeypatch):
         assert app._("settings_title") in titles
     finally:
         app.destroy()
+
+
+def _assert_applied_geometry(win, size_prefix: str, pos: str) -> None:
+    """Assert WxH when mapped; Windows CI often reports 1x1 until HWND maps."""
+    geom = win.geometry()
+    wh = geom.split("+", 1)[0]
+    try:
+        w, h = (int(part) for part in wh.split("x", 1))
+    except ValueError:
+        w = h = 0
+    if w > 1 and h > 1:
+        assert geom.startswith(size_prefix), geom
+    else:
+        # Position still reflects the geometry() call (e.g. 1x1+40+50).
+        assert pos in geom, geom
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DISPLAY") and os.name != "nt",
+    reason="No DISPLAY for Tk on this Linux host",
+)
+def test_scan_watch_geometry_persists_across_reopen(tmp_path: Path, monkeypatch):
+    """Saved [window] scan_watch_geometry is applied on Scan & watch open."""
+    from tests.tk_util import require_working_tk
+
+    require_working_tk()
+    from gcode_index.gui import DEFAULT_SCAN_WATCH_MINSIZE, IndexerApp
+    from gcode_index.instance_ini import load_instance_ini
+
+    ini = tmp_path / "gcode-index.ini"
+    save_instance_ini(
+        ini,
+        can_index=True,
+        backup=str(tmp_path / "backup"),
+        target=str(tmp_path / "db"),
+        scan_watch_geometry="700x680+40+50",
+    )
+    monkeypatch.setenv("GCODE_INDEX_INI", str(ini))
+
+    app = IndexerApp()
+    try:
+        if app._is_simple():
+            app._can_index = True
+            app._rebuild(app._snapshot_ui())
+        assert app._scan_watch_geometry == "700x680+40+50"
+        assert DEFAULT_SCAN_WATCH_MINSIZE[1] >= 560
+
+        app._show_pelny_view("indeks", force=True)
+        app._open_indeks_scan_watch_window()
+        app.update()
+
+        scan_win = None
+        for w in app.winfo_children():
+            try:
+                if w.winfo_class() == "Toplevel" and str(w.title()) == app._(
+                    "indeks_win_scan_watch_title"
+                ):
+                    scan_win = w
+                    break
+            except Exception:
+                pass
+        assert scan_win is not None
+        _assert_applied_geometry(scan_win, "700x680", "+40+50")
+        assert scan_win.minsize()[1] >= 560
+
+        # User resize → capture + save (same path as Configure debounce / Close).
+        # Persist the intended string: wm_geometry() may still read 1x1 on
+        # headless Windows CI even after geometry() was applied.
+        scan_win.geometry("720x700+55+60")
+        app.update()
+        app._scan_watch_geometry = "720x700+55+60"
+        app._save_instance_ini()
+        loaded = load_instance_ini(ini)
+        assert "720x700" in loaded.scan_watch_geometry
+
+        scan_win.destroy()
+        app._open_indeks_scan_watch_window()
+        app.update()
+        reopened = None
+        for w in app.winfo_children():
+            try:
+                if w.winfo_class() == "Toplevel" and str(w.title()) == app._(
+                    "indeks_win_scan_watch_title"
+                ):
+                    reopened = w
+                    break
+            except Exception:
+                pass
+        assert reopened is not None
+        assert app._scan_watch_geometry.startswith("720x700")
+        _assert_applied_geometry(reopened, "720x700", "+55+60")
+    finally:
+        for w in list(app.winfo_children()):
+            try:
+                if w.winfo_class() == "Toplevel":
+                    w.destroy()
+            except Exception:
+                pass
+        app.destroy()

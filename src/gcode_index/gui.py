@@ -131,10 +131,14 @@ from gcode_index.folder_colour_aliases import (
     save_colour_catalog,
 )
 from gcode_index.odbiorca_aliases import (
+    DEFAULT_HEADER_SCAN_DEPTH,
+    MAX_HEADER_SCAN_DEPTH,
+    MIN_HEADER_SCAN_DEPTH,
     ODBIORCY_FILENAME,
     OdbiorcaAliasMap,
     OdbiorcaCatalog,
     OdbiorcaDef,
+    clamp_header_scan_depth,
     display_for_odbiorca,
     load_odbiorca_catalog,
     normalize_odbiorca_id,
@@ -149,7 +153,7 @@ from gcode_index.path_util import (
     source_exists_on_disk,
 )
 from gcode_index.path_remap import PathRemap, normalize_remaps
-from gcode_index.role_explain import format_flag_tooltip
+from gcode_index.role_explain import format_flag_tooltip, format_folder_status_tip
 from gcode_index.instance_ini import (
     InstanceConfig,
     default_instance_ini_path,
@@ -226,6 +230,7 @@ from gcode_index.folder_watch import (
     WATCH_MODE_HYBRID,
     WATCH_MODE_POLL,
     FolderWatcher,
+    collect_watch_roots,
     normalize_watch_mode,
 )
 from gcode_index.scan_history import (
@@ -300,6 +305,9 @@ RESULT_COLUMNS: tuple[str, ...] = (
 # Flag uses Treeview #0 (PhotoImage); remaining ids are data columns.
 RESULT_DATA_COLUMNS: tuple[str, ...] = tuple(c for c in RESULT_COLUMNS if c != "flag")
 DEFAULT_PREVIEW_GEOMETRY = "760x640"
+# Default Scan & watch size when no saved geometry (fits Watch + Scan options + depth).
+DEFAULT_SCAN_WATCH_GEOMETRY = "620x640"
+DEFAULT_SCAN_WATCH_MINSIZE = (580, 560)
 UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
 # Re-export theme colors for callers / tests that import from gui
@@ -362,9 +370,13 @@ class IndexerApp(tk.Tk):
         self.include_unknown_var = tk.BooleanVar(value=True)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
+        self.watch_exclude_backup_var = tk.BooleanVar(value=True)
         self.odbiorca_from_header_var = tk.BooleanVar(value=True)
         self.role_from_header_var = tk.BooleanVar(value=True)
         self.machine_from_header_var = tk.BooleanVar(value=True)
+        self.header_scan_depth_var = tk.StringVar(
+            value=str(DEFAULT_HEADER_SCAN_DEPTH)
+        )
         self.o9_system_programs_role_var = tk.BooleanVar(value=True)
         self.watch_mode_var = tk.StringVar(value="")
         self.search_auto_refresh_var = tk.BooleanVar(value=False)
@@ -396,6 +408,8 @@ class IndexerApp(tk.Tk):
         self._preview_body_error: bool = False
         self._preview_win: Optional[tk.Toplevel] = None
         self._preview_geometry: str = DEFAULT_PREVIEW_GEOMETRY
+        self._scan_watch_geometry: str = ""
+        self._scan_watch_geom_save_after_id: Optional[str] = None
         self._hidden_columns: set[str] = {"role"}
         self._column_widths: dict[str, int] = dict(DEFAULT_COLUMN_WIDTHS)
         self._col_resize: Optional[dict] = None
@@ -411,6 +425,9 @@ class IndexerApp(tk.Tk):
         self._flag_tip_after_id: Optional[str] = None
         self._flag_tip_win: Optional[tk.Toplevel] = None
         self._flag_tip_row: Optional[str] = None
+        self._folder_tip_after_id: Optional[str] = None
+        self._folder_tip_win: Optional[tk.Toplevel] = None
+        self._folder_tip_index: Optional[int] = None
         self._flag_photos = FlagPhotoCache(self)
         self._colours_sidecar_missing = False
         self._sort_col: Optional[str] = None
@@ -524,6 +541,7 @@ class IndexerApp(tk.Tk):
         self._folder_save_after_id: Optional[str] = None
         self._filter_save_after_id: Optional[str] = None
         self._geometry_save_after_id: Optional[str] = None
+        self._scan_watch_geom_save_after_id: Optional[str] = None
         self.bind("<Configure>", self._on_window_configure)
 
     def _(self, key: str, **kwargs) -> str:
@@ -547,9 +565,13 @@ class IndexerApp(tk.Tk):
         self.extract_var.set(cfg.extract or "")
         self.incremental_var.set(bool(cfg.incremental))
         self.watch_var.set(bool(cfg.watch_folders))
+        self.watch_exclude_backup_var.set(bool(cfg.watch_exclude_backup))
         self.odbiorca_from_header_var.set(bool(cfg.odbiorca_from_header))
         self.role_from_header_var.set(bool(cfg.role_from_header))
         self.machine_from_header_var.set(bool(cfg.machine_from_header))
+        self.header_scan_depth_var.set(
+            str(clamp_header_scan_depth(cfg.header_scan_depth))
+        )
         self.o9_system_programs_role_var.set(bool(cfg.o9_system_programs_role))
         self._watch_mode = normalize_watch_mode(cfg.watch_mode)
         self.watch_mode_var.set(self._watch_mode_label(self._watch_mode))
@@ -584,6 +606,8 @@ class IndexerApp(tk.Tk):
                 pass
         if (cfg.preview_geometry or "").strip():
             self._preview_geometry = cfg.preview_geometry.strip()
+        if (cfg.scan_watch_geometry or "").strip():
+            self._scan_watch_geometry = cfg.scan_watch_geometry.strip()
         self._hidden_columns = {
             c.strip()
             for c in (cfg.hidden_columns or [])
@@ -728,6 +752,8 @@ class IndexerApp(tk.Tk):
                 self._apply_column_visibility()
             if (cfg.preview_geometry or "").strip():
                 self._preview_geometry = cfg.preview_geometry.strip()
+            if (cfg.scan_watch_geometry or "").strip():
+                self._scan_watch_geometry = cfg.scan_watch_geometry.strip()
         finally:
             self._filter_trace_lock = False
         # Kick a query so restored filters show results
@@ -761,6 +787,7 @@ class IndexerApp(tk.Tk):
             incremental=bool(self.incremental_var.get()),
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_exclude_backup=bool(self.watch_exclude_backup_var.get()),
             watch_coalesce_s=self._watch_coalesce_s,
             watch_safety=self._watch_safety,
             watch_safety_last_run=self._watch_safety_last_run or "",
@@ -768,6 +795,9 @@ class IndexerApp(tk.Tk):
             odbiorca_from_header=bool(self.odbiorca_from_header_var.get()),
             role_from_header=bool(self.role_from_header_var.get()),
             machine_from_header=bool(self.machine_from_header_var.get()),
+            header_scan_depth=clamp_header_scan_depth(
+                self.header_scan_depth_var.get()
+            ),
             o9_system_programs_role=bool(self.o9_system_programs_role_var.get()),
             autostart=bool(self.autostart_var.get()),
             autostart_via=self._autostart_via_code(),
@@ -814,6 +844,9 @@ class IndexerApp(tk.Tk):
             },
             preview_geometry=str(
                 getattr(self, "_preview_geometry", "") or ""
+            ).strip(),
+            scan_watch_geometry=str(
+                getattr(self, "_scan_watch_geometry", "") or ""
             ).strip(),
         )
 
@@ -1049,6 +1082,7 @@ class IndexerApp(tk.Tk):
             include_unknown=self._effective_include_unknown(),
             watch_folders=bool(self.watch_var.get()),
             watch_mode=self._watch_mode,
+            watch_exclude_backup=bool(self.watch_exclude_backup_var.get()),
             watch_coalesce_s=self._watch_coalesce_s,
             watch_safety=self._watch_safety,
             backup_hint=self.backup_var.get().strip(),
@@ -1098,6 +1132,7 @@ class IndexerApp(tk.Tk):
             self._set_watch_coalesce_s(settings.watch_coalesce_s, persist=False)
             self._set_watch_safety(settings.watch_safety, persist=False)
             self.watch_var.set(bool(settings.watch_folders))
+            self.watch_exclude_backup_var.set(bool(settings.watch_exclude_backup))
             self._watch_enabled = bool(settings.watch_folders) and not self._is_simple()
             self._set_watch_mode(settings.watch_mode, persist=False)
         finally:
@@ -1173,6 +1208,18 @@ class IndexerApp(tk.Tk):
             return
         self._save_instance_ini()
         self._persist_indexer_settings()
+
+    def _on_header_scan_depth_changed(self, *_args) -> None:
+        """Clamp teach-list depth and persist ini only (not pack yaml)."""
+        if self._filter_trace_lock:
+            return
+        if getattr(self, "_applying_indexer_settings", False):
+            return
+        depth = clamp_header_scan_depth(self.header_scan_depth_var.get())
+        current = str(self.header_scan_depth_var.get()).strip()
+        if current != str(depth):
+            self.header_scan_depth_var.set(str(depth))
+        self._save_instance_ini()
 
     def _on_window_configure(self, event=None) -> None:
         # Only top-level geometry changes
@@ -1509,9 +1556,13 @@ class IndexerApp(tk.Tk):
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
             "watch_mode": self._watch_mode,
+            "watch_exclude_backup": bool(self.watch_exclude_backup_var.get()),
             "odbiorca_from_header": bool(self.odbiorca_from_header_var.get()),
             "role_from_header": bool(self.role_from_header_var.get()),
             "machine_from_header": bool(self.machine_from_header_var.get()),
+            "header_scan_depth": clamp_header_scan_depth(
+                self.header_scan_depth_var.get()
+            ),
             "o9_system_programs_role": bool(self.o9_system_programs_role_var.get()),
             "search_auto_refresh": bool(self.search_auto_refresh_var.get()),
             "excel": bool(self.excel_var.get()),
@@ -1531,6 +1582,9 @@ class IndexerApp(tk.Tk):
                 self, "_preview_geometry", DEFAULT_PREVIEW_GEOMETRY
             )
             or DEFAULT_PREVIEW_GEOMETRY,
+            "scan_watch_geometry": str(
+                getattr(self, "_scan_watch_geometry", "") or ""
+            ).strip(),
         }
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
@@ -1626,6 +1680,7 @@ class IndexerApp(tk.Tk):
             "_folder_save_after_id",
             "_filter_save_after_id",
             "_geometry_save_after_id",
+            "_scan_watch_geom_save_after_id",
             "_colour_load_after_id",
             "_indexer_settings_load_after_id",
             "_coalesce_amount_debounce_id",
@@ -1689,6 +1744,9 @@ class IndexerApp(tk.Tk):
             geom = str(preserved.get("preview_geometry") or "").strip()
             if geom:
                 self._preview_geometry = geom
+            scan_geom = str(preserved.get("scan_watch_geometry") or "").strip()
+            if scan_geom:
+                self._scan_watch_geometry = scan_geom
 
         self._build(initial_view=desired_view)
 
@@ -1773,6 +1831,10 @@ class IndexerApp(tk.Tk):
                     self.include_unknown_var.set(bool(preserved.get("include_unknown")))
                 self.incremental_var.set(bool(preserved.get("incremental", True)))
                 self.watch_var.set(bool(preserved.get("watch", False)))
+                if "watch_exclude_backup" in preserved:
+                    self.watch_exclude_backup_var.set(
+                        bool(preserved.get("watch_exclude_backup"))
+                    )
                 if "odbiorca_from_header" in preserved:
                     self.odbiorca_from_header_var.set(
                         bool(preserved.get("odbiorca_from_header"))
@@ -1784,6 +1846,14 @@ class IndexerApp(tk.Tk):
                 if "machine_from_header" in preserved:
                     self.machine_from_header_var.set(
                         bool(preserved.get("machine_from_header"))
+                    )
+                if "header_scan_depth" in preserved:
+                    self.header_scan_depth_var.set(
+                        str(
+                            clamp_header_scan_depth(
+                                preserved.get("header_scan_depth")
+                            )
+                        )
                     )
                 if "o9_system_programs_role" in preserved:
                     self.o9_system_programs_role_var.set(
@@ -2403,6 +2473,11 @@ class IndexerApp(tk.Tk):
             self.extra_list.configure(yscrollcommand=extra_sb.set)
             self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
+            self.extra_list.bind("<Motion>", self._on_extra_list_motion, add="+")
+            self.extra_list.bind("<Leave>", self._hide_folder_tip, add="+")
+            self.extra_list.bind("<MouseWheel>", self._hide_folder_tip, add="+")
+            self.extra_list.bind("<Button-4>", self._hide_folder_tip, add="+")
+            self.extra_list.bind("<Button-5>", self._hide_folder_tip, add="+")
             extra_btns = ttk.Frame(extra)
             extra_btns.pack(fill=tk.X, pady=(4, 0))
             self._make_status_button(
@@ -2635,14 +2710,22 @@ class IndexerApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_scan_watch_title"))
         dlg.transient(self)
+        # Tall enough for Watch + Scan options (incl. header depth) without resize.
+        min_w, min_h = DEFAULT_SCAN_WATCH_MINSIZE
         shell = install_dialog_shell(
             dlg,
-            min_width=560,
-            min_height=400,
-            width=600,
-            height=500,
+            min_width=min_w,
+            min_height=min_h,
+            width=620,
+            height=640,
             scrollable=True,
         )
+        saved = str(getattr(self, "_scan_watch_geometry", "") or "").strip()
+        if saved:
+            try:
+                dlg.geometry(saved)
+            except tk.TclError:
+                pass
         body, foot = shell.body, shell.footer
 
         # Watch (coalesce + optional safety live under Watch when on)
@@ -2663,6 +2746,23 @@ class IndexerApp(tk.Tk):
         self._update_watch_status()
 
         self._watch_opts_widgets = []
+        exclude_row = ttk.Frame(watch_box)
+        exclude_row.pack(fill=tk.X, pady=(8, 0))
+        exclude_chk = ttk.Checkbutton(
+            exclude_row,
+            text=self._("watch_exclude_backup"),
+            variable=self.watch_exclude_backup_var,
+            command=self._on_watch_exclude_backup_toggled,
+        )
+        exclude_chk.pack(side=tk.LEFT)
+        exclude_hint = ttk.Label(
+            watch_box,
+            text=self._("watch_exclude_backup_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        )
+        exclude_hint.pack(anchor=tk.W, pady=(2, 0))
+
         coalesce_row = ttk.Frame(watch_box)
         coalesce_row.pack(fill=tk.X, pady=(8, 0))
         coalesce_lbl = ttk.Label(coalesce_row, text=self._("watch_coalesce"))
@@ -2720,6 +2820,8 @@ class IndexerApp(tk.Tk):
         )
         safety_hint.pack(anchor=tk.W, pady=(2, 0))
         self._watch_opts_widgets = [
+            exclude_chk,
+            exclude_hint,
             coalesce_lbl,
             coalesce_entry,
             coalesce_unit,
@@ -2776,8 +2878,67 @@ class IndexerApp(tk.Tk):
             variable=self.o9_system_programs_role_var,
             command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
+        # Label may wrap on narrow widths; spinbox stays on the same row (right).
+        depth_row = ttk.Frame(opts)
+        depth_row.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
+        depth_row.columnconfigure(0, weight=1)
+        ttk.Label(
+            depth_row,
+            text=self._("header_scan_depth"),
+            wraplength=480,
+        ).grid(row=0, column=0, sticky=tk.W)
+        depth_spin = ttk.Spinbox(
+            depth_row,
+            from_=MIN_HEADER_SCAN_DEPTH,
+            to=MAX_HEADER_SCAN_DEPTH,
+            textvariable=self.header_scan_depth_var,
+            width=4,
+            command=self._on_header_scan_depth_changed,
+        )
+        depth_spin.grid(row=0, column=1, sticky=tk.E, padx=(6, 0))
+        depth_spin.bind("<FocusOut>", self._on_header_scan_depth_changed)
+        depth_spin.bind("<Return>", self._on_header_scan_depth_changed)
+        ttk.Label(
+            opts,
+            text=self._("header_scan_depth_hint"),
+            style="Muted.TLabel",
+            wraplength=520,
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        def _capture_scan_watch_geom(event=None) -> None:
+            if event is not None and event.widget is not dlg:
+                return
+            try:
+                if dlg.winfo_exists():
+                    self._scan_watch_geometry = dlg.geometry()
+            except tk.TclError:
+                return
+            after_id = getattr(self, "_scan_watch_geom_save_after_id", None)
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+            self._scan_watch_geom_save_after_id = self.after(
+                1200, self._save_instance_ini
+            )
+
+        dlg.bind("<Configure>", _capture_scan_watch_geom)
 
         def _on_close() -> None:
+            try:
+                if dlg.winfo_exists():
+                    self._scan_watch_geometry = dlg.geometry()
+            except tk.TclError:
+                pass
+            after_id = getattr(self, "_scan_watch_geom_save_after_id", None)
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+                self._scan_watch_geom_save_after_id = None
+            self._save_instance_ini()
             self._refresh_indeks_status_line()
             dlg.destroy()
 
@@ -3928,6 +4089,7 @@ class IndexerApp(tk.Tk):
         return list(self._hidden_root_specs)
 
     def _fill_extra_list(self, specs: list[ScanRootSpec]) -> None:
+        self._hide_folder_tip()
         self._hidden_root_specs = list(specs)
         if not hasattr(self, "extra_list"):
             return
@@ -3947,6 +4109,120 @@ class IndexerApp(tk.Tk):
                 )
             except tk.TclError:
                 pass
+
+    def _hide_folder_tip(self, _event=None) -> None:
+        """Cancel delayed tip and destroy any open Indexer folder tooltip."""
+        after_id = getattr(self, "_folder_tip_after_id", None)
+        if after_id is not None:
+            try:
+                self.after_cancel(after_id)
+            except tk.TclError:
+                pass
+            self._folder_tip_after_id = None
+        win = getattr(self, "_folder_tip_win", None)
+        if win is not None:
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+            self._folder_tip_win = None
+        self._folder_tip_index = None
+
+    def _on_extra_list_motion(self, event) -> None:
+        """Schedule Indexer folder-list tip after a short dwell."""
+        lst = getattr(self, "extra_list", None)
+        if lst is None:
+            return
+        try:
+            index = lst.nearest(event.y)
+        except tk.TclError:
+            self._hide_folder_tip()
+            return
+        if index < 0 or index >= lst.size():
+            self._hide_folder_tip()
+            return
+        if (
+            getattr(self, "_folder_tip_index", None) == index
+            and (
+                getattr(self, "_folder_tip_win", None) is not None
+                or getattr(self, "_folder_tip_after_id", None) is not None
+            )
+        ):
+            return
+        self._hide_folder_tip()
+        self._folder_tip_index = index
+        try:
+            self._folder_tip_after_id = self.after(
+                500,
+                lambda i=index, x=event.x_root, y=event.y_root: self._show_folder_tip(
+                    i, x, y
+                ),
+            )
+        except tk.TclError:
+            self._folder_tip_after_id = None
+
+    def _show_folder_tip(self, index: int, x_root: int, y_root: int) -> None:
+        self._folder_tip_after_id = None
+        specs = list(getattr(self, "_hidden_root_specs", []) or [])
+        if index < 0 or index >= len(specs):
+            return
+        spec = specs[index]
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        text = format_folder_status_tip(
+            provenance=spec.provenance,
+            folder_path=spec.path,
+            backup_path=backup or None,
+            lang=getattr(self, "_lang", "pl"),
+        )
+        self._hide_folder_tip()
+        self._folder_tip_index = index
+        self._place_status_tip_window(
+            text,
+            x_root,
+            y_root,
+            tip_attr="_folder_tip_win",
+        )
+
+    def _place_status_tip_window(
+        self,
+        text: str,
+        x_root: int,
+        y_root: int,
+        *,
+        tip_attr: str,
+    ) -> None:
+        try:
+            win = tk.Toplevel(self)
+            win.wm_overrideredirect(True)
+            try:
+                win.attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            lbl = tk.Label(
+                win,
+                text=text,
+                justify=tk.LEFT,
+                relief=tk.SOLID,
+                borderwidth=1,
+                background="#ffffe0",
+                foreground="#1a1a1a",
+                padx=8,
+                pady=6,
+                wraplength=400,
+                font=("Segoe UI", 9) if sys.platform == "win32" else None,
+            )
+            lbl.pack()
+            win.update_idletasks()
+            tw = win.winfo_reqwidth()
+            th = win.winfo_reqheight()
+            sw = win.winfo_screenwidth()
+            sh = win.winfo_screenheight()
+            px = min(max(0, int(x_root) + 12), max(0, sw - tw - 4))
+            py = min(max(0, int(y_root) + 12), max(0, sh - th - 4))
+            win.geometry(f"+{px}+{py}")
+            setattr(self, tip_attr, win)
+        except tk.TclError:
+            setattr(self, tip_attr, None)
 
     def _load_extra_roots_into_list(self) -> None:
         target = self.target_var.get().strip()
@@ -4420,14 +4696,12 @@ class IndexerApp(tk.Tk):
             self._refresh_watch_strip()
 
     def _watch_roots(self) -> list[Path]:
-        roots: list[Path] = []
-        backup = self.backup_var.get().strip()
-        if backup:
-            roots.append(Path(backup))
-        for spec in self._scan_root_specs():
-            if spec.path:
-                roots.append(Path(spec.path))
-        return roots
+        extras = [spec.path for spec in self._scan_root_specs() if spec.path]
+        return collect_watch_roots(
+            self.backup_var.get().strip(),
+            extras,
+            exclude_backup=bool(self.watch_exclude_backup_var.get()),
+        )
 
     def _update_watch_status(self, locked_by: Optional[str] = None) -> None:
         if not hasattr(self, "watch_status_var"):
@@ -4556,6 +4830,12 @@ class IndexerApp(tk.Tk):
             self._watch_rescan_pending = False
             self._watch_safety_pending = False
         self._refresh_indeks_status_line()
+
+    def _on_watch_exclude_backup_toggled(self) -> None:
+        self._save_instance_ini()
+        if not getattr(self, "_applying_indexer_settings", False):
+            self._persist_indexer_settings()
+        self._sync_folder_watch()
 
     def _stop_folder_watch(self, *, release: bool = False) -> None:
         if self._folder_watcher is not None:
@@ -5146,13 +5426,16 @@ class IndexerApp(tk.Tk):
                 append_scan_history(target, entry)
             except Exception:  # noqa: BLE001
                 log.exception("append scan history failed")
-            # Header-token teach list cache (O-line tokens; full rebuild each scan).
+            # Header-token teach list cache (depth from Scan options; full rebuild each scan).
             try:
                 build_and_save_header_token_freq(
                     target,
                     result.instances,
                     run_id=run_id,
                     full_scan=cache is None,
+                    depth=clamp_header_scan_depth(
+                        self.header_scan_depth_var.get()
+                    ),
                 )
             except Exception:  # noqa: BLE001
                 log.exception("build header token frequency cache failed")
@@ -6418,42 +6701,20 @@ class IndexerApp(tk.Tk):
                 else None
             ),
             lang=getattr(self, "_lang", "pl"),
+            backup_path=(
+                self.backup_var.get().strip()
+                or (self._backup_root_from_db() or "")
+                or None
+            ),
         )
         self._hide_flag_tip()
         self._flag_tip_row = row_id
-        try:
-            win = tk.Toplevel(self)
-            win.wm_overrideredirect(True)
-            try:
-                win.attributes("-topmost", True)
-            except tk.TclError:
-                pass
-            lbl = tk.Label(
-                win,
-                text=text,
-                justify=tk.LEFT,
-                relief=tk.SOLID,
-                borderwidth=1,
-                background="#ffffe0",
-                foreground="#1a1a1a",
-                padx=8,
-                pady=6,
-                wraplength=400,
-                font=("Segoe UI", 9) if sys.platform == "win32" else None,
-            )
-            lbl.pack()
-            # Place near pointer; clamp to screen
-            win.update_idletasks()
-            tw = win.winfo_reqwidth()
-            th = win.winfo_reqheight()
-            sw = win.winfo_screenwidth()
-            sh = win.winfo_screenheight()
-            px = min(max(0, int(x_root) + 12), max(0, sw - tw - 4))
-            py = min(max(0, int(y_root) + 12), max(0, sh - th - 4))
-            win.geometry(f"+{px}+{py}")
-            self._flag_tip_win = win
-        except tk.TclError:
-            self._flag_tip_win = None
+        self._place_status_tip_window(
+            text,
+            x_root,
+            y_root,
+            tip_attr="_flag_tip_win",
+        )
 
     def _redraw_tree(self) -> None:
         self._hide_flag_tip()
@@ -7211,6 +7472,7 @@ class PrepareIndexerDialog(tk.Toplevel):
                 safety=pack.watch_safety,
                 watch=("yes" if pack.watch_folders else "no"),
                 mode=pack.watch_mode,
+                exclude=("yes" if pack.watch_exclude_backup else "no"),
             )
             ttk.Label(
                 body, text=summary, style="Muted.TLabel", wraplength=560

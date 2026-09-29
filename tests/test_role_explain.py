@@ -25,8 +25,10 @@ from gcode_index.role_explain import (
     REASON_O9,
     REASON_PATH,
     REASON_UNAVAILABLE,
+    classify_green_source,
     explain_row_roles,
     format_flag_tooltip,
+    format_folder_status_tip,
     format_o9_display,
     path_tail,
 )
@@ -167,7 +169,10 @@ def test_format_flag_tooltip_pl_status_and_empty():
         lang="pl",
     )
     assert "Flaga:" in text
-    assert "Na maszynie" in text
+    assert "Z maszyny" in text
+    # No backup_path → umbrella only (no source qualifier)
+    assert "z backupu" not in text
+    assert "zaufany folder" not in text
     assert "Funkcje:" in text
     assert "Brak funkcji" in text
 
@@ -213,6 +218,98 @@ def test_format_flag_tooltip_yellow_no_roles_en():
     )
     assert "Status unknown" in text
     assert "No functions" in text
+
+
+def test_classify_green_source_backup_vs_trusted(tmp_path: Path):
+    bak = tmp_path / "backup"
+    trusted = tmp_path / "trusted"
+    bak.mkdir()
+    trusted.mkdir()
+    assert classify_green_source(str(bak), str(bak)) == "backup"
+    assert classify_green_source(str(trusted), str(bak)) == "trusted"
+    assert classify_green_source(None, str(bak)) is None
+    assert classify_green_source(str(trusted), None) is None
+    assert classify_green_source("", str(bak)) is None
+    assert classify_green_source(str(trusted), "") is None
+
+
+def test_format_flag_tooltip_source_backup_and_trusted_pl_en(tmp_path: Path):
+    bak = tmp_path / "backup"
+    trusted = tmp_path / "catch"
+    bak.mkdir()
+    trusted.mkdir()
+    catalog = ColourCatalog()
+    pl_bak = format_flag_tooltip(
+        provenance=PROVENANCE_BACKUP,
+        source_path="a.nc",
+        scan_root=str(bak),
+        program_number="1",
+        role_csv=None,
+        catalog=catalog,
+        lang="pl",
+        backup_path=str(bak),
+    )
+    assert "Z maszyny — z backupu" in pl_bak
+    en_trusted = format_flag_tooltip(
+        provenance=PROVENANCE_BACKUP,
+        source_path="a.nc",
+        scan_root=str(trusted),
+        program_number="1",
+        role_csv=None,
+        catalog=catalog,
+        lang="en",
+        backup_path=str(bak),
+    )
+    assert "From machine — trusted folder" in en_trusted
+    # Missing scan_root → umbrella only
+    pl_bare = format_flag_tooltip(
+        provenance=PROVENANCE_BACKUP,
+        source_path="a.nc",
+        scan_root=None,
+        program_number="1",
+        role_csv=None,
+        catalog=catalog,
+        lang="pl",
+        backup_path=str(bak),
+    )
+    assert "Z maszyny" in pl_bare
+    assert "z backupu" not in pl_bare
+    assert "zaufany folder" not in pl_bare
+
+
+def test_format_folder_status_tip_green_yellow(tmp_path: Path):
+    bak = tmp_path / "backup"
+    catch = tmp_path / "catch"
+    bak.mkdir()
+    catch.mkdir()
+    tip_pl = format_folder_status_tip(
+        provenance=PROVENANCE_BACKUP,
+        folder_path=str(catch),
+        backup_path=str(bak),
+        lang="pl",
+    )
+    assert tip_pl == "Folder: ● Z maszyny — zaufany folder"
+    tip_en_bak = format_folder_status_tip(
+        provenance=PROVENANCE_BACKUP,
+        folder_path=str(bak),
+        backup_path=str(bak),
+        lang="en",
+    )
+    assert tip_en_bak == "Folder: ● From machine — from backup"
+    tip_yellow = format_folder_status_tip(
+        provenance=PROVENANCE_EXTRA,
+        folder_path=str(catch),
+        backup_path=str(bak),
+        lang="en",
+    )
+    assert tip_yellow == "Folder: ● Status unknown"
+    tip_missing = format_folder_status_tip(
+        provenance=PROVENANCE_BACKUP,
+        folder_path=str(catch),
+        backup_path=None,
+        lang="pl",
+    )
+    assert tip_missing == "Folder: ● Z maszyny"
 
 
 def test_path_tail_and_o9_display():

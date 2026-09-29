@@ -62,7 +62,7 @@ Select a result row and open **Preview…**. Use **In preview** above the text t
 
 | Column / colour | Meaning |
 |-----------------|--------|
-| **Green** machine flag (provenance) | On machine — main backup / on-machine catch |
+| **Green** machine flag (provenance) | From machine — main backup (**from backup**) or trusted catch (**trusted folder**) |
 | **Yellow** | Status unknown — extra (non-backup) folder |
 | **Source = MISSING** (red row) | Source file gone from disk since the last scan — still in the DB, but extract / preview will fail |
 | **MACHINE UNKNOWN** | Path did not match a known machine name or alias |

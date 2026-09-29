@@ -23,9 +23,14 @@ from gcode_index.folder_colour_aliases import (
 )
 from gcode_index.models import COLOUR_EXCLUDE
 from gcode_index.odbiorca_aliases import (
+    DEFAULT_HEADER_SCAN_DEPTH,
     HEADER_ODBIORCA_SCAN_LINES,
+    MAX_HEADER_SCAN_DEPTH,
     MIN_HEADER_ODBIORCA_NEEDLE,
+    MIN_HEADER_SCAN_DEPTH,
+    clamp_header_scan_depth,
     extract_header_paren_comments,
+    extract_header_paren_comments_for_teach,
 )
 
 # Shared constants (same guards as odbiorca O-line header)
@@ -35,9 +40,14 @@ HEADER_SCAN_LINES = HEADER_ODBIORCA_SCAN_LINES
 
 # Re-export extract for callers that want one import site
 __all__ = [
+    "DEFAULT_HEADER_SCAN_DEPTH",
     "HEADER_SCAN_LINES",
+    "MAX_HEADER_SCAN_DEPTH",
     "MIN_HEADER_NEEDLE",
+    "MIN_HEADER_SCAN_DEPTH",
+    "clamp_header_scan_depth",
     "extract_header_paren_comments",
+    "extract_header_paren_comments_for_teach",
     "match_roles_in_comments",
     "match_roles_from_header",
     "match_machine_in_comments",
