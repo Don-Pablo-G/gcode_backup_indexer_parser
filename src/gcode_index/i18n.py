@@ -41,7 +41,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "add_yellow_folder": "Dodaj żółty (poza kopią)…",
         "remove_selected": "Usuń zaznaczone",
         "extra_hint": (
-            "Zielony = traktuj jak z maszyny (luźne .nc zanim znikną z backupu). "
+            "Zielony = zaufany folder / traktuj jak z maszyny "
+            "(luźne .nc zanim znikną z backupu). "
             "Żółty = dodatkowy folder (nie z kopii)."
         ),
         # Flag disc glyph (colour via Listbox foreground — same as Flag column)
@@ -314,9 +315,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag": "Flaga",
         "filter_status": "Status",
         "filter_role": "Rola",
-        "status_on_machine": "Na maszynie",
+        "status_on_machine": "Z maszyny",
         "status_not_run": "Status nieznany",
         "status_unknown": "Status nieznany",
+        "status_source_backup": "z backupu",
+        "status_source_trusted": "zaufany folder",
         "col_status": "Status",
         "col_role": "Rola",
         "compare": "Porównaj…",
@@ -328,7 +331,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "delete": "Usuń",
         "preset_hint": "Zapisane jako {filename} obok bazy",
         "hint": (
-            "Status (zielony = na maszynie; żółty = status nieznany). "
+            "Status (zielony = z maszyny; żółty = status nieznany). "
             "Rola z aliasów folderów — osobno od statusu (żółty ≠ przyrząd). "
             "Tylko najnowsze = jedna pozycja na program+maszynę. "
             "Ctrl/Shift+klik = wielokrotny wybór do wydobycia. "
@@ -393,10 +396,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_pick": "Wybierz folder kopii i folder bazy.",
         "status_pick_simple": "Otwórz istniejącą bazę (zielony przycisk).",
         "status_loaded_ini": "Wczytano ustawienia z {filename}",
-        "flag_green": "● na maszynie (kopia)",
+        "flag_green": "● z maszyny (backup)",
         "flag_yellow": "● status nieznany (żółty)",
         "flag_red": "● rola osobisty",
         "flag_tip_status": "Flaga: {disc} {label}",
+        "flag_tip_status_sourced": "Flaga: {disc} {label} — {source}",
         "flag_tip_override": "Flaga: {disc} {role} — zastępuje status",
         "flag_tip_functions": "Funkcje:",
         "flag_tip_alias": "alias „{spelling}”",
@@ -411,6 +415,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag_tip_empty": "Brak funkcji",
         "flag_tip_unavailable": "powód niedostępny (ponów skan?)",
         "flag_tip_bullet": "  • {label} — {reason}",
+        "folder_tip_status": "Folder: {disc} {label}",
+        "folder_tip_status_sourced": "Folder: {disc} {label} — {source}",
         "all_paren": "(wszystkie)",
         "ctx_extract": "Wydobądź zaznaczone…",
         "ctx_compare": "Porównaj…",
@@ -733,11 +739,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "browse": "Browse…",
         "extra_folders": "Additional folders",
         "add_folder": "Add folder…",
-        "add_green_folder": "Add green (on-machine / .nc)…",
+        "add_green_folder": "Add green (from machine / .nc)…",
         "add_yellow_folder": "Add yellow (not from backup)…",
         "remove_selected": "Remove selected",
         "extra_hint": (
-            "Green = treat as on-machine (loose .nc before backup misses them). "
+            "Green = trusted folder / treat as from machine "
+            "(loose .nc before backup misses them). "
             "Yellow = extra folder (not from backup)."
         ),
         # Flag disc glyph (colour via Listbox foreground — same as Flag column)
@@ -1010,9 +1017,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag": "Flag",
         "filter_status": "Status",
         "filter_role": "Role",
-        "status_on_machine": "On machine",
+        "status_on_machine": "From machine",
         "status_not_run": "Status unknown",
         "status_unknown": "Status unknown",
+        "status_source_backup": "from backup",
+        "status_source_trusted": "trusted folder",
         "col_status": "Status",
         "col_role": "Role",
         "compare": "Compare…",
@@ -1024,7 +1033,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "delete": "Delete",
         "preset_hint": "Stored as {filename} next to the DB",
         "hint": (
-            "Status (green = on machine; yellow = status unknown). "
+            "Status (green = from machine; yellow = status unknown). "
             "Role from folder aliases — separate from status (yellow ≠ fixture). "
             "Newest only keeps the latest date per program+machine. "
             "Ctrl/Shift+click rows to multi-select for batch extract. "
@@ -1089,10 +1098,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_pick": "Pick a backup folder and a database folder.",
         "status_pick_simple": "Open an existing database (green button).",
         "status_loaded_ini": "Loaded settings from {filename}",
-        "flag_green": "● on machine (backup)",
+        "flag_green": "● from machine (backup)",
         "flag_yellow": "● status unknown (yellow)",
         "flag_red": "● personal role",
         "flag_tip_status": "Flag: {disc} {label}",
+        "flag_tip_status_sourced": "Flag: {disc} {label} — {source}",
         "flag_tip_override": "Flag: {disc} {role} — overrides status",
         "flag_tip_functions": "Functions:",
         "flag_tip_alias": "alias “{spelling}”",
@@ -1107,6 +1117,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "flag_tip_empty": "No functions",
         "flag_tip_unavailable": "reason unavailable (re-scan?)",
         "flag_tip_bullet": "  • {label} — {reason}",
+        "folder_tip_status": "Folder: {disc} {label}",
+        "folder_tip_status_sourced": "Folder: {disc} {label} — {source}",
         "all_paren": "(all)",
         "ctx_extract": "Extract selected…",
         "ctx_compare": "Compare…",

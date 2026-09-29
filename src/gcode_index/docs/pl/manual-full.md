@@ -70,7 +70,7 @@ Zapis: `extra_scan_roots.yaml` obok bazy (oraz `gcode-index.ini`).
 
 | Odznaka | Znaczenie | Źródło |
 |---------|-----------|--------|
-| 🟢 | Na maszynie (`backup`) | Główna kopia, klejone dumpy, zielone catch / zaufane korzenie |
+| 🟢 | Z maszyny (`backup`) | Główna kopia (**z backupu**) lub zielony catch / zaufany folder (**zaufany folder**); ten sam zielony krążek — tip pokazuje który |
 | 🟡 | Status nieznany (`extra`) | Inne poddrzewa (żółte dodatki itd.) |
 
 **Kolumna Flaga = status + różne kolory funkcji.** Zawsze jeden krążek zielony **lub** żółty (status), chyba że rola z **może zastąpić kolor statusu** go zastąpi (prototyp domyślnie włączony → jeden niebieski). Potem jeden krążek na każdy **inny** kolor funkcji z ról wiersza (np. programy systemowe pomarańcz obok zielonego). Ten sam kolor nigdy się nie dubluje. Kolor czcionki wiersza podąża za **głównym** krążkiem (status lub nadpisanie). Prawdziwe wielokolorowe krążki są rysowane jako obraz (nie kilka znaków tekstu).

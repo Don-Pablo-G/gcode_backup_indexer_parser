@@ -153,7 +153,7 @@ from gcode_index.path_util import (
     source_exists_on_disk,
 )
 from gcode_index.path_remap import PathRemap, normalize_remaps
-from gcode_index.role_explain import format_flag_tooltip
+from gcode_index.role_explain import format_flag_tooltip, format_folder_status_tip
 from gcode_index.instance_ini import (
     InstanceConfig,
     default_instance_ini_path,
@@ -425,6 +425,9 @@ class IndexerApp(tk.Tk):
         self._flag_tip_after_id: Optional[str] = None
         self._flag_tip_win: Optional[tk.Toplevel] = None
         self._flag_tip_row: Optional[str] = None
+        self._folder_tip_after_id: Optional[str] = None
+        self._folder_tip_win: Optional[tk.Toplevel] = None
+        self._folder_tip_index: Optional[int] = None
         self._flag_photos = FlagPhotoCache(self)
         self._colours_sidecar_missing = False
         self._sort_col: Optional[str] = None
@@ -2470,6 +2473,11 @@ class IndexerApp(tk.Tk):
             self.extra_list.configure(yscrollcommand=extra_sb.set)
             self.extra_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             extra_sb.pack(side=tk.RIGHT, fill=tk.Y)
+            self.extra_list.bind("<Motion>", self._on_extra_list_motion, add="+")
+            self.extra_list.bind("<Leave>", self._hide_folder_tip, add="+")
+            self.extra_list.bind("<MouseWheel>", self._hide_folder_tip, add="+")
+            self.extra_list.bind("<Button-4>", self._hide_folder_tip, add="+")
+            self.extra_list.bind("<Button-5>", self._hide_folder_tip, add="+")
             extra_btns = ttk.Frame(extra)
             extra_btns.pack(fill=tk.X, pady=(4, 0))
             self._make_status_button(
@@ -4081,6 +4089,7 @@ class IndexerApp(tk.Tk):
         return list(self._hidden_root_specs)
 
     def _fill_extra_list(self, specs: list[ScanRootSpec]) -> None:
+        self._hide_folder_tip()
         self._hidden_root_specs = list(specs)
         if not hasattr(self, "extra_list"):
             return
@@ -4100,6 +4109,120 @@ class IndexerApp(tk.Tk):
                 )
             except tk.TclError:
                 pass
+
+    def _hide_folder_tip(self, _event=None) -> None:
+        """Cancel delayed tip and destroy any open Indexer folder tooltip."""
+        after_id = getattr(self, "_folder_tip_after_id", None)
+        if after_id is not None:
+            try:
+                self.after_cancel(after_id)
+            except tk.TclError:
+                pass
+            self._folder_tip_after_id = None
+        win = getattr(self, "_folder_tip_win", None)
+        if win is not None:
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+            self._folder_tip_win = None
+        self._folder_tip_index = None
+
+    def _on_extra_list_motion(self, event) -> None:
+        """Schedule Indexer folder-list tip after a short dwell."""
+        lst = getattr(self, "extra_list", None)
+        if lst is None:
+            return
+        try:
+            index = lst.nearest(event.y)
+        except tk.TclError:
+            self._hide_folder_tip()
+            return
+        if index < 0 or index >= lst.size():
+            self._hide_folder_tip()
+            return
+        if (
+            getattr(self, "_folder_tip_index", None) == index
+            and (
+                getattr(self, "_folder_tip_win", None) is not None
+                or getattr(self, "_folder_tip_after_id", None) is not None
+            )
+        ):
+            return
+        self._hide_folder_tip()
+        self._folder_tip_index = index
+        try:
+            self._folder_tip_after_id = self.after(
+                500,
+                lambda i=index, x=event.x_root, y=event.y_root: self._show_folder_tip(
+                    i, x, y
+                ),
+            )
+        except tk.TclError:
+            self._folder_tip_after_id = None
+
+    def _show_folder_tip(self, index: int, x_root: int, y_root: int) -> None:
+        self._folder_tip_after_id = None
+        specs = list(getattr(self, "_hidden_root_specs", []) or [])
+        if index < 0 or index >= len(specs):
+            return
+        spec = specs[index]
+        backup = self.backup_var.get().strip() or (self._backup_root_from_db() or "")
+        text = format_folder_status_tip(
+            provenance=spec.provenance,
+            folder_path=spec.path,
+            backup_path=backup or None,
+            lang=getattr(self, "_lang", "pl"),
+        )
+        self._hide_folder_tip()
+        self._folder_tip_index = index
+        self._place_status_tip_window(
+            text,
+            x_root,
+            y_root,
+            tip_attr="_folder_tip_win",
+        )
+
+    def _place_status_tip_window(
+        self,
+        text: str,
+        x_root: int,
+        y_root: int,
+        *,
+        tip_attr: str,
+    ) -> None:
+        try:
+            win = tk.Toplevel(self)
+            win.wm_overrideredirect(True)
+            try:
+                win.attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            lbl = tk.Label(
+                win,
+                text=text,
+                justify=tk.LEFT,
+                relief=tk.SOLID,
+                borderwidth=1,
+                background="#ffffe0",
+                foreground="#1a1a1a",
+                padx=8,
+                pady=6,
+                wraplength=400,
+                font=("Segoe UI", 9) if sys.platform == "win32" else None,
+            )
+            lbl.pack()
+            win.update_idletasks()
+            tw = win.winfo_reqwidth()
+            th = win.winfo_reqheight()
+            sw = win.winfo_screenwidth()
+            sh = win.winfo_screenheight()
+            px = min(max(0, int(x_root) + 12), max(0, sw - tw - 4))
+            py = min(max(0, int(y_root) + 12), max(0, sh - th - 4))
+            win.geometry(f"+{px}+{py}")
+            setattr(self, tip_attr, win)
+        except tk.TclError:
+            setattr(self, tip_attr, None)
 
     def _load_extra_roots_into_list(self) -> None:
         target = self.target_var.get().strip()
@@ -6578,42 +6701,20 @@ class IndexerApp(tk.Tk):
                 else None
             ),
             lang=getattr(self, "_lang", "pl"),
+            backup_path=(
+                self.backup_var.get().strip()
+                or (self._backup_root_from_db() or "")
+                or None
+            ),
         )
         self._hide_flag_tip()
         self._flag_tip_row = row_id
-        try:
-            win = tk.Toplevel(self)
-            win.wm_overrideredirect(True)
-            try:
-                win.attributes("-topmost", True)
-            except tk.TclError:
-                pass
-            lbl = tk.Label(
-                win,
-                text=text,
-                justify=tk.LEFT,
-                relief=tk.SOLID,
-                borderwidth=1,
-                background="#ffffe0",
-                foreground="#1a1a1a",
-                padx=8,
-                pady=6,
-                wraplength=400,
-                font=("Segoe UI", 9) if sys.platform == "win32" else None,
-            )
-            lbl.pack()
-            # Place near pointer; clamp to screen
-            win.update_idletasks()
-            tw = win.winfo_reqwidth()
-            th = win.winfo_reqheight()
-            sw = win.winfo_screenwidth()
-            sh = win.winfo_screenheight()
-            px = min(max(0, int(x_root) + 12), max(0, sw - tw - 4))
-            py = min(max(0, int(y_root) + 12), max(0, sh - th - 4))
-            win.geometry(f"+{px}+{py}")
-            self._flag_tip_win = win
-        except tk.TclError:
-            self._flag_tip_win = None
+        self._place_status_tip_window(
+            text,
+            x_root,
+            y_root,
+            tip_attr="_flag_tip_win",
+        )
 
     def _redraw_tree(self) -> None:
         self._hide_flag_tip()

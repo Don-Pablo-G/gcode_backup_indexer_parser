@@ -14,7 +14,7 @@ Legacy note: older installs with `[ui] mode=full` map to `can_index=yes`.
 With `can_index=yes` the GUI can:
 
 - Scan backup trees and write / update `gcode_index.sqlite`
-- Add **green** (on-machine) and **yellow** (extra) scan roots
+- Add **green** (from machine) and **yellow** (extra) scan roots
 - Watch folders with min. quiet coalesce and optional safety rescan while the GUI stays open
 - Map odd folder names to machines and edit **local aliases**
 - Use advanced filters, saved views, compare, scan report / index quality, duplicates
@@ -57,7 +57,7 @@ Browsing for backup / database / extract keeps the folder panel **open** so you 
 
 ### Extra roots
 
-- **Green** — treat like on-machine / catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
+- **Green** — treat like from machine / trusted catch folders for loose `.nc` (before backup misses them). Subfolders are scanned recursively. Programs get a **green** provenance flag.
 - **Yellow** — extra trees not from the machine backup. Programs get a **yellow** status-unknown flag.
 
 Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-index.ini`).
@@ -70,7 +70,7 @@ Roots are saved as `extra_scan_roots.yaml` next to the database (and in `gcode-i
 
 | Badge | Meaning | Source |
 |-------|---------|--------|
-| 🟢 | On machine (`backup`) | Main backup tree, glued dumps, green catch / trusted roots |
+| 🟢 | From machine (`backup`) | Main backup tree (**from backup**) or green catch / trusted roots (**trusted folder**); same green disc — tip shows which |
 | 🟡 | Status unknown (`extra`) | Any other subtree (yellow extras, etc.) |
 
 **Flag column = status + distinct function colours.** Always one green **or** yellow status disc (unless a role with **can override main state colour** replaces it — prototype defaults on → single blue). Then one disc per **distinct** function colour from row roles (e.g. system programs orange beside green). Same colour never doubles. Row font colour follows the **primary** disc (status or override). True multi-colour discs are drawn as an image (not multiple text glyphs).

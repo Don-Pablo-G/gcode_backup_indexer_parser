@@ -62,7 +62,7 @@ Zaznacz wiersz wyniku i otwórz **Podgląd…**. Pole **W podglądzie** nad teks
 
 | Kolumna / kolor | Znaczenie |
 |-----------------|-----------|
-| **Zielona** flaga pochodzenia | Na maszynie — główna kopia / złapanie z maszyny |
+| **Zielona** flaga pochodzenia | Z maszyny — główna kopia (**z backupu**) lub złapanie / zaufany folder (**zaufany folder**) |
 | **Żółta** | Status nieznany — dodatkowy folder (nie z kopii) |
 | **Źródło = BRAK** (czerwony wiersz) | Plik źródłowy zniknął z dysku od ostatniego skanu — jest w bazie, ale wydobycie / podgląd się nie uda |
 | **MACHINE UNKNOWN** | Ścieżka nie pasowała do znanej nazwy maszyny ani aliasu |

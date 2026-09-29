@@ -290,6 +290,64 @@ def format_reason_phrase(reason: RoleReason, lang: str = "pl") -> str:
     return t(lang, "flag_tip_unavailable")
 
 
+def classify_green_source(
+    scan_root: Optional[str],
+    backup_path: Optional[str],
+) -> Optional[str]:
+    """Classify green provenance for tip copy: ``backup``, ``trusted``, or None.
+
+    ``None`` when scan_root and/or backup path is missing so the source cannot
+    be told apart — callers keep the umbrella label only.
+    """
+    sr = (scan_root or "").strip()
+    bp = (backup_path or "").strip()
+    if not sr or not bp:
+        return None
+    try:
+        if Path(sr).resolve() == Path(bp).resolve():
+            return "backup"
+        return "trusted"
+    except OSError:
+        if sr.casefold() == bp.casefold():
+            return "backup"
+        return "trusted"
+
+
+def _status_tip_line(
+    *,
+    provenance: Optional[str],
+    scan_root: Optional[str],
+    backup_path: Optional[str],
+    lang: str,
+    tip_key: str,
+    tip_sourced_key: str,
+) -> str:
+    """Umbrella status tip, optionally qualified with backup vs trusted source."""
+    status = (provenance or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP
+    if status == PROVENANCE_EXTRA:
+        label = t(lang, "status_unknown")
+        return t(lang, tip_key, label=label, disc=DOT)
+    label = t(lang, "status_on_machine")
+    source = classify_green_source(scan_root, backup_path)
+    if source == "backup":
+        return t(
+            lang,
+            tip_sourced_key,
+            label=label,
+            disc=DOT,
+            source=t(lang, "status_source_backup"),
+        )
+    if source == "trusted":
+        return t(
+            lang,
+            tip_sourced_key,
+            label=label,
+            disc=DOT,
+            source=t(lang, "status_source_trusted"),
+        )
+    return t(lang, tip_key, label=label, disc=DOT)
+
+
 def format_flag_header(
     *,
     provenance: Optional[str],
@@ -297,18 +355,40 @@ def format_flag_header(
     override_role_ids: Sequence[str] | None,
     catalog: ColourCatalog,
     lang: str = "pl",
+    scan_root: Optional[str] = None,
+    backup_path: Optional[str] = None,
 ) -> str:
     """First tip line: status disc meaning, or overriding role."""
     chosen = pick_override_role(role_ids, override_role_ids)
     if chosen:
         label = catalog.label_for(chosen, lang)
         return t(lang, "flag_tip_override", role=label, disc=DOT)
-    status = (provenance or PROVENANCE_BACKUP).strip() or PROVENANCE_BACKUP
-    if status == PROVENANCE_EXTRA:
-        label = t(lang, "status_unknown")
-    else:
-        label = t(lang, "status_on_machine")
-    return t(lang, "flag_tip_status", label=label, disc=DOT)
+    return _status_tip_line(
+        provenance=provenance,
+        scan_root=scan_root,
+        backup_path=backup_path,
+        lang=lang,
+        tip_key="flag_tip_status",
+        tip_sourced_key="flag_tip_status_sourced",
+    )
+
+
+def format_folder_status_tip(
+    *,
+    provenance: Optional[str],
+    folder_path: Optional[str] = None,
+    backup_path: Optional[str] = None,
+    lang: str = "pl",
+) -> str:
+    """Indexer additional-folder list tip (green/yellow disc meaning)."""
+    return _status_tip_line(
+        provenance=provenance,
+        scan_root=folder_path,
+        backup_path=backup_path,
+        lang=lang,
+        tip_key="folder_tip_status",
+        tip_sourced_key="folder_tip_status_sourced",
+    )
 
 
 def format_flag_tooltip(
@@ -325,6 +405,7 @@ def format_flag_tooltip(
     role_from_header: bool = True,
     byte_start: Optional[int] = None,
     lang: str = "pl",
+    backup_path: Optional[str] = None,
 ) -> str:
     """Full Flag-cell tip text (header + Funkcje list)."""
     roles = roles_from_db(role_csv)
@@ -335,6 +416,8 @@ def format_flag_tooltip(
         override_role_ids=override_ids,
         catalog=catalog,
         lang=lang,
+        scan_root=scan_root,
+        backup_path=backup_path,
     )
     lines = [header, t(lang, "flag_tip_functions")]
     if not roles:
