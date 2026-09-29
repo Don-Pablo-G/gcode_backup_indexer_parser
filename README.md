@@ -174,6 +174,8 @@ Native Windows binaries are produced on **Windows** (local or GitHub Actions). L
 
 CI builds ship **unsigned**. Sign on a Windows PC you control with a local `.pfx` — do **not** put certificates or passwords in the repo or in GitHub Actions.
 
+**Easiest:** double-click `scripts\Sign-WindowsGui.bat` (or run `scripts\Sign-WindowsGui.ps1`), browse for the unzipped artifact / `gcode-index-gui.exe`, browse for your `.pfx`, enter the password, click **Sign**. Last target/PFX paths are remembered in `%LOCALAPPDATA%\gcode-index\` (not the password).
+
 One-time setup (self-signed is fine for shop PCs that will trust it):
 
 ```powershell
@@ -184,12 +186,12 @@ New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=G-code Index Shop" 
 # On each shop PC: import the public .cer into Trusted Root / Trusted Publishers (or deploy via GPO)
 ```
 
-After each artifact download (or local `build_windows.bat`):
+CLI alternative after each artifact download (or local `build_windows.bat`) — use **absolute paths** (or `cd` into the repo first):
 
 ```powershell
 $env:GCODE_SIGN_PFX = "D:\certs\shop-codesign.pfx"   # path only — never commit
 # optional: $env:GCODE_SIGN_PFX_PASSWORD = "…"       # or omit and type at the SecureString prompt
-.\scripts\sign-windows.ps1 -Path "$env:USERPROFILE\Downloads\gcode-index-gui-0.2.114"
+& "C:\path\to\repo\scripts\sign-windows.ps1" -Path "$env:USERPROFILE\Downloads\gcode-index-gui-0.2.114"
 ```
 
 Requires [Windows SDK](https://developer.microsoft.com/windows/downloads/windows-sdk/) **Signing Tools** (`signtool`). Default timestamp server is DigiCert (`http://timestamp.digicert.com`); override with `-TimestampUrl` or `GCODE_SIGN_TIMESTAMP_URL`. Details: `scripts/sign-windows.ps1 -?`.

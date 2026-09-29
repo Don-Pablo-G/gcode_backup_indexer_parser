@@ -156,7 +156,7 @@ Under the main menubar **Settings** / **Ustawienia** (all modes — floor and in
 
 The window title bar, system tray, and Windows `.exe` share the same product icon (packaged with the build).
 
-Prebuilt CI zips are **unsigned**. Shop signing is a **local** post-download step (`scripts/sign-windows.ps1` + your `.pfx`) — see README **Local code signing**. Cert creation and trusting the cert on shop PCs are manual.
+Prebuilt CI zips are **unsigned**. Shop signing is a **local** post-download step — easiest: double-click `scripts/Sign-WindowsGui.bat` (browse exe/folder + `.pfx`); CLI: `scripts/sign-windows.ps1`. See README **Local code signing**. Cert creation and trusting the cert on shop PCs are manual.
 
 Turn **Close to tray** off if you want **X** to quit. Existing ini values are preserved on upgrade; only unset keys use the new off defaults.
 
