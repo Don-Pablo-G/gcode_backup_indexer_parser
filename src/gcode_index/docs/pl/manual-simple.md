@@ -109,6 +109,8 @@ Otwieraj **współdzielony folder bazy**, nie sam plik sqlite. Trzymaj `folder_c
 
 Codzienne utrzymanie indeksu (Obserwuj / Przyrostowy vs Pełny / cotygodniowa jakość) jest na PC indeksatora — zobacz **Higiena bazy na co dzień** w instrukcji indeksatora.
 
+Jak indeksator powinien nazywać foldery i układać drzewa kopii / zielone / żółte, żeby kolory Flagi i aliasy były poprawne na Twoim PC — **Pomoc → Nazwy i rozmieszczenie…** (albo rozdział **Nazwy i rozmieszczenie** w instrukcji indeksatora).
+
 ## Wskazówki
 
 - Ustawienia tego komputera są w `gcode-index.ini` obok pliku exe.

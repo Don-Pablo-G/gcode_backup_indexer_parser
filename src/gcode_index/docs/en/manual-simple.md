@@ -109,6 +109,8 @@ Open the **shared database folder**, not a lone sqlite copy. Keep `folder_colour
 
 Day-to-day index maintenance (Watch / Incremental vs Full / weekly quality check) lives on the indexer PC — see **Day-to-day database hygiene** in the Indexer manual.
 
+For how the indexer should name folders and place backup / green / yellow trees so Flag colours and aliases stay correct on your PC, see **Help → Naming & placement…** (or the Indexer manual chapter **Naming & placement**).
+
 ## Tips
 
 - Empty search + filters still lists rows (useful with Newest only).

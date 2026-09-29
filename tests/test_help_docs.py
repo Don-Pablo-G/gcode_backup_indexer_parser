@@ -8,13 +8,27 @@ from gcode_index.i18n import t
 
 def test_manuals_resolve_en_and_pl():
     for lang in ("en", "pl"):
-        for kind in ("simple", "full"):
+        for kind in ("simple", "full", "naming"):
             path = resolve_manual(lang, kind)  # type: ignore[arg-type]
             assert path is not None, f"missing manual {lang}/{kind}"
             assert path.is_file()
             text = read_manual(lang, kind)  # type: ignore[arg-type]
             assert len(text) > 200
             assert "Manual not found" not in text
+
+
+def test_naming_guide_covers_key_topics():
+    en = read_manual("en", "naming")
+    pl = read_manual("pl", "naming")
+    assert "token" in en.casefold()
+    assert "green" in en.casefold() and "yellow" in en.casefold()
+    assert "O9000" in en or "O9" in en
+    assert "Watch" in en or "watch" in en.casefold()
+    assert "folder_colour_aliases.yaml" in en
+    assert "token" in pl.casefold() or "token" in pl
+    assert "zielon" in pl.casefold() and "żółt" in pl.casefold()
+    assert "Obserwuj" in pl or "obserw" in pl.casefold()
+    assert "folder_colour_aliases.yaml" in pl
 
 
 def test_simple_manual_mentions_retrieve_only():
@@ -49,3 +63,5 @@ def test_help_i18n_keys():
     assert "Operator" in t("en", "help_manual_simple")
     assert "indeksatora" in t("pl", "help_manual_full").casefold()
     assert "Indexer" in t("en", "help_manual_full")
+    assert "nazwy" in t("pl", "help_manual_naming").casefold()
+    assert "Naming" in t("en", "help_manual_naming")

@@ -191,6 +191,51 @@ Same find bar as the floor client, plus:
 
 ---
 
+## Naming & placement (best practices)
+
+How you name folders and where you put trees decides whether Flag dots, machines, roles, recipients, green/yellow, header teach tokens, Watch, and aliases stay trustworthy. Full guide: **Help → Naming & placement…** (also [`docs/en/naming-and-placement.md`](naming-and-placement.md) in the repo).
+
+### Backup vs green vs yellow
+
+| Place | Flag |
+|-------|------|
+| Main **backup** tree | 🟢 From machine — tip **from backup** |
+| **Green** extras (trusted catch) | 🟢 same disc — tip **trusted folder** |
+| **Yellow** extras | 🟡 Status unknown |
+
+Name aliases never rewrite green/yellow — only scan-root provenance does. Nested roots: deepest configured root wins.
+
+### Folder names (token boundaries)
+
+Aliases match **tokens** split on space / `_` / `-`. `pat` matches `pat_backup`, not `pattyn`. Fuzzy runs only **inside** one token (e.g. `VF2`≈`VF2S`). Prefer aliases ≥3 characters; avoid short needles that collide across machines and recipients.
+
+### Teaching machines / roles / recipients
+
+Use **Folder names…** for repeating spellings, **Map tree…** for one-off path overrides, catalogues for maintenance, and **Unassigned header tokens…** (scan report) for frequent O-line spellings. The same alias needles match folders and O-line `(…)` comments.
+
+### Header O-line vs teach depth
+
+Auto-match (machine / role / odbiorca from header) uses paren comments **on the O-number line only**. **Header scan depth** widens only the teach list (default 1 = O-line); it does not widen auto-match. Teach list skips program numbers and tokens with **more than 4 digits**.
+
+### Program numbers and O9
+
+Programs live on `O#####` lines. Optional **O9 → system programs** (default on) tags **O9000–O9099** with role `system_programs` — not status, machine, or odbiorca.
+
+### Watch
+
+Default: **Exclude backup folder** on — live Watch covers green/yellow extras only. Manual Run scan and safety still scan backup + extras. Optional safety interval may use **at HH:MM** (local). One PC holds the watch lock.
+
+### Pack beside the DB
+
+Floor clients need the whole database folder: especially `folder_colour_aliases.yaml` (mandatory for Flag colours), plus tree map / aliases / odbiorcy / extras as taught. Never put `can_index` in the shared pack.
+
+### Short do / don’t
+
+**Do:** clear backup vs green vs yellow; token-safe names; teach via Nazwy / Mapuj / header tokens; O-line `(…)` tags; full pack beside DB; leave backup excluded from live Watch unless needed.  
+**Don’t:** rely on fuzzy prefix bleed; teach long digit runs as aliases; expect off-O-line comments to auto-assign; ship sqlite alone; run Watch on two indexer PCs.
+
+---
+
 ## Day-to-day database hygiene
 
 Practical routine to **build and keep** the index healthy. Each successful scan walks the configured trees (read-only), assigns machine / roles / odbiorca / Flag status, then **deletes and rewrites** `gcode_index.sqlite` in the database folder. There is **no** separate VACUUM step — size tracks program count, not scan history. History lives in capped `scan_history.json` (~40 runs).

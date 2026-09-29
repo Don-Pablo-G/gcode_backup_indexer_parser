@@ -178,6 +178,51 @@ Jak na kliencie hali, plus:
 
 ---
 
+## Nazwy i rozmieszczenie (dobre praktyki)
+
+Jak nazywasz foldery i gdzie kładziesz drzewa, decyduje o tym, czy Flaga, maszyny, role, odbiorcy, zielony/żółty, tokeny nagłówka, Obserwuj i aliasy zostają wiarygodne. Pełny przewodnik: **Pomoc → Nazwy i rozmieszczenie…** (także [`docs/pl/naming-and-placement.md`](naming-and-placement.md) w repozytorium).
+
+### Kopia vs zielone vs żółte
+
+| Miejsce | Flaga |
+|---------|-------|
+| Główne drzewo **kopii** | 🟢 Z maszyny — podpowiedź **z backupu** |
+| **Zielone** dodatkowe (zaufany catch) | 🟢 ten sam krążek — podpowiedź **zaufany folder** |
+| **Żółte** dodatkowe | 🟡 Status nieznany |
+
+Aliasy nazw nigdy nie przepisują zielonego/żółtego — tylko pochodzenie z korzenia skanu. Zagnieżdżone korzenie: najgłębszy skonfigurowany wygrywa.
+
+### Nazwy folderów (granice tokenów)
+
+Aliasy trafiają w **tokeny** dzielone spacją / `_` / `-`. `pat` pasuje do `pat_backup`, nie do `pattyn`. Fuzzy tylko **wewnątrz** jednego tokenu (np. `VF2`≈`VF2S`). Preferuj aliasy ≥3 znaki; unikaj krótkich igieł kolidujących między maszynami i odbiorcami.
+
+### Uczenie maszyn / ról / odbiorców
+
+**Nazwy folderów…** na powtarzające się pisownie, **Mapuj drzewo…** na jednorazowe nadpisania ścieżki, katalogi na utrzymanie, **Nieprzypisane tokeny nagłówka…** (raport skanu) na częste pisownie w linii O. Te same igły aliasów działają na foldery i komentarze `(…)` w linii O.
+
+### Linia O vs głębokość listy uczenia
+
+Auto-dopasowanie (maszyna / rola / odbiorca z nagłówka) używa komentarzy w nawiasach **tylko w linii numeru O**. **Głębokość skanu nagłówka** poszerza tylko listę uczenia (domyślnie 1 = linia O); nie poszerza auto-dopasowania. Lista uczenia pomija numery programów i tokeny z **więcej niż 4 cyframi**.
+
+### Numery programów i O9
+
+Programy żyją w liniach `O#####`. Opcja **O9 → programy systemowe** (domyślnie wł.) taguje **O9000–O9099** rolą `system_programs` — bez zmiany statusu, maszyny ani odbiorcy.
+
+### Obserwuj
+
+Domyślnie: **Wyklucz folder kopii** wł. — żywe Obserwuj obejmuje zielone/żółte. Ręczny Uruchom skan i bezpieczeństwo nadal skanują kopię + dodatkowe. Opcjonalny interwał bezpieczeństwa może użyć **o HH:MM** (zegar lokalny). Jeden PC trzyma blokadę obserwacji.
+
+### Pakiet obok bazy
+
+Klienci hali potrzebują całego folderu bazy: zwłaszcza `folder_colour_aliases.yaml` (obowiązkowy dla kolorów Flagi), plus mapa drzewa / aliasy / odbiorcy / dodatkowe według uczenia. Nigdy nie wkładaj `can_index` do pakietu współdzielonego.
+
+### Krótko: rób / nie rób
+
+**Rób:** jasna kopia vs zielone vs żółte; nazwy przyjazne tokenom; ucz przez Nazwy / Mapuj / tokeny nagłówka; tagi `(…)` w linii O; pełny pakiet obok bazy; zostaw kopię poza żywym Obserwuj, chyba że naprawdę potrzeba.  
+**Nie rób:** licz na rozlewanie fuzzy prefiksu; ucz długich ciągów cyfr jako aliasów; oczekuj auto-przypisania z komentarzy poza linią O; wysyłaj samo sqlite; uruchamiaj Obserwuj na dwóch PC indeksatora.
+
+---
+
 ## Higiena bazy na co dzień
 
 Praktyczna rutyna, żeby **budować i utrzymywać** zdrowy indeks. Każdy udany skan przechodzi skonfigurowane drzewa (tylko odczyt), przypisuje maszynę / role / odbiorcę / status Flagi, potem **usuwa i zapisuje od nowa** `gcode_index.sqlite` w folderze bazy. **Nie ma** osobnego kroku VACUUM — rozmiar podąża za liczbą programów, nie za historią skanów. Historia jest w ograniczonym `scan_history.json` (~40 przebiegów).

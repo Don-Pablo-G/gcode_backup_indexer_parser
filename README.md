@@ -13,9 +13,10 @@ Index CNC machine **backup folder trees** into a portable **SQLite** catalog of 
 | [Operator manual](docs/en/manual-simple.md) | Floor client (`can_index=no`) — search & extract |
 | [Indexer manual](docs/en/manual-full.md) | Indexer PC (`can_index=yes`) — build & maintain the database |
 | → [Day-to-day database hygiene](docs/en/manual-full.md#day-to-day-database-hygiene) | Incremental vs Full, Watch/schedule, pack beside DB, Haas unzip, weekly quality |
-| Polish manuals | [docs/pl/](docs/pl/) · [Higiena bazy](docs/pl/manual-full.md#higiena-bazy-na-co-dzień) |
+| → [Naming & placement](docs/en/naming-and-placement.md) | Folder/file naming, backup vs green/yellow, aliases, O-line headers, Watch, client pack |
+| Polish manuals | [docs/pl/](docs/pl/) · [Higiena bazy](docs/pl/manual-full.md#higiena-bazy-na-co-dzień) · [Nazwy i rozmieszczenie](docs/pl/naming-and-placement.md) |
 
-In the GUI: **Help / Pomoc** opens the same manuals (operator vs indexer text matches this PC’s `can_index`). Legacy filenames still say `manual-simple` / `manual-full`; there is **no** Prosty/Pełny mode switch.
+In the GUI: **Help / Pomoc** opens the same manuals plus **Naming & placement…** / **Nazwy i rozmieszczenie…** (operator vs indexer text matches this PC’s `can_index`). Legacy filenames still say `manual-simple` / `manual-full`; there is **no** Prosty/Pełny mode switch.
 
 ## Requirements
 

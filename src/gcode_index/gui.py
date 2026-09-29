@@ -3925,6 +3925,10 @@ class IndexerApp(tk.Tk):
             label=self._("help_manual_full"),
             command=lambda: self._open_manual("full"),
         )
+        help_menu.add_command(
+            label=self._("help_manual_naming"),
+            command=lambda: self._open_manual("naming"),
+        )
         help_menu.add_separator()
         help_menu.add_command(
             label=self._("help_open_folder"),
@@ -3938,11 +3942,16 @@ class IndexerApp(tk.Tk):
         self.config(menu=menubar)
 
     def _open_manual(self, kind: str) -> None:
-        title_key = "help_manual_simple" if kind == "simple" else "help_manual_full"
+        title_key = {
+            "simple": "help_manual_simple",
+            "full": "help_manual_full",
+            "naming": "help_manual_naming",
+        }.get(kind, "help_manual_full")
+        doc_kind = kind if kind in ("simple", "full", "naming") else "full"
         ManualViewerDialog(
             self,
             title=self._(title_key).rstrip("…").rstrip("."),
-            body=read_manual(self._lang, "simple" if kind == "simple" else "full"),
+            body=read_manual(self._lang, doc_kind),  # type: ignore[arg-type]
             close_label=self._("close"),
         )
 

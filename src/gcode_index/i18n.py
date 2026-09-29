@@ -469,6 +469,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "prepare_indexer_done_detail": "Zapisano can_index=yes oraz ścieżki. Harmonogram / obserwacja według listy kontrolnej. Uruchom skan lub zostaw włączoną obserwację — klienci hali pozostają na can_index=no.",
         "help_manual_simple": "Instrukcja operatora (odczyt)…",
         "help_manual_full": "Instrukcja indeksatora…",
+        "help_manual_naming": "Nazwy i rozmieszczenie…",
         "help_about": "O programie…",
         "help_open_folder": "Otwórz folder dokumentacji…",
 
@@ -1173,6 +1174,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "prepare_indexer_done_detail": "Saved can_index=yes and paths. Schedule / watch follow the checklist. Run a scan or leave watch on — floor clients stay on can_index=no.",
         "help_manual_simple": "Operator manual (retrieve)…",
         "help_manual_full": "Indexer manual…",
+        "help_manual_naming": "Naming & placement…",
         "help_about": "About…",
         "help_open_folder": "Open documentation folder…",
 
