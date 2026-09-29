@@ -10,8 +10,53 @@ import yaml
 from gcode_index.models import MachineInfo
 
 _PUNCT_RE = re.compile(r"[^a-z0-9]+")
+# GUI display suffix for catalog rows; also stripped from user-typed spellings.
+_BUNDLED_TAG_RE = re.compile(r"\[\s*bundled\s*\]", re.IGNORECASE)
 
 LOCAL_ALIASES_FILENAME = "aliases.local.yaml"
+# Appended in the Machines & aliases list for read-only catalog spellings.
+BUNDLED_ALIAS_DISPLAY_SUFFIX = "  [bundled]"
+
+
+def sanitize_local_alias_spelling(raw: str) -> str:
+    """Strip user-entered ``[bundled]`` markers from a shop-local folder spelling.
+
+    The Machines & aliases UI marks catalog rows with
+    :data:`BUNDLED_ALIAS_DISPLAY_SUFFIX`. If that text is typed into an alias
+    field, it must not become part of the stored key
+    (``normalize_folder_name("vf2s [bundled]")`` → ``vf2sbundled``) and must
+    not block delete via a naive ``" [bundled]" in display`` check.
+    """
+    s = _BUNDLED_TAG_RE.sub(" ", str(raw or ""))
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def remove_alias_list_selection(
+    local_aliases: list[str],
+    bundled_aliases: list[str],
+    index: int,
+) -> tuple[Optional[list[str]], str]:
+    """Classify / apply a Listbox selection for Machines & aliases.
+
+    List order matches the GUI: local rows first, then bundled. Returns
+    ``(new_local_aliases, status)`` where status is:
+
+    - ``"removed"`` — local row deleted (``new_local_aliases`` is the new list)
+    - ``"bundled"`` — true catalog row; do not delete (``new_local_aliases`` is None)
+    - ``"invalid"`` — out of range (``new_local_aliases`` is None)
+
+    Classification is by **index**, never by whether the display label contains
+    ``[bundled]`` — a shop-local spelling that includes that text stays deletable.
+    """
+    locals_ = list(local_aliases)
+    bundled = list(bundled_aliases)
+    if 0 <= index < len(locals_):
+        del locals_[index]
+        return locals_, "removed"
+    if len(locals_) <= index < len(locals_) + len(bundled):
+        return None, "bundled"
+    return None, "invalid"
 
 
 def normalize_folder_name(raw: str) -> str:
@@ -179,6 +224,19 @@ def _machines_from_yaml_data(data: Any) -> dict[str, dict[str, Any]]:
     return {str(k): dict(v) if isinstance(v, dict) else {"machine_id": str(v)} for k, v in machines.items()}
 
 
+def _sanitize_local_machines(
+    local_raw: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Rewrite local alias keys, dropping empty results after strip."""
+    cleaned: dict[str, dict[str, Any]] = {}
+    for raw_key, entry in local_raw.items():
+        key = sanitize_local_alias_spelling(str(raw_key))
+        if not key:
+            continue
+        cleaned[key] = dict(entry) if isinstance(entry, dict) else {"machine_id": str(entry)}
+    return cleaned
+
+
 class AliasMap:
     def __init__(
         self,
@@ -225,7 +283,7 @@ class AliasMap:
             return base
         with local_path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        local_raw = _machines_from_yaml_data(data)
+        local_raw = _sanitize_local_machines(_machines_from_yaml_data(data))
         if not local_raw:
             return base
         merged = dict(base._machines)
@@ -250,7 +308,7 @@ class AliasMap:
             return self
         with local_path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        local_raw = _machines_from_yaml_data(data)
+        local_raw = _sanitize_local_machines(_machines_from_yaml_data(data))
         if not local_raw:
             return self
         merged = dict(self._machines)
@@ -340,7 +398,7 @@ class AliasMap:
         layout: Optional[str] = None,
     ) -> None:
         """Add/update a shop-local alias keyed by the folder name spelling."""
-        raw = str(folder_raw).strip()
+        raw = sanitize_local_alias_spelling(folder_raw)
         mid = str(machine_id).strip()
         if not raw or not mid or mid == "unknown" or mid.startswith("unmapped:"):
             return
@@ -546,7 +604,7 @@ class AliasMap:
         self.remove_local_aliases_for_machine(mid)
         seen: set[str] = set()
         for raw in aliases:
-            name = str(raw or "").strip()
+            name = sanitize_local_alias_spelling(raw)
             if not name:
                 continue
             nk = normalize_folder_name(name)

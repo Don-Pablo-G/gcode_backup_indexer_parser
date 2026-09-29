@@ -2,7 +2,7 @@
 
 **Dla kogo:** osoby na PC indeksatora, które układają drzewo kopii, katalogi zielone/żółte, aliasy i nagłówki tak, żeby Flaga, maszyny, role, odbiorcy, Obserwuj i listy uczenia działały dobrze.  
 **Zdolność:** większość ustawień jest na PC indeksatora (`can_index=yes`). Na hali wystarczy **pakiet obok bazy**.  
-**Odzwierciedla zachowanie do 0.2.117** (na bazie 0.2.116).
+**Odzwierciedla zachowanie do 0.2.118** (na bazie 0.2.117).
 
 W GUI: **Pomoc → Nazwy i rozmieszczenie…** otwiera ten przewodnik. Te same tematy są też rozdziałem w **instrukcji indeksatora**.
 
