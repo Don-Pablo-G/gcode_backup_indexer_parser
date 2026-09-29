@@ -21,10 +21,13 @@ from typing import Any, Optional
 
 from gcode_index.aliases import (
     AliasMap,
+    BUNDLED_ALIAS_DISPLAY_SUFFIX,
     LOCAL_ALIASES_FILENAME,
     default_aliases_path,
     local_aliases_path_for_target,
     normalize_folder_name,
+    remove_alias_list_selection,
+    sanitize_local_alias_spelling,
 )
 from gcode_index.compare import (
     instance_label,
@@ -11372,7 +11375,14 @@ class AliasEditorDialog(tk.Toplevel):
                 "label": label,
                 "control_family": control,
                 "layout": layout,
-                "local_aliases": list(row.get("local_aliases") or []),
+                "local_aliases": [
+                    s
+                    for s in (
+                        sanitize_local_alias_spelling(a)
+                        for a in (row.get("local_aliases") or [])
+                    )
+                    if s
+                ],
                 "bundled_aliases": list(row.get("bundled_aliases") or []),
                 "local_only": bool(row.get("local_only")),
             }
@@ -11436,7 +11446,7 @@ class AliasEditorDialog(tk.Toplevel):
         for name in row.get("local_aliases") or []:
             self._alias_list.insert(tk.END, name)
         for name in row.get("bundled_aliases") or []:
-            self._alias_list.insert(tk.END, f"{name}  [bundled]")
+            self._alias_list.insert(tk.END, f"{name}{BUNDLED_ALIAS_DISPLAY_SUFFIX}")
 
     def _flush_machine_fields(self, mid: str) -> bool:
         """Write label/control/layout from the detail pane into draft.
@@ -11523,7 +11533,9 @@ class AliasEditorDialog(tk.Toplevel):
             return
         locals_: list[str] = []
         if alias:
-            locals_.append(alias)
+            cleaned = sanitize_local_alias_spelling(alias)
+            if cleaned:
+                locals_.append(cleaned)
         self._draft[mid] = {
             "label": label,
             "control_family": control,
@@ -11582,7 +11594,7 @@ class AliasEditorDialog(tk.Toplevel):
         )
         if name is None:
             return
-        name = name.strip()
+        name = sanitize_local_alias_spelling(name)
         if not name:
             return
         row = self._draft[mid]
@@ -11618,18 +11630,23 @@ class AliasEditorDialog(tk.Toplevel):
                 parent=self,
             )
             return
-        raw = self._alias_list.get(sel[0])
-        if " [bundled]" in raw:
+        idx = int(sel[0])
+        row = self._draft[mid]
+        locals_ = list(row.get("local_aliases") or [])
+        bundled = list(row.get("bundled_aliases") or [])
+        new_locals, status = remove_alias_list_selection(locals_, bundled, idx)
+        if status == "removed" and new_locals is not None:
+            row["local_aliases"] = new_locals
+            self._dirty = True
+            self._fill_detail(mid)
+            return
+        if status == "bundled":
             messagebox.showinfo(
                 _tr(self.master, "alias_remove_alias_title"),
                 _tr(self.master, "alias_cannot_remove_bundled"),
                 parent=self,
             )
             return
-        row = self._draft[mid]
-        row["local_aliases"] = [a for a in row["local_aliases"] if a != raw]
-        self._dirty = True
-        self._fill_detail(mid)
 
     def _save(self) -> None:
         if self._selected_mid:
@@ -11777,7 +11794,7 @@ class MachineForm(tk.Toplevel):
             self.label_var.get().strip(),
             self.control_var.get().strip(),
             self.layout_var.get().strip(),
-            self.alias_var.get().strip(),
+            sanitize_local_alias_spelling(self.alias_var.get()),
         )
         self.destroy()
 

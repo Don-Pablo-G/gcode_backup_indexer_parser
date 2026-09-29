@@ -13,6 +13,8 @@ from gcode_index.aliases import (
     fuzzy_match_tier,
     match_tier_in_raw,
     normalize_folder_name,
+    remove_alias_list_selection,
+    sanitize_local_alias_spelling,
 )
 
 
@@ -238,3 +240,85 @@ def test_set_local_aliases_replaces_prior(tmp_path: Path):
     assert sorted(locals_, key=str.casefold) == ["ZZ_NewShopMill", "ZZ_PumaBay"]
     assert not am.resolve("ZZ_OldShopMill").mapped
     assert am.resolve("ZZ_NewShopMill").machine_id == "puma"
+
+
+def test_sanitize_strips_bundled_marker():
+    assert sanitize_local_alias_spelling("vf2s [bundled]") == "vf2s"
+    assert sanitize_local_alias_spelling("vf2s  [bundled]") == "vf2s"
+    assert sanitize_local_alias_spelling("[bundled] vf2s") == "vf2s"
+    assert sanitize_local_alias_spelling("VF2S [Bundled]") == "VF2S"
+    assert sanitize_local_alias_spelling("shop_vf2") == "shop_vf2"
+    assert sanitize_local_alias_spelling("  [bundled]  ") == ""
+    # Without sanitize, punctuation mash would glue the marker into the key
+    assert normalize_folder_name("vf2s [bundled]") == "vf2sbundled"
+    assert normalize_folder_name(sanitize_local_alias_spelling("vf2s [bundled]")) == "vf2s"
+
+
+def test_remove_alias_list_selection_local_with_bundled_text():
+    """Index 0 is local even when the spelling contains ``[bundled]``."""
+    locals_ = ["vf2s [bundled]", "shop_other"]
+    bundled = ["vf2s", "vf2"]
+    new_locals, status = remove_alias_list_selection(locals_, bundled, 0)
+    assert status == "removed"
+    assert new_locals == ["shop_other"]
+    # True bundled row (after locals) stays blocked
+    _, status2 = remove_alias_list_selection(locals_, bundled, 2)
+    assert status2 == "bundled"
+    _, status3 = remove_alias_list_selection(locals_, bundled, 99)
+    assert status3 == "invalid"
+
+
+def test_add_local_alias_strips_bundled_marker(tmp_path: Path):
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    am = AliasMap.load_merged(bundled, None)
+    am.add_local_alias("vf2s [bundled]", "shop-mill-x", label="Shop Mill X")
+    locals_ = dict(am.list_local_aliases())
+    assert "vf2s" in locals_
+    assert "vf2s [bundled]" not in locals_
+    assert am.resolve("VF2S").machine_id == "shop-mill-x"
+    # Stored key is the clean spelling (not the punct-mashed vf2sbundled form)
+    assert normalize_folder_name(next(iter(locals_))) == "vf2s"
+
+    path = tmp_path / "aliases.local.yaml"
+    am.save_local(path)
+    text = path.read_text(encoding="utf-8")
+    assert "vf2s:" in text or "\nvf2s\n" in text or "'vf2s'" in text
+    assert "[bundled]" not in text
+
+
+def test_load_and_remove_local_alias_that_contained_bundled_text(tmp_path: Path):
+    """Pawel-style stuck key in aliases.local.yaml must load clean and be removable."""
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    path = tmp_path / "aliases.local.yaml"
+    path.write_text(
+        "machines:\n"
+        '  "vf2s [bundled]":\n'
+        "    machine_id: shop-stuck\n"
+        "    label: Stuck Shop\n",
+        encoding="utf-8",
+    )
+    am = AliasMap.load_merged(bundled, path)
+    locals_ = dict(am.list_local_aliases())
+    assert list(locals_.keys()) == ["vf2s"]
+    assert am.resolve("VF2S").machine_id == "shop-stuck"
+
+    assert am.remove_local_alias("vf2s")
+    am.save_local(path)
+    gone = AliasMap.load_merged(bundled, path)
+    assert gone.list_local_aliases() == []
+    # Bundled vf2s restored
+    assert gone.resolve("VF2S").machine_id == "haas-vf-2"
+
+
+def test_set_local_aliases_strips_bundled_in_list():
+    bundled = Path(__file__).resolve().parents[1] / "aliases.yaml"
+    am = AliasMap.load_merged(bundled, None)
+    am.set_local_aliases_for_machine(
+        "shop-bay-9",
+        ["Bay9 [bundled]", "BayNine"],
+        label="Bay 9",
+    )
+    locals_ = [k for k, _ in am.list_local_aliases()]
+    assert sorted(locals_, key=str.casefold) == ["Bay9", "BayNine"]
+    assert am.resolve("Bay9").machine_id == "shop-bay-9"
+    assert am.resolve("BayNine").machine_id == "shop-bay-9"
