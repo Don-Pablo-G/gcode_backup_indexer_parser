@@ -59,6 +59,6 @@ Indeksator (Watch / auto-indeks) nadpisuje współdzielony `gcode_index.sqlite`.
 
 Actions → workflow **Windows GUI build** → pobierz artefakt `gcode-index-gui-windows-<ver>-bN.zip` → uruchom `gcode-index-gui.exe` z rozpakowanego folderu.
 
-Podpis kodu (**lokalnie**, po pobraniu): najłatwiej `scripts\Sign-WindowsGui.bat` (wybór exe/folderu + `.pfx`); albo CLI `scripts\sign-windows.ps1` — bez CI. Jednorazowo: certyfikat self-signed, eksport PFX, zaufanie na PC hali. Szczegóły (EN): [README.md — Local code signing](README.md#local-code-signing-after-download).
+Podpis kodu (**lokalnie**, po pobraniu): najłatwiej pobrać **Sign-WindowsGui.exe** (workflow Sign Windows GUI exe) albo zbudować `scripts\build-sign-gui.ps1` → `dist\Sign-WindowsGui.exe`; z checkoutu: `scripts\Sign-WindowsGui.bat` / `python scripts\sign_windows_gui.py`; CLI: `scripts\sign-windows.ps1` — bez CI. Jednorazowo: certyfikat self-signed, eksport PFX, zaufanie na PC hali. Szczegóły (EN): [README.md — Local code signing](README.md#local-code-signing-after-download).
 
 Szczegóły instalacji, formatów i CLI: angielski [README.md](README.md).

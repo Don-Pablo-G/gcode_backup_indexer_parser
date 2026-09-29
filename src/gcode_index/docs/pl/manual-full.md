@@ -149,7 +149,7 @@ W menu głównym **Ustawienia** (wszystkie tryby — hala i indeksator):
 - **Zamknij do zasobnika** / **Minimalizuj do zasobnika** — domyślnie **wyłączone**.
 - **Język** — `pl` / `en` (przeniesione z paska; ten sam klucz `[ui] language`).
 - Pasek tytułu, zasobnik systemowy i plik `.exe` używają tej samej ikony produktu (dołączonej do buildu).
-- Gotowe ZIP z CI są **bez podpisu**. Podpis w sklepie: lokalnie po pobraniu (`scripts/sign-windows.ps1` + własny `.pfx`) — README EN **Local code signing**. Tworzenie certyfikatu i zaufanie na PC hali pozostają ręczne.
+- Gotowe ZIP z CI są **bez podpisu**. Podpis w sklepie: lokalnie po pobraniu (**Sign-WindowsGui.exe** / `scripts/sign-windows.ps1` + własny `.pfx`) — README EN **Local code signing**. Tworzenie certyfikatu i zaufanie na PC hali pozostają ręczne.
 
 Istniejące wartości w ini zostają przy aktualizacji; tylko brakujące klucze biorą nowe domyślne „wyłączone”.
 - GUI jest **jednoinstancyjne** (w tym z zasobnika).
