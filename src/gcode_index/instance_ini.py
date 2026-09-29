@@ -136,6 +136,8 @@ class InstanceConfig:
     column_widths: dict[str, int] = field(default_factory=dict)
     # Preview popup WxH[+X+Y]; empty = default
     preview_geometry: str = ""
+    # Scan & watch dialog WxH[+X+Y]; empty = dialog default
+    scan_watch_geometry: str = ""
 
     def root_specs(self) -> list[ScanRootSpec]:
         specs: list[ScanRootSpec] = []
@@ -421,6 +423,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         prev_geom = parser.get("window", "preview_geometry", fallback="").strip()
         if prev_geom:
             cfg.preview_geometry = prev_geom
+        scan_geom = parser.get("window", "scan_watch_geometry", fallback="").strip()
+        if scan_geom:
+            cfg.scan_watch_geometry = scan_geom
 
     if parser.has_section("notes"):
         cfg.notes = parser.get("notes", "text", fallback="").strip()
@@ -524,6 +529,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         session_prev = parser.get("session", "preview_geometry", fallback="").strip()
         if session_prev:
             cfg.preview_geometry = session_prev
+        session_scan = parser.get("session", "scan_watch_geometry", fallback="").strip()
+        if session_scan:
+            cfg.scan_watch_geometry = session_scan
 
     return cfg
 
@@ -692,6 +700,9 @@ def save_instance_ini(
         preview_geometry=str(
             kwargs.get("preview_geometry", base.preview_geometry) or ""
         ),
+        scan_watch_geometry=str(
+            kwargs.get("scan_watch_geometry", base.scan_watch_geometry) or ""
+        ),
     )
     p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -827,6 +838,8 @@ search_auto_refresh_s = {data.search_auto_refresh_s}
 geometry = {data.geometry}
 ; Preview popup size/position (e.g. 760x640+120+80); blank = default
 preview_geometry = {data.preview_geometry}
+; Scan & watch dialog size/position (e.g. 620x640+80+60); blank = default
+scan_watch_geometry = {data.scan_watch_geometry}
 
 [notes]
 ; Free-form note for this PC / shop (optional)
@@ -899,6 +912,8 @@ hidden_columns = {",".join(data.hidden_columns)}
 column_widths = {format_column_widths(data.column_widths, list(DEFAULT_COLUMN_WIDTHS))}
 ; Preview popup geometry (also written under [window]; kept here for older readers)
 preview_geometry = {data.preview_geometry}
+; Scan & watch dialog geometry (also under [window]; kept here for older readers)
+scan_watch_geometry = {data.scan_watch_geometry}
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (auto-loaded; do not delete):

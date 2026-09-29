@@ -305,6 +305,9 @@ RESULT_COLUMNS: tuple[str, ...] = (
 # Flag uses Treeview #0 (PhotoImage); remaining ids are data columns.
 RESULT_DATA_COLUMNS: tuple[str, ...] = tuple(c for c in RESULT_COLUMNS if c != "flag")
 DEFAULT_PREVIEW_GEOMETRY = "760x640"
+# Default Scan & watch size when no saved geometry (fits Watch + Scan options + depth).
+DEFAULT_SCAN_WATCH_GEOMETRY = "620x640"
+DEFAULT_SCAN_WATCH_MINSIZE = (580, 560)
 UNKNOWN_MACHINE_DISPLAY = "MACHINE UNKNOWN (unknown)"
 
 # Re-export theme colors for callers / tests that import from gui
@@ -405,6 +408,8 @@ class IndexerApp(tk.Tk):
         self._preview_body_error: bool = False
         self._preview_win: Optional[tk.Toplevel] = None
         self._preview_geometry: str = DEFAULT_PREVIEW_GEOMETRY
+        self._scan_watch_geometry: str = ""
+        self._scan_watch_geom_save_after_id: Optional[str] = None
         self._hidden_columns: set[str] = {"role"}
         self._column_widths: dict[str, int] = dict(DEFAULT_COLUMN_WIDTHS)
         self._col_resize: Optional[dict] = None
@@ -533,6 +538,7 @@ class IndexerApp(tk.Tk):
         self._folder_save_after_id: Optional[str] = None
         self._filter_save_after_id: Optional[str] = None
         self._geometry_save_after_id: Optional[str] = None
+        self._scan_watch_geom_save_after_id: Optional[str] = None
         self.bind("<Configure>", self._on_window_configure)
 
     def _(self, key: str, **kwargs) -> str:
@@ -597,6 +603,8 @@ class IndexerApp(tk.Tk):
                 pass
         if (cfg.preview_geometry or "").strip():
             self._preview_geometry = cfg.preview_geometry.strip()
+        if (cfg.scan_watch_geometry or "").strip():
+            self._scan_watch_geometry = cfg.scan_watch_geometry.strip()
         self._hidden_columns = {
             c.strip()
             for c in (cfg.hidden_columns or [])
@@ -741,6 +749,8 @@ class IndexerApp(tk.Tk):
                 self._apply_column_visibility()
             if (cfg.preview_geometry or "").strip():
                 self._preview_geometry = cfg.preview_geometry.strip()
+            if (cfg.scan_watch_geometry or "").strip():
+                self._scan_watch_geometry = cfg.scan_watch_geometry.strip()
         finally:
             self._filter_trace_lock = False
         # Kick a query so restored filters show results
@@ -831,6 +841,9 @@ class IndexerApp(tk.Tk):
             },
             preview_geometry=str(
                 getattr(self, "_preview_geometry", "") or ""
+            ).strip(),
+            scan_watch_geometry=str(
+                getattr(self, "_scan_watch_geometry", "") or ""
             ).strip(),
         )
 
@@ -1566,6 +1579,9 @@ class IndexerApp(tk.Tk):
                 self, "_preview_geometry", DEFAULT_PREVIEW_GEOMETRY
             )
             or DEFAULT_PREVIEW_GEOMETRY,
+            "scan_watch_geometry": str(
+                getattr(self, "_scan_watch_geometry", "") or ""
+            ).strip(),
         }
 
     def _persist_ui_settings(self, target: Optional[str] = None) -> None:
@@ -1661,6 +1677,7 @@ class IndexerApp(tk.Tk):
             "_folder_save_after_id",
             "_filter_save_after_id",
             "_geometry_save_after_id",
+            "_scan_watch_geom_save_after_id",
             "_colour_load_after_id",
             "_indexer_settings_load_after_id",
             "_coalesce_amount_debounce_id",
@@ -1724,6 +1741,9 @@ class IndexerApp(tk.Tk):
             geom = str(preserved.get("preview_geometry") or "").strip()
             if geom:
                 self._preview_geometry = geom
+            scan_geom = str(preserved.get("scan_watch_geometry") or "").strip()
+            if scan_geom:
+                self._scan_watch_geometry = scan_geom
 
         self._build(initial_view=desired_view)
 
@@ -2682,14 +2702,22 @@ class IndexerApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_scan_watch_title"))
         dlg.transient(self)
+        # Tall enough for Watch + Scan options (incl. header depth) without resize.
+        min_w, min_h = DEFAULT_SCAN_WATCH_MINSIZE
         shell = install_dialog_shell(
             dlg,
-            min_width=560,
-            min_height=400,
-            width=600,
-            height=500,
+            min_width=min_w,
+            min_height=min_h,
+            width=620,
+            height=640,
             scrollable=True,
         )
+        saved = str(getattr(self, "_scan_watch_geometry", "") or "").strip()
+        if saved:
+            try:
+                dlg.geometry(saved)
+            except tk.TclError:
+                pass
         body, foot = shell.body, shell.footer
 
         # Watch (coalesce + optional safety live under Watch when on)
@@ -2842,9 +2870,15 @@ class IndexerApp(tk.Tk):
             variable=self.o9_system_programs_role_var,
             command=self._schedule_filter_ini_save,
         ).pack(anchor=tk.W)
+        # Label may wrap on narrow widths; spinbox stays on the same row (right).
         depth_row = ttk.Frame(opts)
         depth_row.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
-        ttk.Label(depth_row, text=self._("header_scan_depth")).pack(side=tk.LEFT)
+        depth_row.columnconfigure(0, weight=1)
+        ttk.Label(
+            depth_row,
+            text=self._("header_scan_depth"),
+            wraplength=480,
+        ).grid(row=0, column=0, sticky=tk.W)
         depth_spin = ttk.Spinbox(
             depth_row,
             from_=MIN_HEADER_SCAN_DEPTH,
@@ -2853,7 +2887,7 @@ class IndexerApp(tk.Tk):
             width=4,
             command=self._on_header_scan_depth_changed,
         )
-        depth_spin.pack(side=tk.LEFT, padx=(6, 0))
+        depth_spin.grid(row=0, column=1, sticky=tk.E, padx=(6, 0))
         depth_spin.bind("<FocusOut>", self._on_header_scan_depth_changed)
         depth_spin.bind("<Return>", self._on_header_scan_depth_changed)
         ttk.Label(
@@ -2863,7 +2897,40 @@ class IndexerApp(tk.Tk):
             wraplength=520,
         ).pack(anchor=tk.W, pady=(2, 0))
 
+        def _capture_scan_watch_geom(event=None) -> None:
+            if event is not None and event.widget is not dlg:
+                return
+            try:
+                if dlg.winfo_exists():
+                    self._scan_watch_geometry = dlg.geometry()
+            except tk.TclError:
+                return
+            after_id = getattr(self, "_scan_watch_geom_save_after_id", None)
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+            self._scan_watch_geom_save_after_id = self.after(
+                1200, self._save_instance_ini
+            )
+
+        dlg.bind("<Configure>", _capture_scan_watch_geom)
+
         def _on_close() -> None:
+            try:
+                if dlg.winfo_exists():
+                    self._scan_watch_geometry = dlg.geometry()
+            except tk.TclError:
+                pass
+            after_id = getattr(self, "_scan_watch_geom_save_after_id", None)
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+                self._scan_watch_geom_save_after_id = None
+            self._save_instance_ini()
             self._refresh_indeks_status_line()
             dlg.destroy()
 

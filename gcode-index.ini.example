@@ -123,6 +123,10 @@ search_auto_refresh_s = 20
 [window]
 ; Width x height (+optional +X+Y). Saved on resize / quit / close-to-tray.
 geometry = 1320x820
+; Preview popup size/position; blank = default
+preview_geometry =
+; Scan & watch dialog size/position; blank = default (restored on reopen)
+scan_watch_geometry =
 
 [notes]
 ; Free-form note for this PC / shop (optional; rewritten by the GUI)
@@ -195,6 +199,8 @@ hidden_columns =
 column_widths =
 ; Preview popup geometry (also under [window])
 preview_geometry =
+; Scan & watch dialog geometry (also under [window])
+scan_watch_geometry =
 
 ; ------------------------------------------------------------
 ; Sidecars next to the database folder (paths implied by [folders] target=).
