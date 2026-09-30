@@ -187,7 +187,7 @@ hide_duplicates = no
 ; Results table sort column id (flag / program / part / machine / date / size / …)
 sort_col =
 sort_reverse = no
-; yes = More filters panel open
+; yes = More filters panel open (Filtry / Filters popover open state is NOT saved)
 more_filters = no
 ; Folders panel: yes = path editors open | no = summary strip | blank = auto
 folders_expanded =

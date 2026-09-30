@@ -102,7 +102,7 @@ def test_views_only_green_roundtrip(tmp_path: Path):
 
 
 def test_more_filters_uses_pack_not_grid_on_find_parent():
-    """Find bar QUERY/SHAPE/ACTIONS pack; More filters must pack into same parent."""
+    """Find bar QUERY/ACTIONS pack; More filters must pack into same parent."""
     gui = Path(__file__).resolve().parents[1] / "src" / "gcode_index" / "gui.py"
     src = gui.read_text(encoding="utf-8")
     assert "_more_filters_frame.pack(" in src
@@ -113,5 +113,11 @@ def test_more_filters_uses_pack_not_grid_on_find_parent():
     assert "override_role_legend_items" in src
     assert "colour_legend_overrides" in src
     assert "hide_duplicates_var" in src
-    assert "find_sec_query" in src
+    assert "filters_menu" in src
+    assert "_toggle_filters_popover" in src
+    assert "_filters_active_count" in src
     assert "collapse_hide_duplicates" in src
+    # Section captions removed from always-on chrome (Option B)
+    assert 'self._("find_sec_query")' not in src
+    assert 'self._("find_sec_shape")' not in src
+    assert 'self._("find_sec_actions")' not in src

@@ -112,12 +112,13 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Source type** (`loose_nc`, `haas_pgm_glued`, …)
    - **Control** (`haas`, `fanuc`, `sinumerik`)
    - **Flag** — all / green (backup) / yellow (extra)
-   - **Newest only** — one row per program + machine (latest backup date)
-   - **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body SHA (global); survivor = green then newest (`hide_duplicates` in ini; after Newest only, before Only green; also in named views). Raporty → Duplikaty… unchanged for inspection.
-   - **Only green** / **Tylko zielone** — keep rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override blue (`only_green` in ini; AND with other filters; also in named views)
+   - **Newest only** — one row per program + machine (latest backup date); under **Filters** / **Filtry**
+   - **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body SHA (global); survivor = green then newest (`hide_duplicates` in ini; after Newest only, before Only green; also in named views). Raporty → Duplikaty… unchanged for inspection. Under **Filters**.
+   - **Only green** / **Tylko zielone** — keep rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override blue (`only_green` in ini; AND with other filters; also in named views). Under **Filters**.
+   - **Filters** / **Filtry** — popover for Newest / Hide duplicates / Only green / Include unassigned / Auto-refresh; badge counts non-default toggles
    - **View** — **Save current…** / **Load** / **Delete** named filter sets (`views.yaml` next to the DB; legacy `filter_presets.yaml` still loads)
    - Click any **results column header** to sort asc/desc (also on floor clients)
-   - **More filters** (indexer + floor): inline ▾/▴ panel — source/control/status/role/odbiorca, views, size from/to (`10k` / `1.5M`), file date ranges
+   - **More filters** (indexer + floor): inline ▾/▴ panel — source/control/status/role/odbiorca, views, size from/to (`10k` / `1.5M`), file date ranges (default collapsed)
    - Results legend: status green/yellow + **Overrides** chips only (roles with status-colour override)
    - **Language** — Polish UI by default; switch to English anytime (`ui_settings.yaml` next to the DB)
    Search matches program #, part #, path, machine names, and FANUC folder paths.

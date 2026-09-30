@@ -2,7 +2,7 @@
 
 **Audience:** indexer operators who shape the backup tree, green/yellow extras, aliases, and headers so Flag, machines, roles, recipients (odbiorcy), Watch, and teach lists work well.  
 **Capability:** most of this is configured on the indexer PC (`can_index=yes`). Floor clients only need the **pack beside the DB**.  
-**Reflects behaviour through 0.2.120** (stacked on 0.2.119).
+**Reflects behaviour through 0.2.121** (stacked on 0.2.119).
 **Polish:** `docs/pl/naming-and-placement.md` (Help → **Nazwy i rozmieszczenie…**).
 
 In the GUI: **Help → Naming & placement…** opens this guide. The same topics also appear as a chapter in the **Indexer manual**.
