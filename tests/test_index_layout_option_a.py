@@ -1,4 +1,4 @@
-"""Indexer Indeks Option A: no remap in folders, discs, scan-order bar."""
+"""Indexer Indeks layout: path remap on Folders; Mapowanie teach-only; discs; scan-order bar."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_format_root_label_uses_disc_not_brackets():
     not os.environ.get("DISPLAY") and os.name != "nt",
     reason="No DISPLAY for Tk on this Linux host",
 )
-def test_indexer_folders_drop_remap_grow_extras_scan_right(tmp_path: Path, monkeypatch):
+def test_indexer_folders_host_path_remap_scan_right(tmp_path: Path, monkeypatch):
     from tests.tk_util import require_working_tk
 
     require_working_tk()
@@ -67,7 +67,6 @@ def test_indexer_folders_drop_remap_grow_extras_scan_right(tmp_path: Path, monke
     monkeypatch.setenv("GCODE_INDEX_INI", str(ini))
     from gcode_index.gui import IndexerApp
     import tkinter as tk
-    from tkinter import ttk
 
     app = IndexerApp()
     try:
@@ -78,7 +77,7 @@ def test_indexer_folders_drop_remap_grow_extras_scan_right(tmp_path: Path, monke
         app._set_folders_expanded(True)
         app.update_idletasks()
 
-        # Indexer folders expander must NOT host path remap
+        # Indexer Folders must host path remap (aligned with floor Zmień…)
         assert hasattr(app, "_folders_expanded_frame")
         frame_text = str(app._folders_expanded_frame.cget("text"))
         assert frame_text == app._("folders_step")
@@ -97,7 +96,7 @@ def test_indexer_folders_drop_remap_grow_extras_scan_right(tmp_path: Path, monke
                 walk_folders(child)
 
         walk_folders(app._folders_expanded_frame)
-        assert not found_remap_in_folders
+        assert found_remap_in_folders, "Indexer Indeks Folders must host path remap"
 
         # Extras list taller + coloured discs
         assert hasattr(app, "extra_list")
@@ -194,7 +193,7 @@ def test_floor_simple_keeps_path_remap_in_folders(tmp_path: Path, monkeypatch):
     not os.environ.get("DISPLAY") and os.name != "nt",
     reason="No DISPLAY for Tk on this Linux host",
 )
-def test_mapping_window_hosts_path_remap(tmp_path: Path, monkeypatch):
+def test_mapping_window_excludes_path_remap(tmp_path: Path, monkeypatch):
     from tests.tk_util import require_working_tk
 
     require_working_tk()
@@ -238,6 +237,6 @@ def test_mapping_window_hosts_path_remap(tmp_path: Path, monkeypatch):
                     walk(child)
 
             walk(w)
-        assert found, "Mapowanie… must host path remap"
+        assert not found, "Mapowanie… must be pack teach only (no path remap)"
     finally:
         app.destroy()

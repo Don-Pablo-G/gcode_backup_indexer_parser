@@ -36,14 +36,14 @@ In the preview window, use **In preview** to find text in the G-code body (next/
 
 ## Path remap (client)
 
-If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Mapping…** and under **Path remap (client)** **Add…** one or more rules:
+If the index was built on a server as **C:** and this PC sees the same share as **Z:** (or you have several shares), open **Folders** (**Change…** / **Zmień…** on the Indeks bar, or the folders expander) and under **Path remap (client)** **Add…** one or more rules:
 
 - **Prefix in index** = `C:\…` (as stored in the DB / `scan_root`)
 - **Local prefix** = `Z:\…` (as on this PC)
 
 Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
 
-On floor clients (`can_index=no`) path remap stays under **Change…** (no **Mapping…** doorway).
+Indexer and floor clients use the **same place**: next to extract / folder setup. **Mapping…** is pack teach only (folder names, map tree, catalogues) — not path remap.
 
 ## Folders
 
@@ -114,7 +114,7 @@ Order on **Index / Indeks** (top → bottom): **1 · Folders** (backup / DB / ex
 
 1. Set backup + database folders (and extras if needed), or use **Open existing DB…** on the toolbar to pick an already-built `gcode_index.sqlite`.
 2. Click green **Run scan** / **Uruchom skan** (right side). Setup is under **Mapping…**, **Scan & watch…**, and **Reports…**.
-3. Deep setup is under **Mapping…** (including path remap), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch), and **Reports…**. Desktop / tray / language live under the main **Settings** menu.
+3. Deep setup is under **Mapping…** (teach names + catalogues), **Scan & watch…** (incremental / Excel / header toggles / O9 / watch), and **Reports…**. Path remap lives under **Folders** (same as floor **Change…**). Desktop / tray / language live under the main **Settings** menu.
 4. Progress shows file count and ETA. A **scan report** opens when finished (also via **Scan report…**). From the report (or **Reports…**), **Unassigned header tokens…** lists frequent comment tokens from the O-line window (depth in **Scan options**, default **1** = O-line only; stops before the next `%`) that still have no machine / function / recipient alias — right-click assign like **Folder names**. Excludes program numbers and tokens with more than 4 digit characters. Cache: `header_token_freq.json` beside the DB; a **full rescan** refreshes the list so taught tokens drop out. Odbiorca / roles / machine auto-match stay O-line only.
 
 ### Watch folders
@@ -172,6 +172,7 @@ Same find bar as the floor client, plus:
 
 - **Include unassigned** / **Uwzględniaj nieprzypisane** (default **ON**) — when a machine multi-select is active, keep **MACHINE UNKNOWN** / `unmapped:…` rows in the results. Turning OFF shows a confirm warning. Saved as `[scan] include_unknown` in `gcode-index.ini`. Floor clients and locked installs force this **ON** (control disabled).
 - **Only green** / **Tylko zielone** — show only rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override colours. AND with other filters. Saved as `[filters] only_green` (default off). Named **views** also store `only_green`.
+- **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body SHA-256 (`program_sha256`, global across machines). Survivor = Flag-green, then newest backup date (NULL hashes always kept). Runs after **Newest only**, before **Only green**. Saved as `[filters] hide_duplicates` (default off; also in named views). **Duplicates…** under Raporty stays the inspection dialog — unchanged.
 - **More filters** — inline expand under the find bar (▾ / ▴; open state in `[session] more_filters`). Groups: **Classification** (source type, control, status, role, odbiorca), **Views** (`views.yaml` next to the DB), **Ranges** (size from/to as bytes or `10k` / `1.5M`; file date from/to = source mtime / creation; calendar via **▾**). Also on floor clients. Hiding the panel does not clear values; **Clear filters** clears primary and advanced.
 - Results colour legend: status 🟢/🟡 plus **Overrides** / **Nadpisania** chips only for roles with `can_override_main_state_colour` (e.g. Prototype). Non-override role colours stay on Flag discs / tip — not in the legend.
 - Click any **results column header** to sort ascending/descending

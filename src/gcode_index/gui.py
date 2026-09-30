@@ -35,6 +35,7 @@ from gcode_index.compare import (
     unified_diff_programs,
 )
 from gcode_index.db import (
+    collapse_hide_duplicates,
     format_display_date,
     format_display_size,
     format_location,
@@ -372,6 +373,7 @@ class IndexerApp(tk.Tk):
         self.odbiorca_var = tk.StringVar(value=ALL)
         self.newest_only_var = tk.BooleanVar(value=False)
         self.only_green_var = tk.BooleanVar(value=False)
+        self.hide_duplicates_var = tk.BooleanVar(value=False)
         self.include_unknown_var = tk.BooleanVar(value=True)
         self.incremental_var = tk.BooleanVar(value=True)
         self.watch_var = tk.BooleanVar(value=False)
@@ -526,6 +528,7 @@ class IndexerApp(tk.Tk):
             self.odbiorca_var,
             self.newest_only_var,
             self.only_green_var,
+            self.hide_duplicates_var,
         ):
             var.trace_add("write", self._on_filter_changed)
         # Persist scan/option toggles immediately (also covered by quit save)
@@ -744,6 +747,8 @@ class IndexerApp(tk.Tk):
                 self._pelny_view = "praca"
             if hasattr(self, "only_green_var"):
                 self.only_green_var.set(bool(cfg.filter_only_green))
+            if hasattr(self, "hide_duplicates_var"):
+                self.hide_duplicates_var.set(bool(cfg.filter_hide_duplicates))
             if cfg.preview_find and hasattr(self, "preview_find_var"):
                 self.preview_find_var.set(cfg.preview_find)
             hidden = [
@@ -833,6 +838,7 @@ class IndexerApp(tk.Tk):
             filter_role=self._role_filter_value() or "",
             filter_odbiorca=self._odbiorca_filter_for_ini(),
             filter_only_green=bool(self.only_green_var.get()),
+            filter_hide_duplicates=bool(self.hide_duplicates_var.get()),
             sort_col=self._sort_col or "",
             sort_reverse=bool(self._sort_reverse),
             more_filters=bool(self._more_filters_open),
@@ -1563,6 +1569,7 @@ class IndexerApp(tk.Tk):
             else "",
             "newest": bool(self.newest_only_var.get()),
             "only_green": bool(self.only_green_var.get()),
+            "hide_duplicates": bool(self.hide_duplicates_var.get()),
             "include_unknown": bool(self.include_unknown_var.get()),
             "incremental": bool(self.incremental_var.get()),
             "watch": bool(self.watch_var.get()),
@@ -1839,6 +1846,10 @@ class IndexerApp(tk.Tk):
                 self.newest_only_var.set(bool(preserved.get("newest")))
                 if "only_green" in preserved:
                     self.only_green_var.set(bool(preserved.get("only_green")))
+                if "hide_duplicates" in preserved:
+                    self.hide_duplicates_var.set(
+                        bool(preserved.get("hide_duplicates"))
+                    )
                 if "include_unknown" in preserved:
                     self.include_unknown_var.set(bool(preserved.get("include_unknown")))
                 self.incremental_var.set(bool(preserved.get("incremental", True)))
@@ -2135,15 +2146,14 @@ class IndexerApp(tk.Tk):
     def _apply_more_filters_visibility(self) -> None:
         if not hasattr(self, "_more_filters_frame"):
             return
-        # ``filt`` children use grid — never pack into the same parent.
+        # Find bar children use pack (QUERY / SHAPE / ACTIONS) — never grid
+        # the More filters panel into the same parent.
         if self._more_filters_open:
-            self._more_filters_frame.grid(
-                row=2, column=0, columnspan=10, sticky=tk.EW, pady=(6, 0)
-            )
+            self._more_filters_frame.pack(fill=tk.X, pady=(6, 0))
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("fewer_filters"))
         else:
-            self._more_filters_frame.grid_remove()
+            self._more_filters_frame.pack_forget()
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("more_filters"))
 
@@ -2410,7 +2420,7 @@ class IndexerApp(tk.Tk):
         paths = self._folders_expanded_frame
         if simple:
             # Floor client: no backup/DB path pickers — open DB via the primary button.
-            # Optional extract folder only. Path remap stays here (no Mapowanie…).
+            # Optional extract folder + path remap (same home as Indexer Folders).
             ttk.Label(
                 paths,
                 text=self._("extract_folder"),
@@ -2429,7 +2439,8 @@ class IndexerApp(tk.Tk):
             ).grid(row=1, column=1, sticky=tk.W, padx=4, pady=(0, 2))
             done_row_idx = self._add_path_remap_fields(paths, 2)
         else:
-            # Indexer Indeks: paths + extras only. Path remap lives in Mapowanie….
+            # Indexer Indeks: paths + green/yellow extras + path remap (per-PC ini).
+            # Path remap stays on this Folders surface — not Mapowanie (pack teach only).
             ttk.Label(
                 paths,
                 text=self._("backup_folder"),
@@ -2520,7 +2531,8 @@ class IndexerApp(tk.Tk):
                 side=tk.LEFT, padx=8
             )
             self._fill_extra_list(self._hidden_root_specs)
-            done_row_idx = 5
+            # Same multi-rule editor as floor Zmień… (reuse widgets; no fork).
+            done_row_idx = self._add_path_remap_fields(paths, 5)
 
         if simple and hasattr(self, "extra_list"):
             delattr(self, "extra_list")
@@ -2659,16 +2671,19 @@ class IndexerApp(tk.Tk):
         self.indeks_status_var.set(" · ".join(bits) if bits else "")
 
     def _open_indeks_mapping_window(self) -> None:
-        """Window A — Mapowanie: teach names, catalogues (machines/roles/odbiorcy), path remap."""
+        """Window A — Mapowanie: pack teach only (Nazwy, Map tree, catalogues).
+
+        Per-PC path remap lives on Indeks Folders (aligned with floor Zmień…).
+        """
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_mapping_title"))
         dlg.transient(self)
         shell = install_dialog_shell(
             dlg,
             min_width=540,
-            min_height=460,
+            min_height=360,
             width=580,
-            height=560,
+            height=420,
             scrollable=True,
         )
         body, foot = shell.body, shell.footer
@@ -2714,13 +2729,6 @@ class IndexerApp(tk.Tk):
             ttk.Button(cats, text=self._(label_key), command=cmd).pack(
                 fill=tk.X, pady=2
             )
-        # Path remap editor (Indexer home for multi-rule list; floor keeps Zmień…)
-        remap = ttk.LabelFrame(
-            body, text=self._("path_remap"), padding=8
-        )
-        remap.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
-        remap.columnconfigure(0, weight=1)
-        self._add_path_remap_fields(remap, 0)
         ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 
@@ -3132,83 +3140,117 @@ class IndexerApp(tk.Tk):
 
 
     def _build_find_section(self, parent, pad: dict, *, simple: bool) -> None:
-        """Search / filter bar with primary Wydobądź CTA."""
-        find_title = self._("find_programs_step") if simple else self._("find_programs")
+        """Search / filter bar grouped QUERY → SHAPE → ACTIONS (+ More filters)."""
+        # Indexer: short title (sections replace the old subtitle). Floor keeps step.
+        find_title = (
+            self._("find_programs_step") if simple else self._("find_programs_simple")
+        )
         self.filt_frame = ttk.LabelFrame(
             parent, text=find_title, padding=8, style="Primary.TLabelframe"
         )
         self.filt_frame.pack(fill=tk.X, **pad)
         filt = self.filt_frame
 
-        ttk.Label(filt, text=self._("text"), style="Key.TLabel").grid(
-            row=0, column=0, sticky=tk.W
+        # --- QUERY ---
+        query = ttk.Frame(filt)
+        query.pack(fill=tk.X)
+        ttk.Label(
+            query, text=self._("find_sec_query"), style="Muted.TLabel"
+        ).pack(anchor=tk.W)
+        q_row1 = ttk.Frame(query)
+        q_row1.pack(fill=tk.X, pady=(2, 0))
+        ttk.Label(q_row1, text=self._("text"), style="Key.TLabel").pack(
+            side=tk.LEFT
         )
         self.search_entry = ttk.Entry(
-            filt, textvariable=self.search_var, style="Key.TEntry"
+            q_row1, textvariable=self.search_var, style="Key.TEntry"
         )
-        self.search_entry.grid(
-            row=0, column=1, sticky=tk.EW, padx=4, ipady=3
+        self.search_entry.pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=4, ipady=3
         )
         ttk.Button(
-            filt,
+            q_row1,
             textvariable=self._machines_btn_var,
             command=self._open_machine_picker,
             width=18,
-        ).grid(row=0, column=2, padx=4)
-        ttk.Label(filt, text=self._("date_from"), style="Key.TLabel").grid(
-            row=0, column=3, sticky=tk.W, padx=(8, 2)
+        ).pack(side=tk.LEFT, padx=4)
+        q_row2 = ttk.Frame(query)
+        q_row2.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(q_row2, text=self._("date_from"), style="Key.TLabel").pack(
+            side=tk.LEFT
         )
-        self._date_entry(filt, self.date_from_var).grid(row=0, column=4, sticky=tk.W)
-        ttk.Label(filt, text=self._("date_to_sep")).grid(row=0, column=5, sticky=tk.W)
-        self._date_entry(filt, self.date_to_var).grid(row=0, column=6, sticky=tk.W)
+        self._date_entry(q_row2, self.date_from_var).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Label(q_row2, text=self._("date_to_sep")).pack(side=tk.LEFT)
+        self._date_entry(q_row2, self.date_to_var).pack(side=tk.LEFT)
+
+        # --- SHAPE (result-shape / sticky policy) ---
+        shape = ttk.Frame(filt)
+        shape.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(
+            shape, text=self._("find_sec_shape"), style="Muted.TLabel"
+        ).pack(anchor=tk.W)
+        shape_row1 = ttk.Frame(shape)
+        shape_row1.pack(fill=tk.X, pady=(2, 0))
         ttk.Checkbutton(
-            filt,
+            shape_row1,
             text=self._("newest_only"),
             variable=self.newest_only_var,
-        ).grid(row=0, column=7, sticky=tk.E, padx=4)
+        ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Checkbutton(
-            filt,
+            shape_row1,
+            text=self._("hide_duplicates"),
+            variable=self.hide_duplicates_var,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Checkbutton(
+            shape_row1,
             text=self._("only_green"),
             variable=self.only_green_var,
-        ).grid(row=0, column=8, sticky=tk.E, padx=4)
-        self.extract_btn = self._make_primary_button(
-            filt, self._("extract_selected"), self._extract_selected
-        )
-        self.extract_btn.grid(row=0, column=9, padx=4)
-        filt.columnconfigure(1, weight=1)
-
-        row2 = ttk.Frame(filt)
-        row2.grid(row=1, column=0, columnspan=10, sticky=tk.EW, pady=(6, 0))
-        ttk.Button(
-            row2, text=self._("open_folder"), command=self._open_selected_folder
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            row2, text=self._("copy_path"), command=self._copy_selected_path
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            row2, text=self._("clear_filters"), command=self._clear_filters
-        ).pack(side=tk.LEFT, padx=4)
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        shape_row2 = ttk.Frame(shape)
+        shape_row2.pack(fill=tk.X, pady=(2, 0))
         self._include_unknown_cb = ttk.Checkbutton(
-            row2,
+            shape_row2,
             text=self._("include_unknown"),
             variable=self.include_unknown_var,
             command=self._on_include_unknown_toggled,
         )
-        self._include_unknown_cb.pack(side=tk.LEFT, padx=(12, 0))
+        self._include_unknown_cb.pack(side=tk.LEFT, padx=(0, 8))
         self._sync_include_unknown_widget()
         ttk.Checkbutton(
-            row2,
+            shape_row2,
             text=self._("search_auto_refresh"),
             variable=self.search_auto_refresh_var,
             command=self._on_search_auto_refresh_toggled,
-        ).pack(side=tk.LEFT, padx=(12, 0))
+        ).pack(side=tk.LEFT)
+
+        # --- ACTIONS ---
+        actions = ttk.Frame(filt)
+        actions.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(
+            actions, text=self._("find_sec_actions"), style="Muted.TLabel"
+        ).pack(anchor=tk.W)
+        act_row = ttk.Frame(actions)
+        act_row.pack(fill=tk.X, pady=(2, 0))
+        self.extract_btn = self._make_primary_button(
+            act_row, self._("extract_selected"), self._extract_selected
+        )
+        self.extract_btn.pack(side=tk.LEFT)
+        ttk.Button(
+            act_row, text=self._("open_folder"), command=self._open_selected_folder
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            act_row, text=self._("copy_path"), command=self._copy_selected_path
+        ).pack(side=tk.LEFT, padx=4)
         if not simple:
             ttk.Button(
-                row2, text=self._("compare"), command=self._compare_selected
+                act_row, text=self._("compare"), command=self._compare_selected
             ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            act_row, text=self._("clear_filters"), command=self._clear_filters
+        ).pack(side=tk.LEFT, padx=4)
         # More filters: indexer + floor client (same expand panel)
         self._more_filters_btn = ttk.Button(
-            row2,
+            act_row,
             text=self._("more_filters"),
             command=self._toggle_more_filters,
         )
@@ -6035,6 +6077,7 @@ class IndexerApp(tk.Tk):
             ),
             newest_only=bool(self.newest_only_var.get()),
             only_green=bool(self.only_green_var.get()),
+            hide_duplicates=bool(self.hide_duplicates_var.get()),
         )
 
     def _apply_filter_preset(self, preset: FilterPreset) -> None:
@@ -6057,6 +6100,9 @@ class IndexerApp(tk.Tk):
                 self.odbiorca_var.set(odb_raw if odb_raw else ALL)
             self.newest_only_var.set(bool(preset.newest_only))
             self.only_green_var.set(bool(getattr(preset, "only_green", False)))
+            self.hide_duplicates_var.set(
+                bool(getattr(preset, "hide_duplicates", False))
+            )
             wanted = {m.strip() for m in (preset.machines or []) if m.strip()}
             self._machine_sel = {
                 n for n in self._machine_names if n in wanted
@@ -6170,6 +6216,7 @@ class IndexerApp(tk.Tk):
                 self.odbiorca_var.set(self._all_token())
             self.newest_only_var.set(False)
             self.only_green_var.set(False)
+            self.hide_duplicates_var.set(False)
             self._sort_col = None
             self._sort_reverse = False
             self._refresh_heading_labels()
@@ -6347,6 +6394,28 @@ class IndexerApp(tk.Tk):
             self.status_var.set(self._("search_error", error=exc))
             return
 
+        if bool(self.hide_duplicates_var.get()):
+            catalog = getattr(self, "_colour_catalog", ColourCatalog())
+            override_ids = catalog.override_role_ids()
+
+            def _row_is_green(r: object) -> bool:
+                keys = r.keys() if hasattr(r, "keys") else ()
+                prov = (
+                    str(r["provenance"] or PROVENANCE_BACKUP)
+                    if "provenance" in keys
+                    else PROVENANCE_BACKUP
+                )
+                role_raw = (
+                    str(r["role"]).strip() if "role" in keys and r["role"] else None
+                )
+                return is_flag_green(
+                    prov,
+                    roles_from_db(role_raw),
+                    override_role_ids=override_ids,
+                )
+
+            rows = collapse_hide_duplicates(rows, is_green=_row_is_green)
+
         if bool(self.only_green_var.get()):
             catalog = getattr(self, "_colour_catalog", ColourCatalog())
             override_ids = catalog.override_role_ids()
@@ -6398,6 +6467,8 @@ class IndexerApp(tk.Tk):
             bits.append(f"role={role}")
         if self.newest_only_var.get():
             bits.append(self._("status_newest_only"))
+        if self.hide_duplicates_var.get():
+            bits.append(self._("status_hide_duplicates"))
         if self.only_green_var.get():
             bits.append(self._("status_only_green"))
         if self._sort_col:
