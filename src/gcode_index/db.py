@@ -466,6 +466,57 @@ def format_display_size(nbytes: Optional[int]) -> str:
     return f"{v:.1f}G".replace(".0G", "G")
 
 
+# Instance (program) byte length: glued span when known, else whole-file source_size.
+# Used by Work Size column, sort, and size filters — not a DB column.
+_INSTANCE_SIZE_SQL = (
+    "CASE WHEN byte_start IS NOT NULL AND byte_end IS NOT NULL "
+    "THEN (byte_end - byte_start) ELSE source_size END"
+)
+
+
+def _row_get(row: object, key: str) -> object:
+    """Read a column from sqlite3.Row / mapping / object without KeyError noise."""
+    if isinstance(row, sqlite3.Row):
+        keys = row.keys()
+        return row[key] if key in keys else None
+    if isinstance(row, dict):
+        return row.get(key)
+    if hasattr(row, "keys"):
+        try:
+            keys = row.keys()  # type: ignore[union-attr]
+            if key in keys:
+                return row[key]  # type: ignore[index]
+        except Exception:  # noqa: BLE001
+            pass
+    return getattr(row, key, None)
+
+
+def instance_size_bytes(row: object) -> Optional[int]:
+    """Byte length of the program instance (what extract reads).
+
+    When ``byte_start`` / ``byte_end`` are both set (glued Haas PGM / FANUC ALL-*),
+    return ``byte_end - byte_start``. Otherwise fall back to ``source_size``
+    (whole-file ``.nc`` / loose files — same as the program).
+
+    Keeps ``source_size`` in the DB for dump integrity; this value is for
+    display / sort / size filters only.
+    """
+    start = _row_get(row, "byte_start")
+    end = _row_get(row, "byte_end")
+    if start is not None and end is not None:
+        try:
+            return int(end) - int(start)
+        except (TypeError, ValueError):
+            pass
+    raw = _row_get(row, "source_size")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 # Column id → sort key (used by GUI header clicks, #3)
 _SORT_KEY_FNS = {
     "flag": lambda r: (
@@ -484,7 +535,9 @@ _SORT_KEY_FNS = {
         r["machine_label"] or r["machine_id"] or ""
     ).casefold(),
     "date": lambda r: str(r["backup_date"] or ""),
-    "size": lambda r: int(r["source_size"]) if r["source_size"] is not None else -1,
+    "size": lambda r: (
+        n if (n := instance_size_bytes(r)) is not None else -1
+    ),
     "type": lambda r: str(r["source_type"] or "").casefold(),
     "control": lambda r: str(r["control_family"] or "").casefold(),
     "path": lambda r: str(r["source_path"] or "").casefold(),
@@ -699,7 +752,8 @@ def query_instances(
     ``machines`` — one or more machine ids/labels (multi-select GUI).
     ``date_from`` / ``date_to`` — inclusive bounds on ``backup_date``
     (``DD.MM.YYYY`` or ``YYYY-MM-DD``).
-    ``size_min`` / ``size_max`` — inclusive bounds on ``source_size`` (bytes, or
+    ``size_min`` / ``size_max`` — inclusive bounds on **instance** size
+    (``byte_end - byte_start`` when both set, else ``source_size``; bytes, or
     strings like ``10k`` / ``1.5M`` via :func:`parse_size_bound`).
     ``mtime_from`` / ``mtime_to`` — inclusive bounds on file mtime/ctime
     (``COALESCE(source_mtime, file_ctime, backup_date)``).
@@ -800,10 +854,14 @@ def query_instances(
         else parse_size_bound(None if size_max is None else str(size_max))
     )
     if s_min is not None:
-        clauses.append("source_size IS NOT NULL AND source_size >= ?")
+        clauses.append(
+            f"({_INSTANCE_SIZE_SQL}) IS NOT NULL AND ({_INSTANCE_SIZE_SQL}) >= ?"
+        )
         params.append(s_min)
     if s_max is not None:
-        clauses.append("source_size IS NOT NULL AND source_size <= ?")
+        clauses.append(
+            f"({_INSTANCE_SIZE_SQL}) IS NOT NULL AND ({_INSTANCE_SIZE_SQL}) <= ?"
+        )
         params.append(s_max)
 
     # File mtime / creation range (#10) — prefer source_mtime, else ctime/backup

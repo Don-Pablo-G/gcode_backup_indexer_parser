@@ -36,8 +36,8 @@ Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder 
 4. Otwórz **Filtry** / **Filters** i zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
 5. **Uwzględniaj nieprzypisane** / **Include unassigned** na kliencie hali jest zawsze **włączone** i **zablokowane** wewnątrz **Filtry** — przy filtrze maszyn w wynikach zostają też **MACHINE UNKNOWN** / nieprzypisane. (Na PC indeksatora można wyłączyć po ostrzeżeniu; zapis: `include_unknown` w ini, domyślnie yes.)
 6. W **Filtry** opcjonalnie **Ukryj duplikaty** — jeden wiersz na tę samą sumę kontrolną ciała programu (SHA; preferuje zielone, potem najnowsze). Opcjonalnie **Tylko zielone** — tylko wiersze z zielonym krążkiem Flag (ukrywa żółte i nadpisania). Przycisk pokazuje liczbę, gdy któryś nietypowy filtr jest włączony.
-7. **Więcej filtrów ▾** otwiera panel zaawansowany pod paskiem (jak na indeksatorze): typ źródła, sterowanie, status, rola, odbiorca, **widoki**, zakresy rozmiaru i daty pliku. Ponowny klik (**Mniej filtrów ▴**) chowa panel — wartości zostają. Stan otwarcia jest w ini (domyślnie zamknięty).
-8. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
+7. **Więcej filtrów ▾** otwiera panel zaawansowany pod paskiem (jak na indeksatorze): typ źródła, sterowanie, status, rola, odbiorca, **widoki**, zakresy rozmiaru i daty pliku (**Rozmiar** = bajty instancji programu — wycinek klejonego dumpa gdy znany, inaczej plik; nie cały dump). Ponowny klik (**Mniej filtrów ▴**) chowa panel — wartości zostają. Stan otwarcia jest w ini (domyślnie zamknięty).
+8. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek). **Rozmiar** to rozmiar instancji (ta sama reguła co filtry).
 
 Wyniki są w tabeli. **Podgląd** jest na stałe **po prawej** (pełna wysokość, rozciągany) — nie pod tabelą.
 
