@@ -85,6 +85,8 @@ Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam u
 
 Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
 
+Na PC indeksatora ten sam edytor jest w **Indeks → Foldery** (jak **Zmień…** na hali). **Mapowanie…** to tylko nauka paczki.
+
 Prawy przycisk na wyniku → **Wydobądź do…** — wybierz folder docelowy (ostatnie foldery są zapamiętywane).
 
 ---

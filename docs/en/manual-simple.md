@@ -85,6 +85,8 @@ If the index was built on a server as **C:** and this PC sees the same share as 
 
 Several rules are allowed — **longest matching prefix wins**. Applies to the main backup and green/yellow roots under that prefix. Search works without remap; **Extract** / preview use it. Saved in `gcode-index.ini` → `[path_remap]`.
 
+On the indexer PC the same editor lives under **Indeks → Folders** (aligned with floor **Change…**). **Mapping…** is pack teach only.
+
 Right-click a result → **Extract to…** to pick a destination folder (recent folders are remembered).
 
 ---

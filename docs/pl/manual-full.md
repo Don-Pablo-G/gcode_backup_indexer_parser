@@ -36,14 +36,14 @@ W oknie podglądu użyj **W podglądzie**, żeby znaleźć tekst w treści G-cod
 
 ## Mapowanie ścieżek (klient)
 
-Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), otwórz **Mapowanie…** i w sekcji **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
+Gdy indeks powstał na serwerze z dyskiem **C:**, a ten komputer widzi ten sam udział jako **Z:** (albo masz kilka udziałów), otwórz **Foldery** (**Zmień…** na pasku Indeks lub rozwinięcie folderów) i w sekcji **Mapowanie ścieżek (klient)** dodaj jedną lub więcej reguł (**Dodaj…**):
 
 - **Prefiks w indeksie** = `C:\…` (jak w bazie / `scan_root`)
 - **Prefiks lokalny** = `Z:\…` (jak u Ciebie)
 
 Kilka reguł jest dozwolonych — **najdłuższy pasujący prefiks wygrywa**. Działa dla głównej kopii oraz folderów zielonych/żółtych na tym samym prefiksie. Szukanie działa bez mapowania; **Wydobądź** / podgląd używają mapy. Zapis: `gcode-index.ini` → `[path_remap]`.
 
-Na kliencie hali (`can_index=no`) mapowanie ścieżek jest nadal w **Zmień…** (brak drzwi **Mapowanie…**).
+Indeksator i klient hali mają **to samo miejsce**: obok ustawiania folderów / wydobycia. **Mapowanie…** to tylko nauka paczki (nazwy, drzewo, katalogi) — bez mapowania ścieżek.
 
 ## Foldery
 
@@ -110,7 +110,7 @@ Kolejność na **Indeks** (od góry): **1 · Foldery** (kopia / baza / wydobycie
 
 1. Ustaw folder kopii + bazy (i dodatki), albo **Otwórz istniejącą bazę…**.
 2. Zielony **Uruchom skan** (po prawej).
-3. Głębsze ustawienia: **Mapowanie…** (w tym mapowanie ścieżek), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja), **Raporty…**. Pulpit / zasobnik / język — w menu **Ustawienia**.
+3. Głębsze ustawienia: **Mapowanie…** (nauka nazw + katalogi), **Skan i obserwacja…** (przyrostowo / Excel / O9 / obserwacja), **Raporty…**. Mapowanie ścieżek jest w **Folderach** (jak **Zmień…** na hali). Pulpit / zasobnik / język — w menu **Ustawienia**.
 4. Pasek postępu + **Raport skanu** po zakończeniu. Z raportu (lub **Raporty…**): **Nieprzypisane tokeny nagłówka…** — częste tokeny z komentarzy w oknie od linii O (głębokość w **Opcjach skanu**, domyślnie **1** = tylko linia O; stop przed następnym `%`) bez aliasu maszyny / funkcji / odbiorcy; prawy klik jak w **Nazwy folderów**. Wykluczenia: numer programu oraz tokeny z więcej niż 4 cyframi. Cache: `header_token_freq.json` obok bazy; **pełny skan** odświeża listę (nauczone znikają). Auto-dopasowanie odbiorcy / ról / maszyny zostaje na linii O.
 
 ### Obserwacja folderów

@@ -2410,7 +2410,7 @@ class IndexerApp(tk.Tk):
         paths = self._folders_expanded_frame
         if simple:
             # Floor client: no backup/DB path pickers — open DB via the primary button.
-            # Optional extract folder only. Path remap stays here (no Mapowanie…).
+            # Optional extract folder + path remap (same home as Indexer Folders).
             ttk.Label(
                 paths,
                 text=self._("extract_folder"),
@@ -2429,7 +2429,8 @@ class IndexerApp(tk.Tk):
             ).grid(row=1, column=1, sticky=tk.W, padx=4, pady=(0, 2))
             done_row_idx = self._add_path_remap_fields(paths, 2)
         else:
-            # Indexer Indeks: paths + extras only. Path remap lives in Mapowanie….
+            # Indexer Indeks: paths + green/yellow extras + path remap (per-PC ini).
+            # Path remap stays on this Folders surface — not Mapowanie (pack teach only).
             ttk.Label(
                 paths,
                 text=self._("backup_folder"),
@@ -2520,7 +2521,8 @@ class IndexerApp(tk.Tk):
                 side=tk.LEFT, padx=8
             )
             self._fill_extra_list(self._hidden_root_specs)
-            done_row_idx = 5
+            # Same multi-rule editor as floor Zmień… (reuse widgets; no fork).
+            done_row_idx = self._add_path_remap_fields(paths, 5)
 
         if simple and hasattr(self, "extra_list"):
             delattr(self, "extra_list")
@@ -2659,16 +2661,19 @@ class IndexerApp(tk.Tk):
         self.indeks_status_var.set(" · ".join(bits) if bits else "")
 
     def _open_indeks_mapping_window(self) -> None:
-        """Window A — Mapowanie: teach names, catalogues (machines/roles/odbiorcy), path remap."""
+        """Window A — Mapowanie: pack teach only (Nazwy, Map tree, catalogues).
+
+        Per-PC path remap lives on Indeks Folders (aligned with floor Zmień…).
+        """
         dlg = tk.Toplevel(self)
         dlg.title(self._("indeks_win_mapping_title"))
         dlg.transient(self)
         shell = install_dialog_shell(
             dlg,
             min_width=540,
-            min_height=460,
+            min_height=360,
             width=580,
-            height=560,
+            height=420,
             scrollable=True,
         )
         body, foot = shell.body, shell.footer
@@ -2714,13 +2719,6 @@ class IndexerApp(tk.Tk):
             ttk.Button(cats, text=self._(label_key), command=cmd).pack(
                 fill=tk.X, pady=2
             )
-        # Path remap editor (Indexer home for multi-rule list; floor keeps Zmień…)
-        remap = ttk.LabelFrame(
-            body, text=self._("path_remap"), padding=8
-        )
-        remap.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
-        remap.columnconfigure(0, weight=1)
-        self._add_path_remap_fields(remap, 0)
         ttk.Button(foot, text=self._("close"), command=dlg.destroy).pack(side=tk.RIGHT)
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
 

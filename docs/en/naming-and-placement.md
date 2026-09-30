@@ -2,7 +2,7 @@
 
 **Audience:** indexer operators who shape the backup tree, green/yellow extras, aliases, and headers so Flag, machines, roles, recipients (odbiorcy), Watch, and teach lists work well.  
 **Capability:** most of this is configured on the indexer PC (`can_index=yes`). Floor clients only need the **pack beside the DB**.  
-**Reflects behaviour through 0.2.118** (stacked on 0.2.117).
+**Reflects behaviour through 0.2.119** (stacked on 0.2.118).
 **Polish:** `docs/pl/naming-and-placement.md` (Help → **Nazwy i rozmieszczenie…**).
 
 In the GUI: **Help → Naming & placement…** opens this guide. The same topics also appear as a chapter in the **Indexer manual**.
@@ -136,7 +136,7 @@ Copy the **whole database folder** to floor PCs (or point them at the share). Ne
 | `extra_scan_roots.yaml` | Green/yellow roots |
 | `indexer_settings.yaml` | Shared scan/watch defaults (**never** `can_index`) |
 
-**Per PC (not in the pack):** `gcode-index.ini` next to the exe — `can_index`, absolute paths, path remap, language, locks.
+**Per PC (not in the pack):** `gcode-index.ini` next to the exe — `can_index`, absolute paths, **path remap** (UI under **Folders** / **Zmień…**, not Mapowanie), language, locks.
 
 Opening a lone `.sqlite` without `folder_colour_aliases.yaml` falls back to seed colours and warns.
 
