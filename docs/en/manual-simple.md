@@ -35,7 +35,7 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 3. Optionally set **Date from / to** as `DD.MM.YYYY` (or open the small calendar via **▾** next to each field).
 4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
 5. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
-6. Optionally tick **Only green** / **Tylko zielone** to keep rows whose Flag disc is green (hides yellow and override colours).
+6. Optionally tick **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body checksum (SHA); prefers green, then newest. Optionally tick **Only green** / **Tylko zielone** to keep rows whose Flag disc is green (hides yellow and override colours).
 7. **More filters ▾** opens an advanced panel under the find bar (same as the indexer): source type, control, status, role, odbiorca, named **views**, size and file-date ranges. Click again (**Fewer filters ▴**) to hide — values stay applied. Open/closed is remembered in the ini.
 8. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 

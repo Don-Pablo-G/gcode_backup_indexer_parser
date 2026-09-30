@@ -124,6 +124,8 @@ class InstanceConfig:
     # Work GUI: show only rows whose Flag disc is green (backup/trusted;
     # hides yellow and overriding function colours such as prototype).
     filter_only_green: bool = False
+    # Work GUI: one row per identical program-body SHA (global across machines).
+    filter_hide_duplicates: bool = False
     # --- [session] chrome / layout ---
     sort_col: str = ""
     sort_reverse: bool = False
@@ -502,6 +504,9 @@ def load_instance_ini(path: Path | str | None = None) -> InstanceConfig:
         cfg.filter_only_green = _truthy(
             parser.get("filters", "only_green", fallback="no"), default=False
         )
+        cfg.filter_hide_duplicates = _truthy(
+            parser.get("filters", "hide_duplicates", fallback="no"), default=False
+        )
 
     if parser.has_section("session"):
         cfg.sort_col = parser.get("session", "sort_col", fallback="").strip()
@@ -697,6 +702,9 @@ def save_instance_ini(
         ),
         filter_only_green=bool(
             kwargs.get("filter_only_green", base.filter_only_green)
+        ),
+        filter_hide_duplicates=bool(
+            kwargs.get("filter_hide_duplicates", base.filter_hide_duplicates)
         ),
         sort_col=str(kwargs.get("sort_col", base.sort_col) or ""),
         sort_reverse=bool(kwargs.get("sort_reverse", base.sort_reverse)),
@@ -908,6 +916,11 @@ odbiorca = {data.filter_odbiorca}
 ; green (backup/trusted). Hides yellow and overriding function colours
 ; (e.g. prototype). Combines with other filters (AND). Default no.
 only_green = {yn(data.filter_only_green)}
+; yes/no — Work “Hide duplicates” / “Ukryj duplikaty”: one row per identical
+; program-body SHA-256 (global across machines). Survivor = Flag-green, then
+; newest backup date. NULL hashes always kept. Pipeline after Newest only,
+; before Only green. Default no. (Raporty → Duplikaty… unchanged.)
+hide_duplicates = {yn(data.filter_hide_duplicates)}
 
 [session]
 ; Results sort column id (flag/program/part/machine/date/size/…) or blank

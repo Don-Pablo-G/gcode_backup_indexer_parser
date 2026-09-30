@@ -87,6 +87,7 @@ def test_views_only_green_roundtrip(tmp_path: Path):
         text="3232",
         only_green=True,
         newest_only=True,
+        hide_duplicates=True,
         role="fixture",
     )
     save_presets(path, [a])
@@ -94,18 +95,23 @@ def test_views_only_green_roundtrip(tmp_path: Path):
     assert len(loaded) == 1
     assert loaded[0].only_green is True
     assert loaded[0].newest_only is True
+    assert loaded[0].hide_duplicates is True
     bare = FilterPreset.from_dict({"name": "Legacy", "text": "1"})
     assert bare.only_green is False
+    assert bare.hide_duplicates is False
 
 
-def test_more_filters_uses_grid_not_pack():
-    """Regression: packing into a grid parent raised TclError on expand."""
+def test_more_filters_uses_pack_not_grid_on_find_parent():
+    """Find bar QUERY/SHAPE/ACTIONS pack; More filters must pack into same parent."""
     gui = Path(__file__).resolve().parents[1] / "src" / "gcode_index" / "gui.py"
     src = gui.read_text(encoding="utf-8")
-    assert "_more_filters_frame.grid(" in src
-    assert "_more_filters_frame.grid_remove()" in src
-    assert "_more_filters_frame.pack(" not in src
-    assert "_more_filters_frame.pack_forget()" not in src
+    assert "_more_filters_frame.pack(" in src
+    assert "_more_filters_frame.pack_forget()" in src
+    assert "_more_filters_frame.grid(" not in src
+    assert "_more_filters_frame.grid_remove()" not in src
     assert "More filters: indexer + floor client" in src
     assert "override_role_legend_items" in src
     assert "colour_legend_overrides" in src
+    assert "hide_duplicates_var" in src
+    assert "find_sec_query" in src
+    assert "collapse_hide_duplicates" in src

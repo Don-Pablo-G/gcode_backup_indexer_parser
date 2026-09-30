@@ -35,7 +35,7 @@ Opcjonalnie: w **Zmień…** ustaw **folder wydobycia** (puste = ten sam folder 
 3. Opcjonalnie **Data od / do** w formacie `DD.MM.RRRR` (albo mały kalendarz przez **▾** obok pola).
 4. Zaznacz **Tylko najnowsze**, aby zostawić jeden wiersz na program + maszynę (najnowsza data).
 5. **Uwzględniaj nieprzypisane** / **Include unassigned** na kliencie hali jest zawsze **włączone** i **zablokowane** — przy filtrze maszyn w wynikach zostają też **MACHINE UNKNOWN** / nieprzypisane. (Na PC indeksatora można wyłączyć po ostrzeżeniu; zapis: `include_unknown` w ini, domyślnie yes.)
-6. Opcjonalnie **Tylko zielone** — tylko wiersze z zielonym krążkiem Flag (ukrywa żółte i nadpisania).
+6. Opcjonalnie **Ukryj duplikaty** — jeden wiersz na tę samą sumę kontrolną ciała programu (SHA; preferuje zielone, potem najnowsze). Opcjonalnie **Tylko zielone** — tylko wiersze z zielonym krążkiem Flag (ukrywa żółte i nadpisania).
 7. **Więcej filtrów ▾** otwiera panel zaawansowany pod paskiem (jak na indeksatorze): typ źródła, sterowanie, status, rola, odbiorca, **widoki**, zakresy rozmiaru i daty pliku. Ponowny klik (**Mniej filtrów ▴**) chowa panel — wartości zostają. Stan otwarcia jest w ini.
 8. Kliknij **nagłówek kolumny** w tabeli wyników, aby sortować rosnąco/malejąco (ponowny klik odwraca kierunek).
 

@@ -113,6 +113,7 @@ Use the top nav: **Work / Praca** for day-to-day search & extract; **Index / Ind
    - **Control** (`haas`, `fanuc`, `sinumerik`)
    - **Flag** — all / green (backup) / yellow (extra)
    - **Newest only** — one row per program + machine (latest backup date)
+   - **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body SHA (global); survivor = green then newest (`hide_duplicates` in ini; after Newest only, before Only green; also in named views). Raporty → Duplikaty… unchanged for inspection.
    - **Only green** / **Tylko zielone** — keep rows whose Flag disc is green (backup/trusted); hides yellow and prototype-override blue (`only_green` in ini; AND with other filters; also in named views)
    - **View** — **Save current…** / **Load** / **Delete** named filter sets (`views.yaml` next to the DB; legacy `filter_presets.yaml` still loads)
    - Click any **results column header** to sort asc/desc (also on floor clients)

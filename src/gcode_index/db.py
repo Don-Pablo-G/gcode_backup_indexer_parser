@@ -5,7 +5,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from gcode_index import PARSER_VERSION, __version__
 from gcode_index.folder_tree_map import roles_from_db, roles_to_db
@@ -577,6 +577,94 @@ def collapse_newest_per_program_machine(rows: list) -> list:
     out = list(best.values())
     out.sort(key=lambda r: (str(r["machine_id"] or ""), str(r["program_number"] or "")))
     out.sort(key=lambda r: str(r["backup_date"] or ""), reverse=True)
+    return out
+
+
+def _row_exact_sha(row: object) -> Optional[str]:
+    """Non-empty exact-duplicate key for a query row, or None to always keep.
+
+    Prefer ``program_sha256`` when the column is present (even if blank — blank
+    stays visible). Fall back to ``content_sha256`` only when ``program_sha256``
+    is absent from the row keys (same rule as ``find_exact_duplicate_groups``).
+    """
+    keys = row.keys() if hasattr(row, "keys") else ()
+    if "program_sha256" in keys:
+        val = row["program_sha256"]
+        if val is None:
+            return None
+        text = str(val).strip()
+        return text or None
+    if "content_sha256" in keys:
+        val = row["content_sha256"]
+        if val is None:
+            return None
+        text = str(val).strip()
+        return text or None
+    return None
+
+
+def collapse_hide_duplicates(
+    rows: list,
+    *,
+    is_green: Optional[Callable[[object], bool]] = None,
+) -> list:
+    """Keep one row per identical program-body SHA across the result set.
+
+    Survivor policy (locked): prefer Flag-green (via ``is_green``), then newest
+    ``backup_date``, then stable lower ``instance_id``. Rows with NULL/empty
+    hash are always kept. Output preserves input order of survivors / unhashed.
+    """
+    if not rows:
+        return []
+
+    def _green(r: object) -> bool:
+        if is_green is None:
+            return False
+        try:
+            return bool(is_green(r))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _better(cand: object, prev: object) -> bool:
+        cg, pg = _green(cand), _green(prev)
+        if cg != pg:
+            return cg
+        cd = str(cand["backup_date"] or "") if "backup_date" in cand.keys() else ""
+        pd = str(prev["backup_date"] or "") if "backup_date" in prev.keys() else ""
+        if cd != pd:
+            return cd > pd
+        cid = str(cand["instance_id"] or "") if "instance_id" in cand.keys() else ""
+        pid = str(prev["instance_id"] or "") if "instance_id" in prev.keys() else ""
+        return cid < pid
+
+    best_by_sha: dict[str, object] = {}
+    for r in rows:
+        sha = _row_exact_sha(r)
+        if not sha:
+            continue
+        prev = best_by_sha.get(sha)
+        if prev is None or _better(r, prev):
+            best_by_sha[sha] = r
+
+    winner_ids = {
+        str(r["instance_id"])
+        for r in best_by_sha.values()
+        if "instance_id" in r.keys()
+    }
+    # Fallback identity when instance_id missing (unit tests with plain dicts)
+    winner_objs = {id(r) for r in best_by_sha.values()}
+
+    out: list = []
+    for r in rows:
+        sha = _row_exact_sha(r)
+        if not sha:
+            out.append(r)
+            continue
+        if "instance_id" in r.keys():
+            if str(r["instance_id"]) in winner_ids:
+                out.append(r)
+        elif id(r) in winner_objs:
+            out.append(r)
     return out
 
 

@@ -36,6 +36,7 @@ class FilterPreset:
     odbiorca: str = "(all)"
     newest_only: bool = False
     only_green: bool = False
+    hide_duplicates: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,6 +68,7 @@ class FilterPreset:
             odbiorca=str(data.get("odbiorca") or "(all)"),
             newest_only=bool(data.get("newest_only") or False),
             only_green=bool(data.get("only_green") or False),
+            hide_duplicates=bool(data.get("hide_duplicates") or False),
         )
 
 
@@ -88,6 +90,7 @@ def _clean_preset(pr: FilterPreset) -> FilterPreset:
         odbiorca=getattr(pr, "odbiorca", "") or "(all)",
         newest_only=bool(pr.newest_only),
         only_green=bool(getattr(pr, "only_green", False)),
+        hide_duplicates=bool(getattr(pr, "hide_duplicates", False)),
     )
 
 

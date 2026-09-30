@@ -113,14 +113,22 @@ def test_filter_presets_roundtrip(tmp_path: Path):
     assert loaded[0].machines == ["HAAS UMC750 (haas-umc750)"]
     assert loaded[0].odbiorca == "Acme"
     assert loaded[0].only_green is False
+    assert loaded[0].hide_duplicates is False
 
     # Replace same name (case-insensitive)
-    b = FilterPreset(name="umc week", text="9999", newest_only=False, only_green=True)
+    b = FilterPreset(
+        name="umc week",
+        text="9999",
+        newest_only=False,
+        only_green=True,
+        hide_duplicates=True,
+    )
     upsert_preset(path, b)
     loaded = load_presets(path)
     assert len(loaded) == 1
     assert loaded[0].text == "9999"
     assert loaded[0].only_green is True
+    assert loaded[0].hide_duplicates is True
     assert get_preset(path, "UMC WEEK") is not None
 
     delete_preset(path, "umc week")

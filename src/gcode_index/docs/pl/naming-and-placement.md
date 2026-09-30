@@ -2,7 +2,7 @@
 
 **Dla kogo:** osoby na PC indeksatora, które układają drzewo kopii, katalogi zielone/żółte, aliasy i nagłówki tak, żeby Flaga, maszyny, role, odbiorcy, Obserwuj i listy uczenia działały dobrze.  
 **Zdolność:** większość ustawień jest na PC indeksatora (`can_index=yes`). Na hali wystarczy **pakiet obok bazy**.  
-**Odzwierciedla zachowanie do 0.2.117** (na bazie 0.2.116).
+**Odzwierciedla zachowanie do 0.2.120** (na bazie 0.2.119).
 
 W GUI: **Pomoc → Nazwy i rozmieszczenie…** otwiera ten przewodnik. Te same tematy są też rozdziałem w **instrukcji indeksatora**.
 
@@ -135,7 +135,7 @@ Kopiuj **cały folder bazy** na PC hali (albo wskaż udział). Obok `gcode_index
 | `extra_scan_roots.yaml` | Korzenie zielone/żółte |
 | `indexer_settings.yaml` | Wspólne domyślne skan/obserwacja (**nigdy** `can_index`) |
 
-**Per PC (nie w pakiecie):** `gcode-index.ini` obok exe — `can_index`, ścieżki bezwzględne, mapowanie, język, blokady.
+**Per PC (nie w pakiecie):** `gcode-index.ini` obok exe — `can_index`, ścieżki bezwzględne, **mapowanie ścieżek** (UI w **Folderach** / **Zmień…**, nie w Mapowaniu), język, blokady.
 
 Otwarcie samego `.sqlite` bez `folder_colour_aliases.yaml` daje kolory seed i ostrzeżenie.
 

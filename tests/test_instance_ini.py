@@ -236,6 +236,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
         filter_role="wip",
         filter_odbiorca="acme_sp",
         filter_only_green=True,
+        filter_hide_duplicates=True,
         sort_col="date",
         sort_reverse=True,
         more_filters=True,
@@ -253,6 +254,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert "[session]" in text
     assert "role = wip" in text
     assert "only_green = yes" in text
+    assert "hide_duplicates = yes" in text
     assert "sort_col = date" in text
     assert "hidden_columns = location,path" in text or "hidden_columns = path,location" in text
     assert "path=320" in text
@@ -267,6 +269,7 @@ def test_filters_and_session_roundtrip(tmp_path: Path):
     assert loaded.filter_role == "wip"
     assert loaded.filter_odbiorca == "acme_sp"
     assert loaded.filter_only_green is True
+    assert loaded.filter_hide_duplicates is True
     assert loaded.sort_col == "date"
     assert loaded.sort_reverse is True
     assert loaded.more_filters is True
@@ -315,6 +318,7 @@ def test_filter_all_tokens_normalize_to_empty(tmp_path: Path):
     assert loaded.filter_role == ""
     assert loaded.filter_status == ""
     assert loaded.filter_only_green is False
+    assert loaded.filter_hide_duplicates is False
 
 
 def test_only_green_filter_default_unchecked(tmp_path: Path):
@@ -324,6 +328,15 @@ def test_only_green_filter_default_unchecked(tmp_path: Path):
     assert "only_green = no" in text
     loaded = load_instance_ini(path)
     assert loaded.filter_only_green is False
+
+
+def test_hide_duplicates_filter_default_unchecked(tmp_path: Path):
+    path = tmp_path / INSTANCE_INI_FILENAME
+    save_instance_ini(path, config=InstanceConfig(backup="/bak", target="/out"))
+    text = path.read_text(encoding="utf-8")
+    assert "hide_duplicates = no" in text
+    loaded = load_instance_ini(path)
+    assert loaded.filter_hide_duplicates is False
 
 
 def test_migrate_legacy_ui_schedule_to_watch_keys(tmp_path: Path):
