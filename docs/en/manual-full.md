@@ -180,7 +180,7 @@ Same find bar as the floor client, plus:
 - **Compare…** — unified diff of exactly two selected rows
 - **Index quality…** — UNKNOWN machines, missing odbiorca, `system_programs` (O9000–O9099), colour conflicts; click a row to filter results
 - **Duplicates…** — exact groups use **program-body** SHA-256 (`program_sha256`: normalized extract text with `%` frame + LF newlines), so glued dump slices can match loose `.nc` / `.nc.copy` with the same body. Members show **colour badges**; groups with ≥2 colours for the same body are flagged as **colour conflicts** (**Konflikt kolorów**) with a filter to show only those. Near-duplicates: same program # + similar size, different body hash. Whole-file `content_sha256` is unchanged for extract integrity. **Re-scan** after upgrade to fill `program_sha256` on older rows.
-- **Open folder** / **Copy path** on the source file
+- **Open folder** / **Copy path** on the source file (Windows Explorer reveals/selects that backup file in its parent folder — not the extract folder)
 - Right-click → **Extract to…** — pick a folder (recent destinations remembered in the ini)
 
 **Wydobądź / Extract** writes program bodies to the extract folder (or a path you choose). Sources are never modified. Extract checks whole-file SHA-256 (`content_sha256`) + size from scan time.
