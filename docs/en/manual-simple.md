@@ -36,8 +36,8 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 4. Open **Filters** / **Filtry** and tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
 5. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** inside **Filters** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
 6. In **Filters**, optionally tick **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body checksum (SHA); prefers green, then newest. Optionally tick **Only green** / **Tylko zielone** to keep rows whose Flag disc is green (hides yellow and override colours). The button shows a count when any non-default filter is on.
-7. **More filters ▾** opens an advanced panel under the find bar (same as the indexer): source type, control, status, role, odbiorca, named **views**, size and file-date ranges. Click again (**Fewer filters ▴**) to hide — values stay applied. Open/closed is remembered in the ini (default closed).
-8. Click a **column header** in the results table to sort ascending/descending (click again to flip).
+7. **More filters ▾** opens an advanced panel under the find bar (same as the indexer): source type, control, status, role, odbiorca, named **views**, size and file-date ranges (**Size** = program instance bytes — glued span when known, else the file; not the whole dump). Click again (**Fewer filters ▴**) to hide — values stay applied. Open/closed is remembered in the ini (default closed).
+8. Click a **column header** in the results table to sort ascending/descending (click again to flip). **Size** is instance size (same as the size filters).
 
 Results appear in the table. **Preview** stays docked on the **right** (full height, resizable) — not under the table.
 

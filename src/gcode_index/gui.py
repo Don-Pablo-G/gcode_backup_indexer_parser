@@ -39,6 +39,7 @@ from gcode_index.db import (
     format_display_date,
     format_display_size,
     format_location,
+    instance_size_bytes,
     list_filter_values,
     open_db,
     query_instances,
@@ -7005,9 +7006,8 @@ class IndexerApp(tk.Tk):
             machine = r["machine_label"] or r["machine_id"] or ""
             keys = r.keys() if hasattr(r, "keys") else ()
             control = r["control_family"] if "control_family" in keys else ""
-            size_val = ""
-            if "source_size" in keys:
-                size_val = format_display_size(r["source_size"])
+            # Instance span size (glued) or file size (loose) — not dump size.
+            size_val = format_display_size(instance_size_bytes(r))
             prov = ""
             if "provenance" in keys:
                 prov = str(r["provenance"] or PROVENANCE_BACKUP)
@@ -8421,7 +8421,7 @@ class DuplicatesDialog(tk.Toplevel):
             else:
                 sha = ""
             sha_short = (sha[:12] + "…") if len(sha) > 12 else sha
-            size = m["source_size"]
+            size = instance_size_bytes(m)
             size_s = str(size) if size is not None else ""
             machine = m["machine_label"] or m["machine_id"] or ""
             prov = "backup"
