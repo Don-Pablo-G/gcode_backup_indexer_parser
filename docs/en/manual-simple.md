@@ -33,10 +33,10 @@ Optional: under **Change…** / **Zmień…** set an **extract folder** for Wydo
 1. Type in **Text** — program #, part #, or path fragment (e.g. `O03232`, `3232`, `P-00253232`). Search is case-insensitive; `O03232` / `03232` / `3232` match the same O-number.
 2. Optionally open **Machines** and multi-select (Ctrl/Shift+click). Empty / all = every machine.
 3. Optionally set **Date from / to** as `DD.MM.YYYY` (or open the small calendar via **▾** next to each field).
-4. Tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
-5. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
-6. Optionally tick **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body checksum (SHA); prefers green, then newest. Optionally tick **Only green** / **Tylko zielone** to keep rows whose Flag disc is green (hides yellow and override colours).
-7. **More filters ▾** opens an advanced panel under the find bar (same as the indexer): source type, control, status, role, odbiorca, named **views**, size and file-date ranges. Click again (**Fewer filters ▴**) to hide — values stay applied. Open/closed is remembered in the ini.
+4. Open **Filters** / **Filtry** and tick **Newest only** / **Tylko najnowsze** to keep one row per program + machine (latest date).
+5. **Include unassigned** / **Uwzględniaj nieprzypisane** stays **ON** and **locked** inside **Filters** on floor clients — when you filter by machine, **MACHINE UNKNOWN** / unmapped rows still appear. (Indexer PCs can turn this off after a confirm warning; preference is `include_unknown` in the ini, default yes.)
+6. In **Filters**, optionally tick **Hide duplicates** / **Ukryj duplikaty** — one row per identical program-body checksum (SHA); prefers green, then newest. Optionally tick **Only green** / **Tylko zielone** to keep rows whose Flag disc is green (hides yellow and override colours). The button shows a count when any non-default filter is on.
+7. **More filters ▾** opens an advanced panel under the find bar (same as the indexer): source type, control, status, role, odbiorca, named **views**, size and file-date ranges. Click again (**Fewer filters ▴**) to hide — values stay applied. Open/closed is remembered in the ini (default closed).
 8. Click a **column header** in the results table to sort ascending/descending (click again to flip).
 
 Results appear in the table. **Preview** stays docked on the **right** (full height, resizable) — not under the table.

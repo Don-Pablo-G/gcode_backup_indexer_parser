@@ -478,6 +478,8 @@ class IndexerApp(tk.Tk):
         self._machine_sel: set[str] = set()
         self._folders_expanded = True
         self._more_filters_open = False
+        self._filters_popover: Optional[tk.Toplevel] = None
+        self._filters_btn_var = tk.StringVar(value="")
         self._folders_summary_var = tk.StringVar(value="")
         self._machines_btn_var = tk.StringVar(value="")
         self._instance_ini_path = default_instance_ini_path()
@@ -1725,6 +1727,7 @@ class IndexerApp(tk.Tk):
         self._rebuilding = True
         self._cancel_pending_ui_afters()
         try:
+            self._close_filters_popover()
             self._close_preview_popup(persist=True)
             self._rebuild_body(preserved)
         finally:
@@ -2139,6 +2142,7 @@ class IndexerApp(tk.Tk):
         dlg.wait_window()
 
     def _toggle_more_filters(self) -> None:
+        self._close_filters_popover()
         self._more_filters_open = not self._more_filters_open
         self._apply_more_filters_visibility()
         self._schedule_filter_ini_save()
@@ -2146,7 +2150,7 @@ class IndexerApp(tk.Tk):
     def _apply_more_filters_visibility(self) -> None:
         if not hasattr(self, "_more_filters_frame"):
             return
-        # Find bar children use pack (QUERY / SHAPE / ACTIONS) — never grid
+        # Find bar children use pack (QUERY / ACTIONS) — never grid
         # the More filters panel into the same parent.
         if self._more_filters_open:
             self._more_filters_frame.pack(fill=tk.X, pady=(6, 0))
@@ -2156,6 +2160,176 @@ class IndexerApp(tk.Tk):
             self._more_filters_frame.pack_forget()
             if hasattr(self, "_more_filters_btn"):
                 self._more_filters_btn.configure(text=self._("more_filters"))
+
+    def _filters_active_count(self) -> int:
+        """Count shape toggles that deviate from defaults (badge).
+
+        Defaults: Newest/Hide-dup/Only-green/Auto-refresh OFF; Include ON.
+        Locked Include (floor) never contributes.
+        """
+        n = 0
+        if bool(self.newest_only_var.get()):
+            n += 1
+        if bool(self.hide_duplicates_var.get()):
+            n += 1
+        if bool(self.only_green_var.get()):
+            n += 1
+        if bool(self.search_auto_refresh_var.get()):
+            n += 1
+        if not self._include_unknown_locked() and not bool(
+            self.include_unknown_var.get()
+        ):
+            n += 1
+        return n
+
+    def _filters_active_labels(self) -> list[str]:
+        """Human labels for currently non-default shape toggles (tooltip)."""
+        labels: list[str] = []
+        if bool(self.newest_only_var.get()):
+            labels.append(self._("newest_only"))
+        if bool(self.hide_duplicates_var.get()):
+            labels.append(self._("hide_duplicates"))
+        if bool(self.only_green_var.get()):
+            labels.append(self._("only_green"))
+        if not self._include_unknown_locked() and not bool(
+            self.include_unknown_var.get()
+        ):
+            labels.append(self._("include_unknown_off_short"))
+        if bool(self.search_auto_refresh_var.get()):
+            labels.append(self._("search_auto_refresh"))
+        return labels
+
+    def _update_filters_button(self) -> None:
+        if not hasattr(self, "_filters_btn_var"):
+            return
+        n = self._filters_active_count()
+        if n > 0:
+            self._filters_btn_var.set(self._("filters_menu_n", n=n))
+        else:
+            self._filters_btn_var.set(self._("filters_menu"))
+        tip = ""
+        active = self._filters_active_labels()
+        if active:
+            tip = self._("filters_active_tip", list=", ".join(active))
+        btn = getattr(self, "_filters_btn", None)
+        if btn is not None:
+            try:
+                # Native tooltip via unused underline; store for hover tip.
+                btn.configure(takefocus=True)
+            except tk.TclError:
+                pass
+        self._filters_btn_tip = tip
+
+    def _close_filters_popover(self) -> None:
+        self._hide_filters_btn_tip()
+        win = getattr(self, "_filters_popover", None)
+        self._filters_popover = None
+        if win is None:
+            return
+        try:
+            if win.winfo_exists():
+                win.destroy()
+        except tk.TclError:
+            pass
+
+    def _toggle_filters_popover(self) -> None:
+        win = getattr(self, "_filters_popover", None)
+        if win is not None:
+            try:
+                if win.winfo_exists():
+                    self._close_filters_popover()
+                    return
+            except tk.TclError:
+                self._filters_popover = None
+        self._open_filters_popover()
+
+    def _open_filters_popover(self) -> None:
+        self._close_filters_popover()
+        btn = getattr(self, "_filters_btn", None)
+        win = tk.Toplevel(self)
+        win.title(self._("filters_menu_title"))
+        win.transient(self)
+        win.resizable(False, False)
+        self._filters_popover = win
+        frame = ttk.Frame(win, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Checkbutton(
+            frame,
+            text=self._("newest_only"),
+            variable=self.newest_only_var,
+        ).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(
+            frame,
+            text=self._("hide_duplicates"),
+            variable=self.hide_duplicates_var,
+        ).pack(anchor=tk.W, pady=1)
+        ttk.Checkbutton(
+            frame,
+            text=self._("only_green"),
+            variable=self.only_green_var,
+        ).pack(anchor=tk.W, pady=1)
+        self._include_unknown_cb = ttk.Checkbutton(
+            frame,
+            text=self._("include_unknown"),
+            variable=self.include_unknown_var,
+            command=self._on_include_unknown_toggled,
+        )
+        self._include_unknown_cb.pack(anchor=tk.W, pady=1)
+        self._sync_include_unknown_widget()
+        ttk.Checkbutton(
+            frame,
+            text=self._("search_auto_refresh"),
+            variable=self.search_auto_refresh_var,
+            command=self._on_search_auto_refresh_toggled,
+        ).pack(anchor=tk.W, pady=1)
+
+        foot = ttk.Frame(frame)
+        foot.pack(fill=tk.X, pady=(10, 0))
+        ttk.Button(
+            foot, text=self._("clear_filters"), command=self._clear_filters
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            foot, text=self._("close"), command=self._close_filters_popover
+        ).pack(side=tk.RIGHT)
+
+        win.bind("<Escape>", lambda _e: self._close_filters_popover())
+        win.protocol("WM_DELETE_WINDOW", self._close_filters_popover)
+
+        win.update_idletasks()
+        if btn is not None:
+            try:
+                bx = btn.winfo_rootx()
+                by = btn.winfo_rooty() + btn.winfo_height() + 2
+                win.geometry(f"+{bx}+{by}")
+            except tk.TclError:
+                pass
+        try:
+            win.grab_set()
+            win.focus_set()
+        except tk.TclError:
+            pass
+
+    def _show_filters_btn_tip(self, event=None) -> None:
+        tip = getattr(self, "_filters_btn_tip", "") or ""
+        if not tip:
+            return
+        x = self.winfo_pointerx() if event is None else int(event.x_root)
+        y = self.winfo_pointery() if event is None else int(event.y_root)
+        self._place_status_tip_window(
+            tip, x, y, tip_attr="_filters_btn_tip_win"
+        )
+
+    def _hide_filters_btn_tip(self, _event=None) -> None:
+        win = getattr(self, "_filters_btn_tip_win", None)
+        if win is None:
+            return
+        try:
+            if win.winfo_exists():
+                win.destroy()
+        except tk.TclError:
+            pass
+        self._filters_btn_tip_win = None
 
     def _show_progress(self, visible: bool, *, switch_view: bool = True) -> None:
         if not hasattr(self, "prog_frame"):
@@ -3140,8 +3314,8 @@ class IndexerApp(tk.Tk):
 
 
     def _build_find_section(self, parent, pad: dict, *, simple: bool) -> None:
-        """Search / filter bar grouped QUERY → SHAPE → ACTIONS (+ More filters)."""
-        # Indexer: short title (sections replace the old subtitle). Floor keeps step.
+        """Dense find bar: QUERY + ACTIONS; shape toggles live in Filtry popover."""
+        # Indexer: short title. Floor keeps step number.
         find_title = (
             self._("find_programs_step") if simple else self._("find_programs_simple")
         )
@@ -3151,110 +3325,71 @@ class IndexerApp(tk.Tk):
         self.filt_frame.pack(fill=tk.X, **pad)
         filt = self.filt_frame
 
-        # --- QUERY ---
+        # --- QUERY (one row: text · machines · dates; no section caption) ---
         query = ttk.Frame(filt)
         query.pack(fill=tk.X)
-        ttk.Label(
-            query, text=self._("find_sec_query"), style="Muted.TLabel"
-        ).pack(anchor=tk.W)
-        q_row1 = ttk.Frame(query)
-        q_row1.pack(fill=tk.X, pady=(2, 0))
-        ttk.Label(q_row1, text=self._("text"), style="Key.TLabel").pack(
+        ttk.Label(query, text=self._("text"), style="Key.TLabel").pack(
             side=tk.LEFT
         )
         self.search_entry = ttk.Entry(
-            q_row1, textvariable=self.search_var, style="Key.TEntry"
+            query, textvariable=self.search_var, style="Key.TEntry"
         )
         self.search_entry.pack(
             side=tk.LEFT, fill=tk.X, expand=True, padx=4, ipady=3
         )
         ttk.Button(
-            q_row1,
+            query,
             textvariable=self._machines_btn_var,
             command=self._open_machine_picker,
             width=18,
         ).pack(side=tk.LEFT, padx=4)
-        q_row2 = ttk.Frame(query)
-        q_row2.pack(fill=tk.X, pady=(4, 0))
-        ttk.Label(q_row2, text=self._("date_from"), style="Key.TLabel").pack(
-            side=tk.LEFT
+        ttk.Label(query, text=self._("date_from"), style="Key.TLabel").pack(
+            side=tk.LEFT, padx=(8, 0)
         )
-        self._date_entry(q_row2, self.date_from_var).pack(side=tk.LEFT, padx=(4, 0))
-        ttk.Label(q_row2, text=self._("date_to_sep")).pack(side=tk.LEFT)
-        self._date_entry(q_row2, self.date_to_var).pack(side=tk.LEFT)
+        self._date_entry(query, self.date_from_var).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Label(query, text=self._("date_to_sep")).pack(side=tk.LEFT)
+        self._date_entry(query, self.date_to_var).pack(side=tk.LEFT)
 
-        # --- SHAPE (result-shape / sticky policy) ---
-        shape = ttk.Frame(filt)
-        shape.pack(fill=tk.X, pady=(8, 0))
-        ttk.Label(
-            shape, text=self._("find_sec_shape"), style="Muted.TLabel"
-        ).pack(anchor=tk.W)
-        shape_row1 = ttk.Frame(shape)
-        shape_row1.pack(fill=tk.X, pady=(2, 0))
-        ttk.Checkbutton(
-            shape_row1,
-            text=self._("newest_only"),
-            variable=self.newest_only_var,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Checkbutton(
-            shape_row1,
-            text=self._("hide_duplicates"),
-            variable=self.hide_duplicates_var,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Checkbutton(
-            shape_row1,
-            text=self._("only_green"),
-            variable=self.only_green_var,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        shape_row2 = ttk.Frame(shape)
-        shape_row2.pack(fill=tk.X, pady=(2, 0))
-        self._include_unknown_cb = ttk.Checkbutton(
-            shape_row2,
-            text=self._("include_unknown"),
-            variable=self.include_unknown_var,
-            command=self._on_include_unknown_toggled,
-        )
-        self._include_unknown_cb.pack(side=tk.LEFT, padx=(0, 8))
-        self._sync_include_unknown_widget()
-        ttk.Checkbutton(
-            shape_row2,
-            text=self._("search_auto_refresh"),
-            variable=self.search_auto_refresh_var,
-            command=self._on_search_auto_refresh_toggled,
-        ).pack(side=tk.LEFT)
-
-        # --- ACTIONS ---
+        # --- ACTIONS (Extract / Open / Copy / [Compare] / Clear / Filtry / More) ---
         actions = ttk.Frame(filt)
-        actions.pack(fill=tk.X, pady=(8, 0))
-        ttk.Label(
-            actions, text=self._("find_sec_actions"), style="Muted.TLabel"
-        ).pack(anchor=tk.W)
-        act_row = ttk.Frame(actions)
-        act_row.pack(fill=tk.X, pady=(2, 0))
+        actions.pack(fill=tk.X, pady=(6, 0))
         self.extract_btn = self._make_primary_button(
-            act_row, self._("extract_selected"), self._extract_selected
+            actions, self._("extract_selected"), self._extract_selected
         )
         self.extract_btn.pack(side=tk.LEFT)
         ttk.Button(
-            act_row, text=self._("open_folder"), command=self._open_selected_folder
+            actions, text=self._("open_folder"), command=self._open_selected_folder
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
-            act_row, text=self._("copy_path"), command=self._copy_selected_path
+            actions, text=self._("copy_path"), command=self._copy_selected_path
         ).pack(side=tk.LEFT, padx=4)
         if not simple:
             ttk.Button(
-                act_row, text=self._("compare"), command=self._compare_selected
+                actions, text=self._("compare"), command=self._compare_selected
             ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
-            act_row, text=self._("clear_filters"), command=self._clear_filters
+            actions, text=self._("clear_filters"), command=self._clear_filters
         ).pack(side=tk.LEFT, padx=4)
+        self._update_filters_button()
+        self._filters_btn = ttk.Button(
+            actions,
+            textvariable=self._filters_btn_var,
+            command=self._toggle_filters_popover,
+        )
+        self._filters_btn.pack(side=tk.LEFT, padx=4)
+        self._filters_btn.bind("<Enter>", self._show_filters_btn_tip, add="+")
+        self._filters_btn.bind("<Leave>", self._hide_filters_btn_tip, add="+")
         # More filters: indexer + floor client (same expand panel)
         self._more_filters_btn = ttk.Button(
-            act_row,
+            actions,
             text=self._("more_filters"),
             command=self._toggle_more_filters,
         )
         self._more_filters_btn.pack(side=tk.LEFT, padx=8)
+
+        # Include-unknown widget is created inside the Filtry popover; keep a
+        # placeholder so _sync_include_unknown_widget is safe before first open.
+        self._include_unknown_cb = None
 
         self._more_filters_frame = ttk.Frame(filt)
         adv = self._more_filters_frame
@@ -3387,6 +3522,7 @@ class IndexerApp(tk.Tk):
         )
 
         self._apply_more_filters_visibility()
+        self._update_filters_button()
 
 
     def _build_results_preview(self, parent, pad: dict, *, simple: bool) -> None:
@@ -6222,6 +6358,7 @@ class IndexerApp(tk.Tk):
             self._refresh_heading_labels()
         finally:
             self._filter_trace_lock = False
+        self._update_filters_button()
         self._run_query_now(status_prefix=status_prefix)
 
     def _on_filter_changed(self, *_args) -> None:
@@ -6234,10 +6371,12 @@ class IndexerApp(tk.Tk):
                 pass
         self._search_after_id = self.after(SEARCH_DEBOUNCE_MS, self._run_query_now)
         self._schedule_filter_ini_save()
+        self._update_filters_button()
 
     def _on_search_auto_refresh_toggled(self) -> None:
         self._save_instance_ini()
         self._arm_search_auto_refresh()
+        self._update_filters_button()
 
     def _include_unknown_locked(self) -> bool:
         """Floor client / operator lock: include-UNKNOWN cannot be turned off."""
@@ -6282,6 +6421,7 @@ class IndexerApp(tk.Tk):
         if not getattr(self, "_applying_indexer_settings", False):
             self._persist_indexer_settings()
         self._on_filter_changed()
+        self._update_filters_button()
 
     def _note_db_mtime(self) -> None:
         db_path = self._db_path()
