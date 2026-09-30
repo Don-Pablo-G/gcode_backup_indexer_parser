@@ -46,6 +46,15 @@ from gcode_index.db import (
     sort_instances,
     write_scan_result,
 )
+from gcode_index.client_pack import (
+    CLIENT_PACK_ZIP_NAME,
+    export_client_pack_folder,
+    export_client_pack_zip,
+    format_pack_size,
+    pack_mtimes_changed,
+    snapshot_pack_mtimes,
+    validate_pack_source,
+)
 from gcode_index.excel_export import export_excel
 from gcode_index.extract import (
     ExtractError,
@@ -475,6 +484,11 @@ class IndexerApp(tk.Tk):
         self._search_auto_refresh_s = 20
         self._auto_refresh_after_id: Optional[str] = None
         self._db_mtime_seen: Optional[float] = None
+        self._pack_sync_after_id: Optional[str] = None
+        self._pack_mtimes_seen: dict[str, float] = {}
+        self._scan_was_first_build = False
+        self._scan_was_safety = False
+        self._pack_export_busy = False
         self._hidden_root_specs: list[ScanRootSpec] = []
         self._machine_sel: set[str] = set()
         self._folders_expanded = True
@@ -502,6 +516,7 @@ class IndexerApp(tk.Tk):
         self._arm_safety_timer()
         self._sync_folder_watch(initial=True)
         self._arm_search_auto_refresh()
+        self._arm_pack_sync()
         if self._folders_ready():
             self.status_var.set(
                 self._(
@@ -1288,6 +1303,8 @@ class IndexerApp(tk.Tk):
         self._indexer_settings_load_after_id = self.after(
             500, self._reload_indexer_settings_from_target_field
         )
+        self._note_pack_mtimes()
+        self._arm_pack_sync()
 
     def _on_close(self) -> None:
         if bool(self.close_to_tray_var.get()) and tray_available():
@@ -1302,6 +1319,12 @@ class IndexerApp(tk.Tk):
             except tk.TclError:
                 pass
             self._auto_refresh_after_id = None
+        if self._pack_sync_after_id is not None:
+            try:
+                self.after_cancel(self._pack_sync_after_id)
+            except tk.TclError:
+                pass
+            self._pack_sync_after_id = None
         self._stop_tray()
         self._stop_folder_watch(release=True)
         self._save_instance_ini()
@@ -1710,6 +1733,7 @@ class IndexerApp(tk.Tk):
             "_coalesce_after_id",
             "_safety_after_id",
             "_auto_refresh_after_id",
+            "_pack_sync_after_id",
             "_nav_unlock_after_id",
         ):
             aid = getattr(self, attr, None)
@@ -1953,6 +1977,8 @@ class IndexerApp(tk.Tk):
         self._run_query_now()
         self._sync_folder_watch()
         self._arm_search_auto_refresh()
+        self._note_pack_mtimes()
+        self._arm_pack_sync()
 
     def _short_path(self, path: str, *, maxlen: int = 42) -> str:
         raw = (path or "").strip()
@@ -4091,6 +4117,10 @@ class IndexerApp(tk.Tk):
             label=self._("prepare_indexer"),
             command=self._open_prepare_indexer,
         )
+        tools.add_command(
+            label=self._("export_client_pack"),
+            command=self._open_export_client_pack,
+        )
         menubar.add_cascade(label=self._("menu_tools"), menu=tools)
         settings_menu = tk.Menu(menubar, tearoff=0)
         settings_menu.add_command(
@@ -4252,6 +4282,8 @@ class IndexerApp(tk.Tk):
             self._persist_ui_settings(path)
             self._persist_indexer_settings()
             self._sync_folder_watch()
+            self._note_pack_mtimes()
+            self._arm_pack_sync()
 
     def _pick_extract(self) -> None:
         path = filedialog.askdirectory(title=self._("extract_folder"))
@@ -4290,6 +4322,8 @@ class IndexerApp(tk.Tk):
         self._persist_indexer_settings()
         self._sync_folder_watch()
         self._arm_safety_timer()
+        self._note_pack_mtimes()
+        self._arm_pack_sync()
 
     def _scan_root_specs(self) -> list[ScanRootSpec]:
         if hasattr(self, "extra_list"):
@@ -4780,7 +4814,7 @@ class IndexerApp(tk.Tk):
             self.status_var.set(self._("watch_safety_trigger"))
         else:
             self.status_var.set(self._("watch_trigger"))
-        self._start_scan(auto=True)
+        self._start_scan(auto=True, safety=safety)
 
     def _arm_safety_timer(self) -> None:
         if self._safety_after_id is not None:
@@ -5433,7 +5467,7 @@ class IndexerApp(tk.Tk):
 
     # --- scan -------------------------------------------------------------------
 
-    def _start_scan(self, auto: bool = False) -> None:
+    def _start_scan(self, auto: bool = False, *, safety: bool = False) -> None:
         if self._scan_busy:
             return
         # Floor client (can_index=no) — indexing lives on the indexer PC.
@@ -5455,6 +5489,10 @@ class IndexerApp(tk.Tk):
                 messagebox.showerror(self._("target_folder"), self._("err_target_for_db"))
             return
         Path(target).mkdir(parents=True, exist_ok=True)
+        # Track auto-export triggers for this run (first build / safety).
+        db_path = Path(target) / DEFAULT_DB_NAME
+        self._scan_was_first_build = not db_path.is_file()
+        self._scan_was_safety = bool(safety) and bool(auto)
         self._persist_ui_settings(target)
         # Offer mapper only on indexer (manual) when unmatched folders remain
         if not auto and not self._is_simple():
@@ -5796,6 +5834,8 @@ class IndexerApp(tk.Tk):
         # Hide progress bar shortly after finish to free vertical space
         self.after(1200, lambda: self._show_progress(False) if not self._scan_busy else None)
         if not ok:
+            self._scan_was_first_build = False
+            self._scan_was_safety = False
             if not auto:
                 messagebox.showerror(self._("scan_failed_title"), message)
             if self._watch_rescan_pending and self._watch_enabled:
@@ -5808,6 +5848,15 @@ class IndexerApp(tk.Tk):
         self._clear_filters(status_prefix=message)
         # Note DB mtime so auto-refresh doesn't immediately re-fire
         self._note_db_mtime()
+        self._note_pack_mtimes()
+        # Auto client pack: first successful build or successful safety scan only.
+        if not self._is_simple():
+            if getattr(self, "_scan_was_first_build", False):
+                self._schedule_auto_client_pack_export("first_build")
+            elif getattr(self, "_scan_was_safety", False):
+                self._schedule_auto_client_pack_export("safety")
+        self._scan_was_first_build = False
+        self._scan_was_safety = False
         if report is not None and not self._is_simple() and not auto:
             self._show_scan_report(report)
         if self._watch_rescan_pending and self._watch_enabled:
@@ -6433,6 +6482,253 @@ class IndexerApp(tk.Tk):
             self._db_mtime_seen = db_path.stat().st_mtime
         except OSError:
             self._db_mtime_seen = None
+
+    def _note_pack_mtimes(self) -> None:
+        target = self.target_var.get().strip()
+        if not target:
+            self._pack_mtimes_seen = {}
+            return
+        self._pack_mtimes_seen = snapshot_pack_mtimes(target)
+
+    def _arm_pack_sync(self) -> None:
+        """Poll DB folder sidecars for soft catalogue reload (Work + indexer)."""
+        if self._pack_sync_after_id is not None:
+            try:
+                self.after_cancel(self._pack_sync_after_id)
+            except tk.TclError:
+                pass
+            self._pack_sync_after_id = None
+        target = self.target_var.get().strip()
+        if not target:
+            return
+        if not self._pack_mtimes_seen:
+            self._note_pack_mtimes()
+        ms = max(5, int(self._search_auto_refresh_s)) * 1000
+        try:
+            self._pack_sync_after_id = self.after(ms, self._pack_sync_tick)
+        except tk.TclError:
+            self._pack_sync_after_id = None
+
+    def _pack_sync_tick(self) -> None:
+        self._pack_sync_after_id = None
+        try:
+            if self._scan_busy or self._pack_export_busy:
+                return
+            target = self.target_var.get().strip()
+            if not target:
+                return
+            current = snapshot_pack_mtimes(target)
+            any_c, db_c, side_c = pack_mtimes_changed(
+                self._pack_mtimes_seen, current
+            )
+            if not any_c:
+                return
+            self._pack_mtimes_seen = current
+            if side_c:
+                self._soft_reload_pack_catalogues()
+            # Re-find when DB changed, or after sidecar reload so Flag uses new rules.
+            # Floor Work: always re-query (most automatic). Indexer: honor auto-refresh.
+            should_query = db_c or side_c
+            if should_query and (self._is_simple() or bool(self.search_auto_refresh_var.get())):
+                prefix = (
+                    self._("pack_catalogues_refreshed")
+                    if side_c and not db_c
+                    else self._("search_auto_refresh_done")
+                )
+                self._run_query_now(status_prefix=prefix)
+            elif side_c:
+                self.status_var.set(self._("pack_catalogues_refreshed"))
+        finally:
+            self._arm_pack_sync()
+
+    def _soft_reload_pack_catalogues(self) -> None:
+        """Reload colour / odbiorca / filter catalogues without Open DB or persist."""
+        # Do not write indexer_settings / ui_settings back into the pack.
+        self._odbiorca_catalog_cache = None
+        try:
+            self._load_colour_catalog()
+        except Exception:  # noqa: BLE001
+            log.exception("soft reload colour catalog failed")
+        try:
+            self._refresh_filter_choices()
+        except Exception:  # noqa: BLE001
+            log.exception("soft reload filter choices failed")
+
+    def _open_export_client_pack(self) -> None:
+        if self._is_simple():
+            messagebox.showinfo(
+                self._("export_client_pack"),
+                self._("export_client_pack_indexer_only"),
+                parent=self,
+            )
+            return
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showinfo(
+                self._("export_client_pack"),
+                self._("export_client_pack_need_target"),
+                parent=self,
+            )
+            return
+        if self._scan_busy or self._pack_export_busy:
+            messagebox.showinfo(
+                self._("export_client_pack"),
+                self._("scan_scanning"),
+                parent=self,
+            )
+            return
+        dlg = ExportClientPackDialog(self, target=target)
+        self.wait_window(dlg)
+        if not dlg.result:
+            return
+        self._run_client_pack_export(
+            zip_path=dlg.result.get("zip_path"),
+            folder_path=dlg.result.get("folder_path"),
+            include_excel=bool(dlg.result.get("include_excel")),
+            auto=False,
+        )
+
+    def _schedule_auto_client_pack_export(self, reason: str) -> None:
+        """Queue zip-beside-DB export after first build / safety (no modal)."""
+        if self._is_simple() or self._pack_export_busy:
+            return
+        target = self.target_var.get().strip()
+        if not target:
+            return
+        # Defer slightly so sqlite handles are closed after scan_done.
+        try:
+            self.after(
+                400,
+                lambda r=reason: self._run_client_pack_export(
+                    zip_path=None,
+                    folder_path=None,
+                    include_excel=False,
+                    auto=True,
+                    reason=r,
+                ),
+            )
+        except tk.TclError:
+            pass
+
+    def _run_client_pack_export(
+        self,
+        *,
+        zip_path: Optional[str],
+        folder_path: Optional[str],
+        include_excel: bool,
+        auto: bool,
+        reason: str = "",
+    ) -> None:
+        target = self.target_var.get().strip()
+        if not target:
+            return
+        if self._pack_export_busy:
+            return
+        validation = validate_pack_source(target)
+        if not validation.ok:
+            detail = "\n".join(validation.errors)
+            if auto:
+                self.status_var.set(
+                    self._("export_client_pack_auto_skip", detail=detail)
+                )
+            else:
+                messagebox.showerror(
+                    self._("export_client_pack"),
+                    self._("export_client_pack_missing", detail=detail),
+                    parent=self,
+                )
+            return
+        self._pack_export_busy = True
+
+        def worker() -> None:
+            zip_result = export_client_pack_zip(
+                target,
+                zip_path or None,
+                include_excel=include_excel,
+            )
+            folder_result = None
+            if folder_path and zip_result.ok:
+                folder_result = export_client_pack_folder(
+                    target,
+                    folder_path,
+                    include_excel=include_excel,
+                )
+            self.after(
+                0,
+                lambda: self._finish_client_pack_export(
+                    zip_result,
+                    folder_result,
+                    auto=auto,
+                    reason=reason,
+                ),
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_client_pack_export(
+        self,
+        zip_result,
+        folder_result,
+        *,
+        auto: bool,
+        reason: str = "",
+    ) -> None:
+        self._pack_export_busy = False
+        self._note_pack_mtimes()
+        if not zip_result.ok:
+            detail = "\n".join(zip_result.errors) or "export failed"
+            if auto:
+                self.status_var.set(
+                    self._("export_client_pack_auto_skip", detail=detail)
+                )
+            else:
+                messagebox.showerror(
+                    self._("export_client_pack"),
+                    self._("export_client_pack_failed", detail=detail),
+                    parent=self,
+                )
+            return
+        if folder_result is not None and not folder_result.ok:
+            detail = "\n".join(folder_result.errors) or "folder export failed"
+            if not auto:
+                messagebox.showerror(
+                    self._("export_client_pack"),
+                    self._("export_client_pack_failed", detail=detail),
+                    parent=self,
+                )
+            return
+        path_bits = []
+        if zip_result.zip_path is not None:
+            path_bits.append(str(zip_result.zip_path))
+        if folder_result is not None and folder_result.folder_path is not None:
+            path_bits.append(str(folder_result.folder_path))
+        path_txt = "\n".join(path_bits)
+        size = format_pack_size(int(zip_result.byte_size or 0))
+        n = len(zip_result.files)
+        if auto:
+            reason_key = (
+                "export_client_pack_reason_first"
+                if reason == "first_build"
+                else "export_client_pack_reason_safety"
+            )
+            self.status_var.set(
+                self._(
+                    "export_client_pack_auto_done",
+                    reason=self._(reason_key),
+                )
+            )
+        else:
+            messagebox.showinfo(
+                self._("export_client_pack_done"),
+                self._(
+                    "export_client_pack_done_detail",
+                    n=n,
+                    size=size,
+                    path=path_txt,
+                ),
+                parent=self,
+            )
+            self.status_var.set(self._("export_client_pack_done"))
 
     def _arm_search_auto_refresh(self) -> None:
         if self._auto_refresh_after_id is not None:
@@ -7638,6 +7934,147 @@ class IndexerApp(tk.Tk):
                 conn.close()
         except Exception:  # noqa: BLE001
             return None
+
+
+class ExportClientPackDialog(tk.Toplevel):
+    """Manual Indeks export: zip beside DB + optional folder copy."""
+
+    def __init__(self, master: "IndexerApp", *, target: str) -> None:
+        super().__init__(master)
+        self._app = master
+        self.result: Optional[dict] = None
+        self.title(_tr(master, "export_client_pack_title"))
+        self.transient(master)
+        self.grab_set()
+        shell = install_dialog_shell(
+            self,
+            min_width=520,
+            min_height=280,
+            width=580,
+            height=340,
+            scrollable=False,
+        )
+        body = shell.body
+        ttk.Label(
+            body,
+            text=_tr(master, "export_client_pack_intro"),
+            wraplength=520,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(0, 10))
+        default_zip = str(Path(target) / CLIENT_PACK_ZIP_NAME)
+        self.zip_var = tk.StringVar(value=default_zip)
+        zip_row = ttk.Frame(body)
+        zip_row.pack(fill=tk.X, pady=2)
+        ttk.Label(zip_row, text=_tr(master, "export_client_pack_zip_path")).pack(
+            side=tk.LEFT
+        )
+        ttk.Entry(zip_row, textvariable=self.zip_var).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=6
+        )
+        ttk.Button(
+            zip_row,
+            text=_tr(master, "export_client_pack_browse_zip"),
+            command=self._browse_zip,
+        ).pack(side=tk.LEFT)
+
+        self.also_folder_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text=_tr(master, "export_client_pack_also_folder"),
+            variable=self.also_folder_var,
+            command=self._toggle_folder,
+        ).pack(anchor=tk.W, pady=(8, 2))
+        self.folder_var = tk.StringVar(value="")
+        self._folder_row = ttk.Frame(body)
+        ttk.Label(
+            self._folder_row, text=_tr(master, "export_client_pack_folder_path")
+        ).pack(side=tk.LEFT)
+        ttk.Entry(self._folder_row, textvariable=self.folder_var).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=6
+        )
+        ttk.Button(
+            self._folder_row,
+            text=_tr(master, "export_client_pack_browse_folder"),
+            command=self._browse_folder,
+        ).pack(side=tk.LEFT)
+
+        self.excel_var = tk.BooleanVar(value=False)
+        self._excel_cb = ttk.Checkbutton(
+            body,
+            text=_tr(master, "export_client_pack_include_excel"),
+            variable=self.excel_var,
+        )
+        self._excel_cb.pack(anchor=tk.W, pady=(8, 0))
+
+        foot = shell.footer
+        ttk.Button(
+            foot, text=_tr(master, "cancel"), command=self._cancel
+        ).pack(side=tk.RIGHT)
+        ttk.Button(
+            foot,
+            text=_tr(master, "export_client_pack_run"),
+            command=self._ok,
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _toggle_folder(self) -> None:
+        try:
+            self._folder_row.pack_forget()
+        except tk.TclError:
+            pass
+        if self.also_folder_var.get():
+            self._folder_row.pack(fill=tk.X, pady=2, before=self._excel_cb)
+
+    def _browse_zip(self) -> None:
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            title=_tr(self._app, "export_client_pack_zip_path"),
+            defaultextension=".zip",
+            initialfile=CLIENT_PACK_ZIP_NAME,
+            filetypes=[("ZIP", "*.zip"), (_tr(self._app, "filetype_all"), "*.*")],
+        )
+        if path:
+            self.zip_var.set(path)
+
+    def _browse_folder(self) -> None:
+        path = filedialog.askdirectory(
+            parent=self,
+            title=_tr(self._app, "export_client_pack_folder_path"),
+        )
+        if path:
+            self.folder_var.set(path)
+            self.also_folder_var.set(True)
+            self._toggle_folder()
+
+    def _cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+    def _ok(self) -> None:
+        zip_path = self.zip_var.get().strip()
+        if not zip_path:
+            messagebox.showerror(
+                _tr(self._app, "export_client_pack"),
+                _tr(self._app, "export_client_pack_need_target"),
+                parent=self,
+            )
+            return
+        folder = ""
+        if self.also_folder_var.get():
+            folder = self.folder_var.get().strip()
+            if not folder:
+                messagebox.showerror(
+                    _tr(self._app, "export_client_pack"),
+                    _tr(self._app, "export_client_pack_folder_path"),
+                    parent=self,
+                )
+                return
+        self.result = {
+            "zip_path": zip_path,
+            "folder_path": folder or None,
+            "include_excel": bool(self.excel_var.get()),
+        }
+        self.destroy()
 
 
 class PrepareIndexerDialog(tk.Toplevel):

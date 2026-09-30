@@ -217,6 +217,9 @@ scan_watch_geometry =
 ;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
 ;   ui_settings.yaml           — optional schedule_last_run mirror
 ;   indexer_settings.yaml      — shop scan/schedule/watch defaults (never can_index)
-;   scan_history.json          — scan run history
+;   pack-manifest.json         — written by Export client pack / auto pack
+;   gcode-index-client-pack.zip — client zip beside DB (first build + safety auto)
+;   scan_history.json          — scan run history (not in client zip)
 ; Do NOT put can_index in the data pack — each PC opts in via local ini.
+; Tools → Export client pack… builds the zip; Work soft-reloads sidecar mtimes.
 ; ------------------------------------------------------------

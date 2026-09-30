@@ -273,7 +273,9 @@ Zasada: **Przyrostowy utrzymuje katalog na bieżąco z dyskiem. Pełny przebudow
 
 ### Pakiet obok bazy (kopiuj cały folder)
 
-Traktuj **folder bazy** jako jeden zestaw. Udostępniaj **cały folder**, nie sam sqlite.
+**Eksportuj pakiet klienta…** zapisuje `gcode-index-client-pack.zip` obok bazy (auto po pierwszym skanie / skanach bezpieczeństwa; ręcznie z Indeksu można też eksportować do folderu). Klienci Praca na żywym udziale miękko przeładowują zmiany sidecarów bez Otwórz bazę.
+
+Traktuj **folder bazy** jako jeden zestaw. Udostępniaj **cały folder** (albo rozpakuj zip), nie sam sqlite.
 
 | Plik | Po co |
 |------|-------|

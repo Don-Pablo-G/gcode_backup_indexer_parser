@@ -125,7 +125,9 @@ With **Watch folders** on (indexer only):
 
 ## 7. Client pack — sidecars next to the DB
 
-Copy the **whole database folder** to floor PCs (or point them at the share). Next to `gcode_index.sqlite`:
+**Export client pack…** (Tools / Indeks, `can_index=yes`) builds `gcode-index-client-pack.zip` beside the database (sqlite + sidecars + `pack-manifest.json`; never local ini / locks / `can_index`). Auto-export runs after the **first successful build** and after each successful **safety** scan. Manual export can also copy into a folder. Work PCs pointing at a live share soft-reload changed sidecars (Flag / labels) without Open DB.
+
+Copy the **whole database folder** (or unzip the pack) to floor PCs (or point them at the share). Next to `gcode_index.sqlite`:
 
 | File | Why |
 |------|-----|

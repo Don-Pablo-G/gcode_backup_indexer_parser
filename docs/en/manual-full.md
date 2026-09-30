@@ -285,7 +285,9 @@ Rule of thumb: **Incremental keeps the catalog current with the disk. Full rebui
 
 ### Pack beside the DB (copy the whole folder)
 
-Treat the **database folder** as one kit. Share the **whole folder**, not sqlite alone.
+**Export client pack…** writes `gcode-index-client-pack.zip` next to the DB (auto after first build / safety scans; manual Indeks action can also export to a folder). Work clients on a live share soft-reload sidecar changes without Open DB.
+
+Treat the **database folder** as one kit. Share the **whole folder** (or unzip the pack), not sqlite alone.
 
 | File | Why |
 |------|-----|
