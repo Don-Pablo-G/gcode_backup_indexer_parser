@@ -57,13 +57,52 @@ def source_exists_on_disk(
         return False
 
 
+def windows_explorer_select_params(path: Path | str) -> str:
+    """Build ``explorer.exe`` parameters that reveal ``path`` (spaces-safe).
+
+    Explorer parses its *raw* command line. Passing a single argv
+    ``/select,C:\\path with spaces\\file`` via ``subprocess`` list form makes
+    ``list2cmdline`` wrap the whole token in quotes; Explorer then ignores it
+    and silently opens Documents. Quote **only** the path:
+    ``/select,"C:\\path with spaces\\file"``.
+    """
+    win = os.path.normpath(str(path)).replace("/", "\\")
+    # A trailing backslash would escape the closing quote.
+    if len(win) >= 2 and win.endswith("\\") and not win.endswith(":\\"):
+        win = win.rstrip("\\")
+    win = win.replace('"', "")
+    return f'/select,"{win}"'
+
+
+def _windows_shell_execute_explorer(params: str) -> None:
+    """Launch ``explorer.exe`` with raw ``params`` (for tests to monkeypatch)."""
+    import ctypes
+
+    rc = int(
+        ctypes.windll.shell32.ShellExecuteW(  # type: ignore[attr-defined]
+            None, "open", "explorer.exe", params, None, 1
+        )
+    )
+    if rc <= 32:
+        raise OSError(f"ShellExecute explorer failed ({rc})")
+
+
 def open_path_in_file_manager(path: Path) -> None:
     """Reveal ``path`` in the OS file manager (select file when possible)."""
     path = path.resolve()
     if sys.platform == "win32":
-        # explorer /select,<path> highlights the file in its folder
-        subprocess.Popen(["explorer", f"/select,{path}"])  # noqa: S603
-        return
+        params = windows_explorer_select_params(path)
+        # ShellExecuteW passes lpParameters verbatim (no list2cmdline wrapping).
+        try:
+            _windows_shell_execute_explorer(params)
+            return
+        except (AttributeError, OSError, ValueError):
+            # Fallback: open the parent folder (argv quoting handles spaces).
+            target = path if path.is_dir() else path.parent
+            subprocess.Popen(  # noqa: S603
+                ["explorer", os.path.normpath(str(target))]
+            )
+            return
     if sys.platform == "darwin":
         if path.is_file():
             subprocess.Popen(["open", "-R", str(path)])  # noqa: S603
