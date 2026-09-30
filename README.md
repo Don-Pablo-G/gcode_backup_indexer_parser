@@ -52,6 +52,7 @@ Entry points:
 - Example template in the repo: [`gcode-index.ini.example`](gcode-index.ini.example) (every key commented, including `[filters]` / `[session]`)
 - Override location with env var ``GCODE_INDEX_INI=C:\path\to\gcode-index.ini``
 - Sidecars next to the **database** folder (`folder_colour_aliases.yaml` **mandatory for Flag colours**, `folder_tree_map.yaml` for tip path reasons, `machine_folders.yaml`, `aliases.local.yaml`, `extra_scan_roots.yaml`, …) auto-load with the DB — tree/role/machine maps survive restart. Do **not** put `can_index` in the pack.
+- **Export client pack…** (Tools, indexer) writes `gcode-index-client-pack.zip` beside the DB (+ optional folder copy). Auto-export after first successful build and after successful safety scans. Work clients soft-reload changed sidecars without Open DB.
 - **`target`** = database folder · **`extract`** = Wydobądź output (blank → same as `target`)
 
 ## Windows GUI (Phase 2)

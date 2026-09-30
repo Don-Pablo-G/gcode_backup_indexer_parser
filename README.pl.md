@@ -50,7 +50,7 @@ python3 -m pip install -e ".[dev]"
 
 Blokada wdrożenia: `settings_locked=yes` albo pusty `operator.lock` / `can_index.lock` obok ini wymusza odczyt. Legacy `[ui] mode=simple|full` nadal się wczytuje (`simple`→`no`, `full`→`yes`). Wszystkie klucze: `gcode-index.ini.example`.
 
-Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza). Obok bazy **obowiązkowo** `folder_colour_aliases.yaml` (kolory Flagi); `folder_tree_map.yaml` dla powodów ścieżek w tipie. Nie wkładaj `can_index` do pakietu danych.
+Foldery: **kopia** · **baza** (`target`) · **wydobycie** (`extract`, puste = jak baza). Obok bazy **obowiązkowo** `folder_colour_aliases.yaml` (kolory Flagi); `folder_tree_map.yaml` dla powodów ścieżek w tipie. Nie wkładaj `can_index` do pakietu danych. **Eksportuj pakiet klienta…** (Narzędzia) buduje `gcode-index-client-pack.zip` obok bazy (auto po pierwszym skanie i skanach bezpieczeństwa); PC Praca miękko przeładowuje zmienione sidecary.
 
 ### Po skanie przyrostowym
 

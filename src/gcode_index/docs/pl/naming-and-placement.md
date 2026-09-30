@@ -124,7 +124,9 @@ Przy włączonym **Obserwuj foldery** (tylko indeksator):
 
 ## 7. Pakiet klienta — sidecary obok bazy
 
-Kopiuj **cały folder bazy** na PC hali (albo wskaż udział). Obok `gcode_index.sqlite`:
+**Eksportuj pakiet klienta…** (Narzędzia / Indeks, `can_index=yes`) tworzy `gcode-index-client-pack.zip` obok bazy (sqlite + sidecary + `pack-manifest.json`; nigdy lokalne ini / blokady / `can_index`). Auto-eksport po **pierwszym udanym skanie** oraz po każdym udanym skanie **bezpieczeństwa**. Ręczny eksport może też skopiować do folderu. PC Praca na żywym udziale miękko przeładowuje zmienione sidecary (Flaga / etykiety) bez Otwórz bazę.
+
+Kopiuj **cały folder bazy** (albo rozpakuj zip) na PC hali (albo wskaż udział). Obok `gcode_index.sqlite`:
 
 | Plik | Po co |
 |------|-------|

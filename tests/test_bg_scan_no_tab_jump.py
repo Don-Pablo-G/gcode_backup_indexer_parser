@@ -22,7 +22,10 @@ def test_start_scan_wires_switch_view_not_auto():
         text,
     )
     # Background entry still uses auto=True (Watch / coalesce / safety).
-    assert "_start_scan(auto=True)" in text
+    assert re.search(
+        r"self\._start_scan\(\s*auto\s*=\s*True(?:\s*,\s*safety\s*=\s*safety)?\s*\)",
+        text,
+    )
 
 
 @pytest.mark.skipif(

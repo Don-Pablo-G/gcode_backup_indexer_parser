@@ -956,7 +956,9 @@ scan_watch_geometry = {data.scan_watch_geometry}
 ;   filter_presets.yaml        — legacy views filename (still loaded if views.yaml absent)
 ;   ui_settings.yaml           — language / ui_mode mirror (optional)
 ;   indexer_settings.yaml      — shop scan/watch/coalesce/safety defaults (never can_index)
-;   scan_history.json          — scan run history
+;   pack-manifest.json         — Export client pack / auto pack revision signal
+;   gcode-index-client-pack.zip — client zip (first build + safety auto; Tools export)
+;   scan_history.json          — scan run history (not in client zip)
 ; Do NOT put can_index in the data pack — each PC opts in via local ini.
 ; Ustawienia wracają po restarcie — everything above + this ini is reloaded on start.
 ; ------------------------------------------------------------
