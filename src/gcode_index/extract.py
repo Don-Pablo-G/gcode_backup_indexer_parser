@@ -122,7 +122,13 @@ def ensure_percent_frame(text: str) -> str:
     """
     if text is None:
         return "%\n%\n"
-    eol = "\r\n" if "\r\n" in text else "\n"
+    # Prefer the span's own endings (Haas/FANUC dumps are usually CRLF).
+    if "\r\n" in text:
+        eol = "\r\n"
+    elif "\r" in text:
+        eol = "\r"
+    else:
+        eol = "\n"
     lines = text.splitlines()
     nonempty = [ln.strip() for ln in lines if ln.strip() != ""]
     has_open = bool(nonempty) and nonempty[0] == "%"
@@ -204,8 +210,9 @@ def extract_text(
             f"glued source_type={source_type!r} has no line/byte span for {src}"
         )
 
-    # Whole-file .nc / .nc.copy: copy as-is (do not invent a % frame)
-    return src.read_text(encoding="ascii", errors="replace")
+    # Whole-file .nc / .nc.copy: copy as-is (do not invent a % frame).
+    # Decode bytes (not text mode) so CRLF / CR line endings survive on Windows.
+    return src.read_bytes().decode("ascii", errors="replace")
 
 
 def default_extract_filename(row: RowLike) -> str:
@@ -263,7 +270,12 @@ def extract_to_path(
     skip_integrity: bool = False,
     path_remaps: Optional[Sequence[RemapInput]] = None,
 ) -> Path:
-    """Extract program text and write UTF-8 to ``out_path``. Returns the path written."""
+    """Extract program text and write UTF-8 to ``out_path``. Returns the path written.
+
+    Uses ``newline=""`` so existing CRLF (Haas / FANUC dumps) is not re-translated
+    to ``\\r\\r\\n`` on Windows (blank every other line). Line endings from the
+    instance span are preserved as-is.
+    """
     text = extract_text(
         row,
         backup_root=backup_root,
@@ -272,7 +284,8 @@ def extract_to_path(
     )
     dest = Path(out_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(text, encoding="utf-8")
+    # newline="" disables os.linesep translation on write (critical on Windows).
+    dest.write_text(text, encoding="utf-8", newline="")
     return dest
 
 
