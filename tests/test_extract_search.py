@@ -320,7 +320,9 @@ def test_extract_whole_file_nc(tmp_path: Path):
 def test_extract_loose_nc_without_percent_left_alone(tmp_path: Path):
     """Whole-file .nc must not get an invented % frame (e.g. some ST-20Y dumps)."""
     src = tmp_path / "bare.nc"
-    src.write_text("O9278\nG00 X0\nM30\n", encoding="ascii")
+    # write_bytes: on Windows Path.write_text would store CRLF and break exact match
+    # once extract reads via read_bytes() (preserve-on-disk endings).
+    src.write_bytes(b"O9278\nG00 X0\nM30\n")
     row = {
         "source_path": "bare.nc",
         "source_type": "loose_nc",
