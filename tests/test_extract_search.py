@@ -206,6 +206,101 @@ def test_ensure_percent_frame_idempotent():
     assert framed.count("%") == 2
 
 
+def test_extract_to_path_preserves_crlf_no_blank_doubling(tmp_path: Path):
+    """Haas-style CRLF glued span must not become \\r\\r\\n (blank every other line).
+
+    Regression for Windows text-mode write translating each \\n → \\r\\n on top of
+    existing CRLF. Preview (in-memory) stayed correct; extract file looked doubled.
+    """
+    # Two programs in one dump; extract first by byte span (no outer % in span).
+    dump = (
+        b"%\r\n"
+        b"O00001 (PART-A)\r\n"
+        b"G00 X0\r\n"
+        b"M30\r\n"
+        b"O00002 (PART-B)\r\n"
+        b"G01 Y1\r\n"
+        b"%\r\n"
+    )
+    src = tmp_path / "tiny.pgm"
+    src.write_bytes(dump)
+    start = dump.index(b"O00001")
+    end = dump.index(b"O00002")
+    span = dump[start:end]
+    row = {
+        "source_path": "tiny.pgm",
+        "source_type": "haas_pgm_glued",
+        "line_start": None,
+        "line_end": None,
+        "byte_start": start,
+        "byte_end": end,
+        "program_number": "O00001",
+    }
+    out = extract_to_path(row, tmp_path / "out" / "O00001.nc", backup_root=tmp_path)
+    raw = out.read_bytes()
+
+    assert b"\r\r\n" not in raw, "CRLF must not be re-translated to CRCRLF"
+    # Framed extract: leading/trailing % with same CRLF as the span
+    assert span.endswith(b"\r\n")
+    expected = b"%\r\n" + span + b"%\r\n"
+    assert raw == expected
+
+    # No inserted blank lines between content lines
+    content_lines = [ln for ln in raw.split(b"\r\n") if ln != b""]
+    assert content_lines == [b"%", b"O00001 (PART-A)", b"G00 X0", b"M30", b"%"]
+    assert b"O00002" not in raw
+
+
+def test_extract_to_path_preserves_cr_only_endings(tmp_path: Path):
+    """Rare CR-only span: write must keep \\r, not inject blank LF lines."""
+    dump = b"%\rO55 (CR)\rG0\rM30\r%\r"
+    src = tmp_path / "cr.pgm"
+    src.write_bytes(dump)
+    start = dump.index(b"O55")
+    # Span is O55…M30 inclusive (file-level % omitted, same as glued extracts)
+    end = dump.index(b"M30") + len(b"M30\r")
+    span = dump[start:end]
+    assert span == b"O55 (CR)\rG0\rM30\r"
+    row = {
+        "source_path": "cr.pgm",
+        "source_type": "haas_pgm_glued",
+        "line_start": None,
+        "line_end": None,
+        "byte_start": start,
+        "byte_end": end,
+        "program_number": "O55",
+    }
+    out = extract_to_path(row, tmp_path / "out" / "O55.nc", backup_root=tmp_path)
+    raw = out.read_bytes()
+    assert b"\n" not in raw  # stay CR-only
+    assert b"\r\r\r" not in raw
+    assert raw.startswith(b"%\r")
+    assert raw.endswith(b"%\r")
+    assert b"O55 (CR)" in raw
+    # splitlines treats \r as a line break — no empties between content
+    lines = [ln for ln in raw.split(b"\r") if ln != b""]
+    assert lines == [b"%", b"O55 (CR)", b"G0", b"M30", b"%"]
+
+
+def test_extract_whole_file_preserves_crlf_bytes(tmp_path: Path):
+    """Whole-file .nc extract must keep source CRLF (bytes path, not text mode)."""
+    body = b"%\r\nO1234\r\nM30\r\n%\r\n"
+    src = tmp_path / "O1234.nc"
+    src.write_bytes(body)
+    row = {
+        "source_path": "O1234.nc",
+        "source_type": "loose_nc",
+        "line_start": None,
+        "line_end": None,
+        "byte_start": None,
+        "byte_end": None,
+        "program_number": "O1234",
+    }
+    out = extract_to_path(row, tmp_path / "out" / "O1234.nc", backup_root=tmp_path)
+    assert out.read_bytes() == body
+    assert b"\r\r\n" not in out.read_bytes()
+
+
 def test_extract_whole_file_nc(tmp_path: Path):
     src = tmp_path / "O1234.nc"
     src.write_text("%\nO1234\nM30\n%\n", encoding="ascii")
