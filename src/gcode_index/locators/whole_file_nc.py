@@ -62,7 +62,7 @@ def locate_whole_file_nc(
     otherwise fall back to filename stem.
     """
     p = Path(path)
-    backup_date, date_source = file_birth_or_mtime(p)
+    birth, birth_source = file_birth_or_mtime(p)
     mtime = file_mtime(p)
     size = p.stat().st_size
     stem = p.stem
@@ -82,8 +82,8 @@ def locate_whole_file_nc(
         program_number=program_number,
         part_number=part_number,
         machine_id=machine_id,
-        backup_date=backup_date,
-        date_source=date_source,
+        backup_date=birth,
+        date_source=birth_source,
         source_path=source_path,
         source_type=source_type,
         line_start=None,
@@ -95,6 +95,7 @@ def locate_whole_file_nc(
         date_folder_raw=date_folder_raw,
         folder_path=folder_path,
         control_family=control_family,
+        file_ctime=birth,
         source_mtime=mtime,
         source_size=size,
         content_sha256=digest,

@@ -118,7 +118,8 @@ def load_scan_cache(conn: sqlite3.Connection) -> ScanCache:
     for row in conn.execute(
         """
         SELECT program_number, part_number, machine_id, machine_label,
-               machine_folder_raw, date_folder_raw, backup_date, date_source,
+               machine_folder_raw, date_folder_raw, backup_date, file_ctime,
+               date_source,
                source_path, line_start, line_end, byte_start, byte_end,
                source_type, folder_path, control_family, source_mtime, source_size,
                content_sha256, program_sha256, parser_id, parser_version, parse_status,
@@ -152,8 +153,13 @@ def load_scan_cache(conn: sqlite3.Connection) -> ScanCache:
                 source_type=stype,
                 instances=[],
             )
-        backup_date = _parse_iso(row["backup_date"]) or datetime.now(timezone.utc)
         keys = row.keys()
+        backup_date = _parse_iso(row["backup_date"])
+        file_ctime = (
+            _parse_iso(row["file_ctime"]) if "file_ctime" in keys else None
+        )
+        if file_ctime is None:
+            file_ctime = backup_date
         prog_sha = row["program_sha256"] if "program_sha256" in keys else None
         role_val = row["role"] if "role" in keys else None
         grouped[key].instances.append(
@@ -174,6 +180,7 @@ def load_scan_cache(conn: sqlite3.Connection) -> ScanCache:
                 source_type=str(row["source_type"] or ""),
                 folder_path=row["folder_path"],
                 control_family=row["control_family"],
+                file_ctime=file_ctime,
                 source_mtime=_parse_iso(row["source_mtime"]),
                 source_size=row["source_size"],
                 content_sha256=row["content_sha256"],

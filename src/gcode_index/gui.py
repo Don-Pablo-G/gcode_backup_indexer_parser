@@ -7298,7 +7298,9 @@ class IndexerApp(tk.Tk):
         missing_n = 0
         max_discs = 1
         for i, r in enumerate(self._result_rows):
-            date = format_display_date(r["backup_date"])
+            date = format_display_date(
+                r["backup_date"], unknown_label=self._("date_unknown")
+            )
             machine = r["machine_label"] or r["machine_id"] or ""
             keys = r.keys() if hasattr(r, "keys") else ()
             control = r["control_family"] if "control_family" in keys else ""
@@ -8882,7 +8884,9 @@ class DuplicatesDialog(tk.Toplevel):
                 "values": (
                     m["program_number"] or "",
                     machine,
-                    format_display_date(m["backup_date"]),
+                    format_display_date(
+                        m["backup_date"], unknown_label=self._("date_unknown")
+                    ),
                     size_s,
                     sha_short,
                     m["source_path"] or "",

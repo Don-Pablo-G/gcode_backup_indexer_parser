@@ -14,6 +14,7 @@ from typing import Callable, Optional, Tuple
 
 from gcode_index.aliases import AliasMap, normalize_folder_name
 from gcode_index.birthtime import file_mtime
+from gcode_index.folder_date import MissingFolderPolicy, apply_work_dates
 from gcode_index.folder_map import FolderMachineMap
 from gcode_index.locators.fanuc_all_fldr import locate_fanuc_all_fldr
 from gcode_index.locators.fanuc_all_prog import locate_fanuc_all_prog
@@ -282,6 +283,7 @@ def scan_backup_tree(
     role_from_header: bool = True,
     machine_from_header: bool = True,
     o9_system_programs_role: bool = True,
+    missing_folder_policy: MissingFolderPolicy = "unknown",
 ) -> ScanResult:
     root = Path(backup_root).resolve()
     result = ScanResult()
@@ -357,6 +359,7 @@ def scan_backup_tree(
     )
 
     _stamp_provenance(result, provenance=provenance, scan_root=root)
+    apply_work_dates(result.instances, missing_folder_policy=missing_folder_policy)
     _apply_folder_colour_overrides(result, colours)
     # Precedence: folder name → path override → header fill-if-empty
     _apply_odbiorca_aliases(result, odbiorcy)
@@ -479,6 +482,9 @@ def scan_with_extra_roots(
                     "eta_s": None,
                 }
             )
+        # Main backup (first root): missing DD.MM.YYYY → Work Date unknown.
+        # Green/trusted/yellow extras: missing → keep file birth.
+        folder_policy: MissingFolderPolicy = "unknown" if i == 0 else "birth"
         part = scan_backup_tree(
             root_path,
             aliases,
@@ -494,6 +500,7 @@ def scan_with_extra_roots(
             role_from_header=False,
             machine_from_header=False,
             o9_system_programs_role=False,
+            missing_folder_policy=folder_policy,
         )
         merged.instances.extend(part.instances)
         merged.files_seen.extend(part.files_seen)
