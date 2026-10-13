@@ -46,7 +46,7 @@ def locate_haas_pgm(
     control_family: str = "haas",
 ) -> List[ProgramInstance]:
     p = Path(path)
-    backup_date, date_source = file_birth_or_mtime(p)
+    birth, birth_source = file_birth_or_mtime(p)
     mtime = file_mtime(p)
     size = p.stat().st_size
 
@@ -103,8 +103,8 @@ def locate_haas_pgm(
                 program_number=hit.program_number,
                 part_number=hit.part_number,
                 machine_id=machine_id,
-                backup_date=backup_date,
-                date_source=date_source,
+                backup_date=birth,
+                date_source=birth_source,
                 source_path=source_path,
                 source_type=SOURCE_TYPE,
                 line_start=hit.line_no,
@@ -116,6 +116,7 @@ def locate_haas_pgm(
                 date_folder_raw=date_folder_raw,
                 folder_path=None,
                 control_family=control_family,
+                file_ctime=birth,
                 source_mtime=mtime,
                 source_size=size,
                 content_sha256=digest,

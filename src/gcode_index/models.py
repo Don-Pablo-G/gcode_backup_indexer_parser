@@ -96,8 +96,9 @@ class ProgramInstance:
     program_number: str
     part_number: Optional[str]
     machine_id: str
-    backup_date: datetime
-    date_source: str  # birth | mtime
+    # Work Date — folder DD.MM.YYYY, birth (extra roots), or None = unknown
+    backup_date: Optional[datetime]
+    date_source: str  # folder | birth | mtime | unknown
     source_path: str
     source_type: str
     line_start: Optional[int] = None
@@ -109,6 +110,8 @@ class ProgramInstance:
     date_folder_raw: Optional[str] = None
     folder_path: Optional[str] = None
     control_family: Optional[str] = None
+    # Real file birth (or mtime fallback) — audit; independent of Work Date
+    file_ctime: Optional[datetime] = None
     source_mtime: Optional[datetime] = None
     source_size: Optional[int] = None
     # Whole source-file SHA-256 (integrity stamp for extract)

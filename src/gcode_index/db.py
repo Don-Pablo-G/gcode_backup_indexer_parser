@@ -183,8 +183,8 @@ def write_scan_result(
                 inst.machine_label,
                 inst.machine_folder_raw,
                 inst.date_folder_raw,
-                _iso(inst.backup_date),
-                _iso(inst.backup_date),  # file_ctime alias
+                _iso(inst.backup_date) or "",  # Work Date; "" = unknown
+                _iso(inst.file_ctime or inst.backup_date) or "",  # birth audit
                 inst.date_source,
                 inst.source_path,
                 inst.line_start,
@@ -594,11 +594,20 @@ def _normalize_date_bound(value: Optional[str], *, end: bool = False) -> Optiona
     return s
 
 
-def format_display_date(iso_value: Optional[str]) -> str:
-    """Format stored backup_date for GUI tables as ``DD.MM.YYYY`` when possible."""
-    if not iso_value:
-        return ""
+def format_display_date(
+    iso_value: Optional[str],
+    *,
+    unknown_label: str = "",
+) -> str:
+    """Format stored backup_date for GUI tables as ``DD.MM.YYYY`` when possible.
+
+    Empty / missing Work Date (main-backup folder unknown) → ``unknown_label``.
+    """
+    if iso_value is None:
+        return unknown_label
     s = str(iso_value).strip()
+    if not s or s.casefold() in ("unknown", "none"):
+        return unknown_label
     if len(s) >= 10 and s[4] == "-" and s[7] == "-":
         try:
             d = datetime.strptime(s[:10], "%Y-%m-%d")

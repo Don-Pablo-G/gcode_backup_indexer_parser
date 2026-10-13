@@ -256,7 +256,7 @@ backup_folder/
 | Any other `*.nc` under the backup tree | `loose_nc` | whole file; machine from deepest ancestor folder matching map/alias (inherited by subfolders), else **MACHINE UNKNOWN** |
 | Any other `*.nc.copy` | `loose_nc_copy` | copy sibling; same machine rules as `loose_nc` |
 
-**Date source of truth:** filesystem **creation/birth time** of the dump or `.nc` (`backup_date` / `file_ctime`, `date_source=birth`). On Linux, birth time is used when the filesystem exposes it via `statx`; otherwise the indexer falls back to **mtime** and records `date_source=mtime`. On Windows, creation time (`st_ctime`) is used as birth.
+**Work Date (`backup_date`):** first path segment under the scan root when it is a valid **`DD.MM.YYYY`** folder (`date_source=folder`). On the **main backup** root, a missing/invalid folder date → Work Date **unknown** (empty; UI shows “unknown” / “nieznana”) — not birth. On **green/trusted/yellow** extra roots, missing/invalid → keep file **birth** (or mtime fallback). Real birth is always stored on **`file_ctime`** for audit. Re-scan existing DBs to refresh dates. On Linux, birth uses `statx` when available; otherwise mtime (`date_source=mtime` only when birth is used for Work Date). On Windows, creation time (`st_ctime`) is birth.
 
 Unmapped machine folders are logged to the `unknowns` table — the scanner does **not** invent locators from contents alone.
 
